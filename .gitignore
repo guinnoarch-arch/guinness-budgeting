@@ -1,0 +1,7 @@
+node_modules
+dist
+.env
+.env.local
+.DS_Store
+Guinness-Budgeting-Backup-*.json
+Guinness-Budgeting-Raw-*.json
