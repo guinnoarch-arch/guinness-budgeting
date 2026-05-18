@@ -12,6 +12,7 @@ import BillsPage from "./pages/BillsPage.jsx";
 import SavingsPage from "./pages/SavingsPage.jsx";
 import AccountsPage from "./pages/AccountsPage.jsx";
 import ReportsPage from "./pages/ReportsPage.jsx";
+import ImportPage from "./pages/ImportPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 
 import { getInitialAppData } from "./data/exampleData.js";
@@ -28,6 +29,7 @@ const pages = {
   savings: SavingsPage,
   accounts: AccountsPage,
   reports: ReportsPage,
+  import: ImportPage,
   settings: SettingsPage
 };
 

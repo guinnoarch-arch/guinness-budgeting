@@ -38,7 +38,11 @@ function CountGrid({ counts }) {
     ["recurringItems", "Recurring items"],
     ["savingsGoals", "Savings goals"],
     ["closedMonths", "Closed months"],
-    ["accountAdjustments", "Account adjustments"]
+    ["accountAdjustments", "Account adjustments"],
+    ["importBatches", "CSV import batches"],
+    ["importRules", "Import rules"],
+    ["transferRules", "Transfer rules"],
+    ["externalAccountMappings", "External account mappings"]
   ];
 
   return (
@@ -471,7 +475,7 @@ export default function SettingsPage({ appData, actions }) {
 
       <section className="card">
         <h3>Future features</h3>
-        <p className="muted">Dark mode, bank CSV import, full receipt storage, dashboard layout switching, cloud sync, and full desktop app wrapper are planned later.</p>
+        <p className="muted">Dark mode, full receipt storage, dashboard layout switching, cloud sync, and full desktop app wrapper are planned later. Bank CSV import is now available in V2.0.</p>
       </section>
     </div>
   );

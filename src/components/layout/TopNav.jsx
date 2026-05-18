@@ -6,6 +6,7 @@ const navItems = [
   ["savings", "Savings"],
   ["accounts", "Accounts"],
   ["reports", "Reports"],
+  ["import", "Import"],
   ["settings", "Settings"]
 ];
 

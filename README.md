@@ -40,7 +40,7 @@ V1.11.0 — installable PWA/app icon patch.
 3. In the terminal, run:
 
 ```bash
-npm install
+npm.cmd install
 npm.cmd run dev
 ```
 

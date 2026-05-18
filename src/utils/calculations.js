@@ -473,6 +473,34 @@ export function calculateAccountBalance(data, accountId) {
   return openingBalance + adjustments + income - expenses + transfersIn - transfersOut;
 }
 
+export function calculateAccountBalanceAtDate(data, accountId, cutoffDate) {
+  const account = data.accounts.find(acc => acc.id === accountId);
+  if (!account || !cutoffDate) return 0;
+
+  const openingBalance = Number(account.openingBalance || 0);
+  const adjustments = sum((data.accountAdjustments || [])
+    .filter(adj => adj.accountId === accountId && (!adj.date || adj.date <= cutoffDate))
+    .map(adj => adj.amount));
+
+  const income = sum(data.transactions
+    .filter(t => t.type === "income" && t.accountId === accountId && t.date <= cutoffDate)
+    .map(t => t.amount));
+
+  const expenses = sum(data.transactions
+    .filter(t => t.type === "expense" && t.accountId === accountId && t.date <= cutoffDate)
+    .map(t => t.amount));
+
+  const transfersIn = sum(data.transactions
+    .filter(t => t.type === "transfer" && t.toAccountId === accountId && t.date <= cutoffDate)
+    .map(t => t.amount));
+
+  const transfersOut = sum(data.transactions
+    .filter(t => t.type === "transfer" && t.fromAccountId === accountId && t.date <= cutoffDate)
+    .map(t => t.amount));
+
+  return openingBalance + adjustments + income - expenses + transfersIn - transfersOut;
+}
+
 export function getSavingsGoalProgress(data, goal) {
   const linkedTransfers = sum(data.transactions
     .filter(t => t.type === "transfer" && t.linkedSavingsGoalId === goal.id)

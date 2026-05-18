@@ -20,5 +20,6 @@ export const defaultCategories = [
   { id: "cat_grant", name: "Grant/Bursary", type: "income", group: "Income", isDefault: true, isActive: true },
   { id: "cat_gift", name: "Gift", type: "income", group: "Income", isDefault: true, isActive: true },
   { id: "cat_refund", name: "Refund", type: "income", group: "Income", isDefault: true, isActive: true },
+  { id: "cat_savings_interest", name: "Savings Interest", type: "income", group: "Finance", isDefault: true, isActive: true },
   { id: "cat_other_income", name: "Other Income", type: "income", group: "Income", isDefault: true, isActive: true }
 ];

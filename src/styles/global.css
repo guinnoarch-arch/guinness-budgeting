@@ -1140,3 +1140,130 @@ th {
     flex-direction: column;
   }
 }
+
+/* V2.0: bank CSV import, transfer matching and reconciliation */
+.import-workflow-card,
+.import-history-card {
+  display: grid;
+  gap: 16px;
+}
+
+.import-setup-grid,
+.import-map-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.import-status-box,
+.import-reconciliation-box,
+.muted-box {
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: #f9fafb;
+}
+
+.import-status-box {
+  border-color: #99f6e4;
+  background: #f0fdfa;
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
+.import-summary-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.import-reconciliation-box {
+  display: grid;
+  gap: 14px;
+}
+
+.import-reconciliation-box strong,
+.import-reconciliation-box span {
+  display: block;
+}
+
+.import-reconciliation-box.ok {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.import-reconciliation-box.warning {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.import-balance-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.import-balance-grid p {
+  margin: 0;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.import-balance-grid span {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.import-reconcile-toggle {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.import-preview-card {
+  padding: 0;
+}
+
+.import-preview-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.import-preview-header h3 {
+  margin-bottom: 0;
+}
+
+.import-preview-table {
+  min-width: 1280px;
+}
+
+.import-preview-table td select {
+  min-width: 170px;
+}
+
+.import-cell-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.import-row-warning td {
+  background: #fff7ed;
+}
+
+@media (max-width: 920px) {
+  .import-setup-grid,
+  .import-map-grid,
+  .import-summary-grid,
+  .import-balance-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .import-preview-header {
+    flex-direction: column;
+  }
+}

@@ -1,8 +1,9 @@
+import { defaultCategories } from "../data/defaultCategories.js";
 const STORAGE_KEY = "guinness-budgeting-data-v1";
 const CORRUPT_SNAPSHOT_PREFIX = "guinness-budgeting-corrupt-snapshot";
 
-export const APP_VERSION = "1.14";
-export const DATA_SCHEMA_VERSION = "1.14";
+export const APP_VERSION = "2.0";
+export const DATA_SCHEMA_VERSION = "2.0";
 export const BACKUP_FORMAT_VERSION = "1.1";
 
 const REQUIRED_ARRAY_FIELDS = [
@@ -15,7 +16,7 @@ const REQUIRED_ARRAY_FIELDS = [
   "closedMonths"
 ];
 
-const OPTIONAL_ARRAY_FIELDS = ["accountAdjustments"];
+const OPTIONAL_ARRAY_FIELDS = ["accountAdjustments", "importBatches", "importRules", "transferRules", "externalAccountMappings"];
 
 const DEFAULT_PROFILE_TYPE = "Personal";
 
@@ -243,6 +244,13 @@ export function validateAppData(data) {
   return { ok: errors.length === 0, errors, warnings };
 }
 
+function mergeMissingDefaultCategories(categories) {
+  const existing = Array.isArray(categories) ? categories : [];
+  const existingIds = new Set(existing.map(category => category.id));
+  const missingDefaults = defaultCategories.filter(category => !existingIds.has(category.id));
+  return [...existing, ...missingDefaults];
+}
+
 export function normaliseAppData(data) {
   const base = data && typeof data === "object" ? data : {};
   const next = { ...base };
@@ -254,6 +262,8 @@ export function normaliseAppData(data) {
   OPTIONAL_ARRAY_FIELDS.forEach(field => {
     next[field] = Array.isArray(base[field]) ? base[field] : [];
   });
+
+  next.categories = mergeMissingDefaultCategories(next.categories);
 
   const baseSettings = base.settings && typeof base.settings === "object" && !Array.isArray(base.settings)
     ? base.settings
@@ -288,7 +298,11 @@ export function getBackupCounts(data) {
     recurringItems: safeData.recurringItems.length,
     savingsGoals: safeData.savingsGoals.length,
     closedMonths: safeData.closedMonths.length,
-    accountAdjustments: safeData.accountAdjustments.length
+    accountAdjustments: safeData.accountAdjustments.length,
+    importBatches: safeData.importBatches.length,
+    importRules: safeData.importRules.length,
+    transferRules: safeData.transferRules.length,
+    externalAccountMappings: safeData.externalAccountMappings.length
   };
 }
 
