@@ -10,98 +10,176 @@ import RecentTransactionsPanel from "../components/dashboard/RecentTransactionsP
 import BudgetWarningsPanel from "../components/dashboard/BudgetWarningsPanel.jsx";
 import SavingsGoalsPanel from "../components/dashboard/SavingsGoalsPanel.jsx";
 import { calculateMonthSummary } from "../utils/calculations.js";
-import { getBackupReminder } from "../services/storageService.js";
+
+function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpendingInCharts, onIncludeExcludedSpendingChange }) {
+  if (isSavingsView) {
+    return (
+      <div className="summary-grid summary-grid-two">
+        <SummaryCard label="Saved" value={summary.accountMoneyIn} change={summary.accountMoneyInChange} tone="positive" />
+        <SummaryCard label="Spent" value={summary.accountMoneyOut} change={summary.accountMoneyOutChange} tone="negative" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="summary-grid summary-grid-five">
+      <SummaryCard label="Income" value={summary.income} change={summary.incomeChange} tone="positive" />
+      <SummaryCard label="Spent" value={summary.expenses} change={summary.expenseChange} tone="negative" />
+      <SummaryCard label="Saved" value={summary.savingsTransfers} change={summary.savingsChange} tone="positive" />
+      <SummaryCard label="Available balance" value={summary.spendableBalance} tone="neutral" detail="Budget-linked accounts" />
+      <SummaryCard
+        label="Excluded spending"
+        value={summary.excludedSpending}
+        tone={summary.excludedSpending > 0 ? "warning" : "neutral"}
+        detail="Not counted in budgets"
+        afterValue={(
+          <label className="summary-inline-toggle" title="Controls dashboard spending charts and the budget breakdown pie chart">
+            <input
+              type="checkbox"
+              checked={Boolean(includeExcludedSpendingInCharts)}
+              onChange={event => onIncludeExcludedSpendingChange?.(event.target.checked)}
+            />
+            <span>Include in charts</span>
+          </label>
+        )}
+      />
+    </div>
+  );
+}
+
+function FocusPanel({ appData, actions, selectedMonth, accountId, isSavingsView }) {
+  return isSavingsView ? (
+    <SavingsGoalsPanel
+      appData={appData}
+      accountId={accountId}
+      onViewAll={() => actions.setActivePage("savings")}
+    />
+  ) : (
+    <BudgetWarningsPanel
+      appData={appData}
+      selectedMonth={selectedMonth}
+      accountId={accountId}
+      onViewAll={() => actions.setActivePage("budgets")}
+    />
+  );
+}
 
 export default function DashboardPage({ appData, actions }) {
   const activeAccounts = useMemo(() => (
-    appData.accounts.filter(account => account.isActive)
+    (appData.accounts || []).filter(account => account.isActive !== false)
   ), [appData.accounts]);
 
-  const [selectedAccountId, setSelectedAccountId] = useState("all");
+  const requestedAccountId = actions.selectedDashboardAccountId || "all";
+  const selectedAccount = activeAccounts.find(account => account.id === requestedAccountId) || null;
+  const selectedAccountId = selectedAccount ? requestedAccountId : "all";
   const accountIdForCalculations = selectedAccountId === "all" ? null : selectedAccountId;
-  const selectedAccount = activeAccounts.find(account => account.id === selectedAccountId) || null;
   const isSavingsView = selectedAccount?.type === "savings";
-  const summary = calculateMonthSummary(appData, actions.selectedMonth, { accountId: accountIdForCalculations });
-  const backupReminder = getBackupReminder(appData.settings?.lastBackupAt);
-  const showBackupReminder = backupReminder.level === "warning" || backupReminder.level === "danger";
+  const [includeExcludedSpendingInCharts, setIncludeExcludedSpendingInCharts] = useState(false);
+  const summary = calculateMonthSummary(appData, actions.selectedMonth, {
+    accountId: accountIdForCalculations,
+    includeExcludedSpendingInCharts
+  });
+  const dashboardLayout = appData.settings?.dashboardLayout || "full";
+
+  function updateDashboardLayout(layout) {
+    actions.updateAppData({
+      ...appData,
+      settings: {
+        ...(appData.settings || {}),
+        dashboardLayout: layout
+      }
+    }, { reason: "Dashboard layout changed" });
+  }
 
   return (
-    <div className="page-grid">
+    <div className={`page-grid dashboard-layout-${dashboardLayout}`}>
       <div className="page-title-row dashboard-title-row">
         <div>
-          <p className="eyebrow">Dashboard</p>
           <div className="overview-title-wrap">
-            <h2>Monthly overview for</h2>
-            <select
-              className="inline-account-select"
-              value={selectedAccountId}
-              onChange={event => setSelectedAccountId(event.target.value)}
-              aria-label="Dashboard account filter"
-            >
-              <option value="all">All accounts</option>
-              {activeAccounts.map(account => (
-                <option key={account.id} value={account.id}>{account.name}</option>
-              ))}
-            </select>
+            <h2>Monthly overview for {selectedAccount?.name || "All accounts"}</h2>
           </div>
         </div>
-        <MonthSelector selectedMonth={actions.selectedMonth} setSelectedMonth={actions.setSelectedMonth} />
+        <div className="dashboard-display-controls">
+          <MonthSelector selectedMonth={actions.selectedMonth} setSelectedMonth={actions.setSelectedMonth} />
+        </div>
       </div>
-
-      {showBackupReminder && (
-        <section className={`dashboard-backup-reminder ${backupReminder.level}`}>
-          <div>
-            <strong>{backupReminder.title}</strong>
-            <span>{backupReminder.message}</span>
-          </div>
-          <button className="secondary-button" onClick={actions.backupNow}>Backup Now</button>
-        </section>
-      )}
 
       <MoneyLeftCard
         value={summary.moneyLeft}
-        label={isSavingsView ? "Net saved this month" : "Money left this month"}
-        negativeLabel={isSavingsView ? "Net loss of" : "Overspent by"}
+        label={isSavingsView ? "Net saved this month" : "Budget left this month"}
+        negativeLabel={isSavingsView ? "Net loss of" : "Over budget by"}
+        description={!isSavingsView && summary.budgetAffordabilityWarning
+          ? "Remaining budgets are close to or above the money available in the linked account(s). Consider transferring money or lowering budgets."
+          : !isSavingsView
+            ? `Based on active budgets minus counted spending. Capped by available account money: ${summary.spendableBalance.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}.`
+            : ""}
       />
 
-      {isSavingsView ? (
-        <div className="summary-grid summary-grid-two">
-          <SummaryCard label="Saved" value={summary.accountMoneyIn} change={summary.accountMoneyInChange} tone="positive" />
-          <SummaryCard label="Spent" value={summary.accountMoneyOut} change={summary.accountMoneyOutChange} tone="negative" />
-        </div>
+      <DashboardSummaryCards
+        summary={summary}
+        isSavingsView={isSavingsView}
+        includeExcludedSpendingInCharts={includeExcludedSpendingInCharts}
+        onIncludeExcludedSpendingChange={setIncludeExcludedSpendingInCharts}
+      />
+
+      {dashboardLayout === "simple" ? (
+        <>
+          <section className="card simple-layout-note">
+            <div>
+              <h3>Simple view</h3>
+              <p className="muted-text">Charts are hidden in this layout. Use it when you only want the main cash position, upcoming bills, and the latest transactions.</p>
+            </div>
+            <button className="secondary-button" onClick={() => updateDashboardLayout("full")}>Switch to full dashboard</button>
+          </section>
+
+          <div className="three-column simple-dashboard-grid">
+            <UpcomingBillsPanel appData={appData} accountId={accountIdForCalculations} />
+            <RecentTransactionsPanel appData={appData} accountId={accountIdForCalculations} onEdit={actions.openEditTransaction} />
+            <FocusPanel
+              appData={appData}
+              actions={actions}
+              selectedMonth={actions.selectedMonth}
+              accountId={accountIdForCalculations}
+              isSavingsView={isSavingsView}
+            />
+          </div>
+        </>
       ) : (
-        <div className="summary-grid summary-grid-three">
-          <SummaryCard label="Income" value={summary.income} change={summary.incomeChange} tone="positive" />
-          <SummaryCard label="Spent" value={summary.expenses} change={summary.expenseChange} tone="negative" />
-          <SummaryCard label="Saved" value={summary.savingsTransfers} change={summary.savingsChange} tone="positive" />
-        </div>
+        <>
+          <div className="two-column">
+            <SpendingComparisonChart summary={summary} />
+            <MoneyBreakdownPie summary={summary} includeExcludedSpending={includeExcludedSpendingInCharts} />
+          </div>
+
+          {dashboardLayout === "full" && (
+            <MonthlySpendingTrendChart comparison={summary.dailySpendingComparison} />
+          )}
+
+          <div className={dashboardLayout === "compact" ? "two-column compact-dashboard-grid" : "three-column"}>
+            <UpcomingBillsPanel appData={appData} accountId={accountIdForCalculations} />
+            <RecentTransactionsPanel appData={appData} accountId={accountIdForCalculations} onEdit={actions.openEditTransaction} />
+            {dashboardLayout === "full" && (
+              <FocusPanel
+                appData={appData}
+                actions={actions}
+                selectedMonth={actions.selectedMonth}
+                accountId={accountIdForCalculations}
+                isSavingsView={isSavingsView}
+              />
+            )}
+          </div>
+
+          {dashboardLayout === "compact" && (
+            <FocusPanel
+              appData={appData}
+              actions={actions}
+              selectedMonth={actions.selectedMonth}
+              accountId={accountIdForCalculations}
+              isSavingsView={isSavingsView}
+            />
+          )}
+        </>
       )}
-
-      <div className="two-column">
-        <SpendingComparisonChart summary={summary} />
-        <MoneyBreakdownPie summary={summary} />
-      </div>
-
-      <MonthlySpendingTrendChart comparison={summary.dailySpendingComparison} />
-
-      <div className="three-column">
-        <UpcomingBillsPanel appData={appData} accountId={accountIdForCalculations} />
-        <RecentTransactionsPanel appData={appData} accountId={accountIdForCalculations} onEdit={actions.openEditTransaction} />
-        {isSavingsView ? (
-          <SavingsGoalsPanel
-            appData={appData}
-            accountId={accountIdForCalculations}
-            onViewAll={() => actions.setActivePage("savings")}
-          />
-        ) : (
-          <BudgetWarningsPanel
-            appData={appData}
-            selectedMonth={actions.selectedMonth}
-            accountId={accountIdForCalculations}
-            onViewAll={() => actions.setActivePage("budgets")}
-          />
-        )}
-      </div>
     </div>
   );
 }

@@ -12,7 +12,7 @@ export default function TransactionsPage({ appData, actions }) {
   const filteredTransactions = useMemo(() => {
     return appData.transactions
       .filter(txn => txn.date.startsWith(filters.month))
-      .filter(txn => filters.categoryId === "all" || txn.categoryId === filters.categoryId)
+      .filter(txn => filters.categoryId === "all" || (filters.categoryId === "__excluded__" ? txn.type === "expense" && txn.excludeFromBudget : txn.categoryId === filters.categoryId))
       .filter(txn => filters.type === "all" || txn.type === filters.type)
       .filter(txn => {
         const query = filters.search.trim().toLowerCase();
@@ -45,6 +45,7 @@ export default function TransactionsPage({ appData, actions }) {
           Category
           <select value={filters.categoryId} onChange={e => update("categoryId", e.target.value)}>
             <option value="all">All categories</option>
+            <option value="__excluded__">Excluded from budget</option>
             {appData.categories.map(category => (
               <option key={category.id} value={category.id}>{category.name}</option>
             ))}

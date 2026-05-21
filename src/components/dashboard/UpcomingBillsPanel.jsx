@@ -8,7 +8,7 @@ export default function UpcomingBillsPanel({ appData, accountId = null }) {
   limit.setDate(today.getDate() + 7);
 
   const upcoming = appData.recurringItems
-    .filter(item => item.isActive && item.reminderEnabled)
+    .filter(item => item.isActive !== false && item.reminderEnabled !== false)
     .filter(item => !selectedAccountId || item.accountId === selectedAccountId)
     .filter(item => {
       const due = new Date(item.nextDueDate);

@@ -14,7 +14,7 @@ function goalTouchesAccount(appData, goalId, accountId) {
 
 export default function SavingsGoalsPanel({ appData, accountId = null, onViewAll }) {
   const goals = appData.savingsGoals
-    .filter(goal => goal.isActive)
+    .filter(goal => goal.isActive !== false)
     .filter(goal => {
       if (!accountId) return true;
       if (goal.linkedAccountId === accountId) return true;

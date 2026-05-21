@@ -12,6 +12,7 @@ export const defaultCategories = [
   { id: "cat_savings", name: "Savings", type: "expense", group: "Finance", isDefault: true, isActive: true },
   { id: "cat_debt", name: "Debt", type: "expense", group: "Finance", isDefault: true, isActive: true },
   { id: "cat_university", name: "University", type: "expense", group: "Education", isDefault: true, isActive: true },
+  { id: "cat_everything_else", name: "Everything Else", type: "expense", group: "Other", isDefault: true, isActive: true },
   { id: "cat_other_expense", name: "Other", type: "expense", group: "Other", isDefault: true, isActive: true },
 
   { id: "cat_wages", name: "Wages", type: "income", group: "Income", isDefault: true, isActive: true },

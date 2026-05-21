@@ -52,6 +52,77 @@ function incomeMatchesAccount(transaction, accountId) {
   return transaction.type === "income" && transaction.accountId === selectedAccountId;
 }
 
+export function isBudgetCountedExpense(transaction) {
+  return transaction?.type === "expense" && transaction.excludeFromBudget !== true;
+}
+
+export function isBudgetExcludedExpense(transaction) {
+  return transaction?.type === "expense" && transaction.excludeFromBudget === true;
+}
+
+function getSpendableAccountIds(data, activeBudgets, accountId = null) {
+  const selectedAccountId = normaliseAccountFilter(accountId);
+  if (selectedAccountId) return [selectedAccountId];
+
+  const budgetAccountIds = [...new Set((activeBudgets || [])
+    .map(budget => getBudgetAccountId(budget))
+    .filter(Boolean))];
+
+  if (budgetAccountIds.length > 0) return budgetAccountIds;
+
+  return (data.accounts || [])
+    .filter(account => account.isActive !== false)
+    .filter(account => account.type === "current" || account.type === "cash" || account.type === "other")
+    .map(account => account.id);
+}
+
+function getSpendableBalance(data, activeBudgets, accountId = null) {
+  return sum(getSpendableAccountIds(data, activeBudgets, accountId)
+    .map(spendableAccountId => calculateAccountBalance(data, spendableAccountId)));
+}
+
+export function getBudgetLeftSummary(data, monthKey, accountId = null) {
+  const selectedAccountId = normaliseAccountFilter(accountId);
+  const monthExpenses = getTransactionsForMonth(data.transactions || [], monthKey)
+    .filter(t => t.type === "expense")
+    .filter(t => !selectedAccountId || t.accountId === selectedAccountId);
+
+  const activeBudgets = (data.budgets || [])
+    .filter(budget => budget.month === monthKey && budget.isEnabled && !budget.isArchived && !budget.archivedAt)
+    .filter(budget => budgetMatchesAccount(budget, selectedAccountId));
+
+  const budgetKeys = new Set(activeBudgets.map(budget => `${budget.categoryId}_${getBudgetAccountId(budget)}`));
+  const totalBudgetLimit = sum(activeBudgets.map(budget => budget.limit));
+  const countedSpending = sum(monthExpenses
+    .filter(isBudgetCountedExpense)
+    .filter(transaction => budgetKeys.has(`${transaction.categoryId}_${transaction.accountId}`))
+    .map(transaction => transaction.amount));
+  const excludedSpending = sum(monthExpenses.filter(isBudgetExcludedExpense).map(transaction => transaction.amount));
+  const budgetLeftRaw = totalBudgetLimit - countedSpending;
+  const spendableBalance = getSpendableBalance(data, activeBudgets, selectedAccountId);
+  const budgetLeft = budgetLeftRaw > 0 ? Math.min(budgetLeftRaw, spendableBalance) : budgetLeftRaw;
+  const affordabilityGap = budgetLeftRaw - spendableBalance;
+  const threshold = Number(data.settings?.budgetAffordabilityThreshold || 100);
+  const affordabilityWarning = Boolean(
+    data.settings?.budgetAffordabilityWarningsEnabled !== false
+    && budgetLeftRaw > 0
+    && spendableBalance >= 0
+    && affordabilityGap >= -threshold
+  );
+
+  return {
+    totalBudgetLimit,
+    countedSpending,
+    excludedSpending,
+    budgetLeftRaw,
+    budgetLeft,
+    spendableBalance,
+    affordabilityGap,
+    affordabilityWarning,
+    activeBudgetCount: activeBudgets.length
+  };
+}
+
 function getSavingsTransferAmount(data, transactions, accountId) {
   const selectedAccountId = normaliseAccountFilter(accountId);
 
@@ -109,9 +180,38 @@ export function getTransactionsForMonth(transactions, monthKey) {
   return transactions.filter(txn => isInMonth(txn.date, monthKey));
 }
 
+function getMonthKeysEndingAt(monthKey, count) {
+  const [year, month] = monthKey.split("-").map(Number);
+
+  return Array.from({ length: count }, (_, index) => {
+    const offsetFromCurrent = count - index - 1;
+    const date = new Date(year, month - 1 - offsetFromCurrent, 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  });
+}
+
+function getSixMonthDashboardTrend(data, monthKey, accountId, trendIsSavings, includeExcludedSpending = false) {
+  return getMonthKeysEndingAt(monthKey, 6).map(trendMonthKey => {
+    const monthTransactions = getTransactionsForMonth(data.transactions || [], trendMonthKey);
+    const value = trendIsSavings
+      ? getAccountMoneyIn(monthTransactions, accountId)
+      : sum(monthTransactions
+        .filter(t => expenseMatchesAccount(t, accountId))
+        .filter(t => includeExcludedSpending || !isBudgetExcludedExpense(t))
+        .map(t => t.amount));
+
+    return {
+      monthKey: trendMonthKey,
+      name: formatMonthLabel(trendMonthKey),
+      spending: value
+    };
+  });
+}
+
 export function calculateMonthSummary(data, monthKey, options = {}) {
   const accountId = normaliseAccountFilter(options.accountId);
   const selectedAccountIsSavings = accountId ? isSavingsAccount(data.accounts, accountId) : false;
+  const includeExcludedSpendingInCharts = Boolean(options.includeExcludedSpendingInCharts);
 
   const monthTransactionsAll = getTransactionsForMonth(data.transactions, monthKey);
   const previousMonth = getPreviousMonthKey(monthKey);
@@ -139,9 +239,12 @@ export function calculateMonthSummary(data, monthKey, options = {}) {
     ? 0
     : data.closedMonths.find(closed => closed.month === previousMonth)?.carriedForward || 0;
 
-  const moneyLeft = accountId
+  const netMoneyLeft = accountId
     ? accountMoneyIn - accountMoneyOut
     : income + carryForward - expenses - savingsTransfers;
+
+  const budgetLeftSummary = getBudgetLeftSummary(data, monthKey, accountId);
+  const moneyLeft = selectedAccountIsSavings ? netMoneyLeft : budgetLeftSummary.budgetLeft;
 
   const previousIncome = sum(previousTransactionsAll.filter(t => incomeMatchesAccount(t, accountId)).map(t => t.amount));
   const previousExpenses = sum(previousTransactionsAll.filter(t => expenseMatchesAccount(t, accountId)).map(t => t.amount));
@@ -153,31 +256,29 @@ export function calculateMonthSummary(data, monthKey, options = {}) {
   const twoMonthsAgoAccountMoneyIn = accountId ? getAccountMoneyIn(twoMonthsAgoTransactionsAll, accountId) : 0;
 
   const trendIsSavings = selectedAccountIsSavings;
-  const spendingTrend = [
-    {
-      monthKey: twoMonthsAgo,
-      name: formatMonthLabel(twoMonthsAgo),
-      spending: trendIsSavings ? twoMonthsAgoAccountMoneyIn : twoMonthsAgoExpenses
-    },
-    {
-      monthKey: previousMonth,
-      name: formatMonthLabel(previousMonth),
-      spending: trendIsSavings ? previousAccountMoneyIn : previousExpenses
-    },
-    {
-      monthKey,
-      name: formatMonthLabel(monthKey),
-      spending: trendIsSavings ? accountMoneyIn : expenses
-    }
-  ];
+  const spendingTrend = getSixMonthDashboardTrend(data, monthKey, accountId, trendIsSavings, includeExcludedSpendingInCharts);
 
   const dailySpendingComparison = trendIsSavings
     ? getDailySavingComparison(data, monthKey, accountId)
-    : getDailySpendingComparison(data, monthKey, accountId);
+    : getDailySpendingComparison(data, monthKey, accountId, includeExcludedSpendingInCharts);
 
   const savingsGoalBreakdown = trendIsSavings
     ? getSavingsGoalBreakdown(data, monthKey, accountId)
     : [];
+
+  const budgetBreakdown = trendIsSavings
+    ? []
+    : getCategorySpend(data, monthKey, accountId)
+      .filter(item => Number(item.spent || 0) > 0 || Number(item.limit || 0) > 0)
+      .map(item => ({
+        id: item.id,
+        name: item.category?.name || "Budget",
+        spent: Number(item.spent || 0),
+        excludedSpent: Number(item.excludedSpent || 0),
+        limit: Number(item.limit || 0),
+        remaining: Number(item.remaining || 0),
+        accountName: item.account?.name || ""
+      }));
 
   const savingsRate = income > 0 ? (savingsTransfers / income) * 100 : 0;
   const averageDailySpend = expenses / Math.max(daysElapsedInMonth(monthKey), 1);
@@ -198,6 +299,15 @@ export function calculateMonthSummary(data, monthKey, options = {}) {
     accountMoneyOut,
     carryForward,
     moneyLeft,
+    netMoneyLeft,
+    budgetLeftSummary,
+    totalBudgetLimit: budgetLeftSummary.totalBudgetLimit,
+    budgetCountedSpending: budgetLeftSummary.countedSpending,
+    excludedSpending: budgetLeftSummary.excludedSpending,
+    budgetLeftRaw: budgetLeftSummary.budgetLeftRaw,
+    spendableBalance: budgetLeftSummary.spendableBalance,
+    budgetAffordabilityWarning: budgetLeftSummary.affordabilityWarning,
+    budgetAffordabilityGap: budgetLeftSummary.affordabilityGap,
     savingsRate,
     averageDailySpend,
     largestExpense,
@@ -210,8 +320,9 @@ export function calculateMonthSummary(data, monthKey, options = {}) {
     spendingTrend,
     dailySpendingComparison,
     savingsGoalBreakdown,
+    budgetBreakdown,
     chartMetricName: trendIsSavings ? "Saved" : "Spending",
-    comparisonChartTitle: trendIsSavings ? "Savings vs previous months" : "Spending vs previous months",
+    comparisonChartTitle: trendIsSavings ? "Savings - last 6 months" : "Spending - last 6 months",
     incomeChange: percentChange(income, previousIncome),
     expenseChange: percentChange(expenses, previousExpenses),
     savingsChange: percentChange(savingsTransfers, previousSavings),
@@ -222,14 +333,14 @@ export function calculateMonthSummary(data, monthKey, options = {}) {
   };
 }
 
-export function getDailySpendingComparison(data, monthKey, accountId = null) {
+export function getDailySpendingComparison(data, monthKey, accountId = null, includeExcludedSpending = false) {
   const previousMonth = getPreviousMonthKey(monthKey);
   const twoMonthsAgo = getPreviousMonthKey(previousMonth);
   const maxDays = daysInCalendarMonth(monthKey);
 
-  const currentSeries = getCumulativeExpenseSeries(data.transactions, monthKey, maxDays, accountId);
-  const previousSeries = getCumulativeExpenseSeries(data.transactions, previousMonth, maxDays, accountId);
-  const twoMonthsAgoSeries = getCumulativeExpenseSeries(data.transactions, twoMonthsAgo, maxDays, accountId);
+  const currentSeries = getCumulativeExpenseSeries(data.transactions, monthKey, maxDays, accountId, includeExcludedSpending);
+  const previousSeries = getCumulativeExpenseSeries(data.transactions, previousMonth, maxDays, accountId, includeExcludedSpending);
+  const twoMonthsAgoSeries = getCumulativeExpenseSeries(data.transactions, twoMonthsAgo, maxDays, accountId, includeExcludedSpending);
 
   return {
     title: "Spending through the month",
@@ -282,13 +393,14 @@ export function getDailySavingComparison(data, monthKey, accountId = null) {
   };
 }
 
-function getCumulativeExpenseSeries(transactions, monthKey, maxDays, accountId = null) {
+function getCumulativeExpenseSeries(transactions, monthKey, maxDays, accountId = null, includeExcludedSpending = false) {
   const monthDays = daysInCalendarMonth(monthKey);
   const visibleDays = daysElapsedInMonth(monthKey);
   const dailyTotals = Array(monthDays).fill(0);
 
   transactions
     .filter(t => expenseMatchesAccount(t, accountId) && isInMonth(t.date, monthKey))
+    .filter(t => includeExcludedSpending || !isBudgetExcludedExpense(t))
     .forEach(transaction => {
       const day = Number(transaction.date?.slice(8, 10));
       if (day >= 1 && day <= monthDays) {
@@ -370,6 +482,9 @@ export function getCategorySpend(data, monthKey, accountId = null) {
     .filter(t => t.type === "expense")
     .filter(t => !selectedAccountId || t.accountId === selectedAccountId);
 
+  const countedMonthExpenses = monthExpenses.filter(isBudgetCountedExpense);
+  const excludedMonthExpenses = monthExpenses.filter(isBudgetExcludedExpense);
+
   const monthBudgets = (data.budgets || [])
     .filter(budget => budget.month === monthKey && budget.isEnabled && !budget.isArchived && !budget.archivedAt)
     .filter(budget => budgetMatchesAccount(budget, selectedAccountId));
@@ -377,10 +492,15 @@ export function getCategorySpend(data, monthKey, accountId = null) {
   const budgetItems = monthBudgets
     .map(budget => {
       const category = getCategoryById(data.categories, budget.categoryId);
-      if (!category || category.type !== "expense" || !category.isActive) return null;
+      if (!category || category.type !== "expense" || category.isActive === false) return null;
 
       const budgetAccountId = getBudgetAccountId(budget);
-      const spent = sum(monthExpenses
+      const spent = sum(countedMonthExpenses
+        .filter(t => t.categoryId === category.id)
+        .filter(t => !budgetAccountId || t.accountId === budgetAccountId)
+        .map(t => t.amount));
+
+      const excludedSpent = sum(excludedMonthExpenses
         .filter(t => t.categoryId === category.id)
         .filter(t => !budgetAccountId || t.accountId === budgetAccountId)
         .map(t => t.amount));
@@ -395,6 +515,8 @@ export function getCategorySpend(data, monthKey, accountId = null) {
         account,
         accountId: budgetAccountId,
         spent,
+        excludedSpent,
+        totalSpent: spent + excludedSpent,
         budget: { ...budget, accountId: budgetAccountId },
         limit,
         remaining: limit - spent,
@@ -406,7 +528,7 @@ export function getCategorySpend(data, monthKey, accountId = null) {
   const budgetKeys = new Set(budgetItems.map(item => `${item.category.id}_${item.accountId}`));
 
   const extraSpendItems = data.categories
-    .filter(category => category.type === "expense" && category.isActive)
+    .filter(category => category.type === "expense" && category.isActive !== false)
     .flatMap(category => {
       const accountIds = selectedAccountId
         ? [selectedAccountId]
@@ -415,11 +537,15 @@ export function getCategorySpend(data, monthKey, accountId = null) {
       return accountIds
         .filter(spendAccountId => !budgetKeys.has(`${category.id}_${spendAccountId}`))
         .map(spendAccountId => {
-          const spent = sum(monthExpenses
+          const spent = sum(countedMonthExpenses
             .filter(t => t.categoryId === category.id && t.accountId === spendAccountId)
             .map(t => t.amount));
 
-          if (spent <= 0) return null;
+          const excludedSpent = sum(excludedMonthExpenses
+            .filter(t => t.categoryId === category.id && t.accountId === spendAccountId)
+            .map(t => t.amount));
+
+          if (spent <= 0 && excludedSpent <= 0) return null;
 
           return {
             id: `${category.id}_${spendAccountId}`,
@@ -427,6 +553,8 @@ export function getCategorySpend(data, monthKey, accountId = null) {
             account: getAccountById(data.accounts, spendAccountId),
             accountId: spendAccountId,
             spent,
+            excludedSpent,
+            totalSpent: spent + excludedSpent,
             budget: null,
             limit: 0,
             remaining: -spent,
@@ -441,7 +569,7 @@ export function getCategorySpend(data, monthKey, accountId = null) {
 
 export function getBudgetWarnings(data, monthKey, accountId = null) {
   return getCategorySpend(data, monthKey, accountId)
-    .filter(item => item.limit > 0 && item.usedPercent >= data.settings.budgetWarningThresholds.greenMax)
+    .filter(item => item.limit > 0 && item.usedPercent >= (data.settings?.budgetWarningThresholds?.greenMax ?? 75))
     .sort((a, b) => b.usedPercent - a.usedPercent);
 }
 

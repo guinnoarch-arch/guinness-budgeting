@@ -1,9 +1,10 @@
 import { createId } from "../utils/ids.js";
 import { calculateAccountBalanceAtDate } from "../utils/calculations.js";
+import { formatIsoDateLocal, todayIsoDate } from "../utils/dates.js";
 
 const DATE_CANDIDATES = ["date", "transaction date", "posted date", "booking date", "value date"];
-const DESCRIPTION_CANDIDATES = ["description", "transaction description", "transaction details", "transaction narrative", "transaction 2", "details", "narrative", "merchant", "name", "reference", "payee", "memo"];
-const AMOUNT_CANDIDATES = ["amount", "transaction amount", "value", "paid", "money in/out", "money in out"];
+const DESCRIPTION_CANDIDATES = ["description", "transaction description", "transaction details", "transaction narrative", "transaction 2", "transaction", "details", "narrative", "merchant", "name", "reference", "payee", "memo"];
+const AMOUNT_CANDIDATES = ["amount", "transaction amount", "value", "paid", "money in/out", "money in out", "net", "signed amount"];
 const PAID_IN_CANDIDATES = ["paid in", "credit", "money in", "in", "deposit", "received"];
 const PAID_OUT_CANDIDATES = ["paid out", "debit", "money out", "out", "withdrawal", "spent"];
 const BALANCE_CANDIDATES = ["balance", "running balance", "closing balance", "available balance", "account balance"];
@@ -237,6 +238,19 @@ export function suggestColumnMap(headers) {
   };
 }
 
+export function buildCsvHeaderSignature(headers = []) {
+  return headers
+    .map(header => normaliseText(header))
+    .filter(Boolean)
+    .join("|");
+}
+
+export function findSavedCsvColumnMapping(data, headers = []) {
+  const signature = buildCsvHeaderSignature(headers);
+  if (!signature) return null;
+  return (data.csvColumnMappings || []).find(mapping => mapping.headerSignature === signature) || null;
+}
+
 export function analyseCsvImport(data, { accountId, fileName, headers, rows, columnMap }) {
   const now = new Date().toISOString();
   const safeRows = Array.isArray(rows) ? rows : [];
@@ -269,7 +283,7 @@ export function analyseCsvImport(data, { accountId, fileName, headers, rows, col
     .sort()
     .at(-1) || null;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIsoDate();
   const hasNewerGbTransactions = latestCsvDate
     ? (data.transactions || []).some(transaction => transactionTouchesAccount(transaction, accountId) && transaction.date > latestCsvDate)
     : false;
@@ -321,7 +335,8 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
     importBatches: [...(data.importBatches || [])],
     importRules: [...(data.importRules || [])],
     transferRules: [...(data.transferRules || [])],
-    externalAccountMappings: [...(data.externalAccountMappings || [])]
+    externalAccountMappings: [...(data.externalAccountMappings || [])],
+    csvColumnMappings: [...(data.csvColumnMappings || [])]
   };
 
   const importedTransactionIds = [];
@@ -339,6 +354,7 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
     const rowAction = edit.action || previewRow.action;
     const finalType = edit.type || previewRow.type;
     const finalCategoryId = finalType === "transfer" ? null : (edit.categoryId || previewRow.categoryId || getFallbackCategoryId(nextData, finalType));
+    const finalExcludeFromBudget = finalType === "expense" ? Boolean(edit.excludeFromBudget ?? false) : false;
     const linkedAccountId = edit.linkedAccountId || previewRow.linkedAccountId || null;
     const matchTransactionId = edit.matchTransactionId || previewRow.matchTransactionId || null;
 
@@ -362,7 +378,7 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
     if (rowAction === "match_planned" && matchTransactionId) {
       nextData.transactions = nextData.transactions.map(transaction => {
         if (transaction.id !== matchTransactionId) return transaction;
-        return mergeImportedTransaction(transaction, previewRow, bankRow, now, false);
+        return mergeImportedTransaction(transaction, previewRow, bankRow, now, false, finalExcludeFromBudget);
       });
       linkedTransactionIds.push(matchTransactionId);
       rememberCategoryRule(nextData, previewRow, finalCategoryId, finalType, now);
@@ -382,7 +398,7 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
       return;
     }
 
-    const transaction = buildStandardTransaction(previewRow, accountId, finalType, finalCategoryId, bankRow, now);
+    const transaction = buildStandardTransaction(previewRow, accountId, finalType, finalCategoryId, bankRow, now, finalExcludeFromBudget);
     nextData.transactions = [transaction, ...nextData.transactions];
     importedTransactionIds.push(transaction.id);
     rememberCategoryRule(nextData, previewRow, finalCategoryId, finalType, now);
@@ -411,6 +427,8 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
     }
   }
 
+  rememberCsvColumnMapping(nextData, analysis, accountId, now);
+
   const importBatch = {
     id: importBatchId,
     fileName: analysis.fileName || "CSV import",
@@ -431,7 +449,9 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
         ? "checked_no_adjustment_created"
         : "not_available",
     reconciliationAdjustmentId: reconciliationAdjustment?.id || null,
-    columnMap: analysis.columnMap
+    columnMap: analysis.columnMap,
+    headerSignature: buildCsvHeaderSignature(analysis.headers || []),
+    actionCounts: summarisePreviewRows(analysis.rows || [])
   };
 
   nextData.importBatches = [importBatch, ...nextData.importBatches];
@@ -444,6 +464,82 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
       linkedTransactionIds,
       skippedRows,
       reconciliationAdjustment
+    }
+  };
+}
+
+
+export function undoCsvImport(data, importBatchId) {
+  const batch = (data.importBatches || []).find(item => item.id === importBatchId);
+  if (!batch) {
+    return {
+      data,
+      result: {
+        removedTransactions: 0,
+        unlinkedTransactions: 0,
+        removedAdjustments: 0
+      }
+    };
+  }
+
+  const importedIds = new Set(batch.transactionIds || []);
+  const linkedIds = new Set(batch.linkedTransactionIds || []);
+  let removedTransactions = 0;
+  let unlinkedTransactions = 0;
+
+  const transactions = (data.transactions || [])
+    .filter(transaction => {
+      const shouldRemove = importedIds.has(transaction.id);
+      if (shouldRemove) removedTransactions += 1;
+      return !shouldRemove;
+    })
+    .map(transaction => {
+      if (!linkedIds.has(transaction.id)) return transaction;
+
+      const existingBankRows = Array.isArray(transaction.matchedBankRows) ? transaction.matchedBankRows : [];
+      const nextBankRows = existingBankRows.filter(row => row.importBatchId !== importBatchId);
+      if (nextBankRows.length === existingBankRows.length) return transaction;
+
+      unlinkedTransactions += 1;
+      const noBankRowsLeft = nextBankRows.length === 0;
+
+      if (!noBankRowsLeft) {
+        return {
+          ...transaction,
+          matchedBankRows: nextBankRows,
+          status: transaction.type === "transfer" && nextBankRows.length < 2 ? "one_side_imported" : "matched",
+          updatedAt: new Date().toISOString()
+        };
+      }
+
+      return {
+        ...transaction,
+        date: transaction.plannedDate || transaction.date,
+        amount: transaction.plannedAmount ?? transaction.amount,
+        actualDate: null,
+        actualAmount: null,
+        status: transaction.plannedDate || transaction.plannedAmount !== null && transaction.plannedAmount !== undefined ? "planned" : "confirmed",
+        importSource: transaction.importSource === "csv" ? null : transaction.importSource,
+        matchedBankRows: [],
+        updatedAt: new Date().toISOString()
+      };
+    });
+
+  const beforeAdjustments = (data.accountAdjustments || []).length;
+  const accountAdjustments = (data.accountAdjustments || []).filter(adjustment => adjustment.importBatchId !== importBatchId);
+  const removedAdjustments = beforeAdjustments - accountAdjustments.length;
+
+  return {
+    data: {
+      ...data,
+      transactions,
+      accountAdjustments,
+      importBatches: (data.importBatches || []).filter(item => item.id !== importBatchId)
+    },
+    result: {
+      removedTransactions,
+      unlinkedTransactions,
+      removedAdjustments
     }
   };
 }
@@ -478,6 +574,8 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
     : null;
 
   const suggestedCategoryId = suggestCategoryId(data, baseType, description, importRules);
+  const largeExpenseThreshold = Number(data.settings?.largeExpenseThreshold || 200);
+  const suggestedExcludeFromBudget = baseType === "expense" && absoluteAmount >= largeExpenseThreshold;
   const externalAccountName = extractExternalAccountName(description, data.accounts, mappedExternalAccount);
 
   let action = "new";
@@ -513,6 +611,12 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
     warning = linkedAccountId ? "" : "Choose the other GB account before importing this transfer.";
   }
 
+  if (suggestedExcludeFromBudget) {
+    warning = warning
+      ? `${warning} Large expense over ${formatAmountForNote(largeExpenseThreshold)}: consider excluding from monthly budget.`
+      : `Large expense over ${formatAmountForNote(largeExpenseThreshold)}: consider excluding from monthly budget.`;
+  }
+
   return {
     id: `csv_row_${rowIndex}`,
     rowIndex,
@@ -533,13 +637,20 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
     actionLabel,
     defaultInclude,
     warning,
+    suggestedExcludeFromBudget,
     externalAccountName,
     confidence: getConfidenceLabel(action, plannedMatch, existingTransferMatch),
-    matchedTitle: plannedMatch?.title || existingTransferMatch?.title || null
+    matchedTitle: plannedMatch?.title || existingTransferMatch?.title || null,
+    plannedDate: plannedMatch?.date || null,
+    plannedAmount: plannedMatch?.amount ?? null,
+    actualDate: date,
+    actualAmount: absoluteAmount,
+    amountDifference: plannedMatch?.amountDifference ?? null,
+    dateDifference: plannedMatch ? daysBetween(plannedMatch.date, date) : null
   };
 }
 
-function buildStandardTransaction(previewRow, accountId, type, categoryId, bankRow, now) {
+function buildStandardTransaction(previewRow, accountId, type, categoryId, bankRow, now, excludeFromBudget = false) {
   return {
     id: createId("txn"),
     type,
@@ -554,6 +665,7 @@ function buildStandardTransaction(previewRow, accountId, type, categoryId, bankR
     linkedSavingsGoalId: null,
     recurringItemId: null,
     isRecurring: false,
+    excludeFromBudget: type === "expense" ? Boolean(excludeFromBudget) : false,
     isExample: false,
     status: "imported",
     importSource: "csv",
@@ -599,7 +711,7 @@ function buildTransferTransaction(previewRow, uploadedAccountId, linkedAccountId
   };
 }
 
-function mergeImportedTransaction(transaction, previewRow, bankRow, now, isTransferMatch) {
+function mergeImportedTransaction(transaction, previewRow, bankRow, now, isTransferMatch, excludeFromBudget = transaction.excludeFromBudget) {
   const existingBankRows = Array.isArray(transaction.matchedBankRows) ? transaction.matchedBankRows : [];
   const alreadyLinked = existingBankRows.some(row => row.sourceRowHash === bankRow.sourceRowHash);
   const nextBankRows = alreadyLinked ? existingBankRows : [bankRow, ...existingBankRows];
@@ -613,6 +725,7 @@ function mergeImportedTransaction(transaction, previewRow, bankRow, now, isTrans
     date: isTransferMatch ? transaction.date : previewRow.date,
     amount: previewRow.amount,
     status: isTransferMatch && nextBankRows.length < 2 ? "one_side_imported" : "matched",
+    excludeFromBudget: transaction.type === "expense" ? Boolean(excludeFromBudget) : false,
     importSource: transaction.importSource || "csv",
     matchedBankRows: nextBankRows,
     note: transaction.note
@@ -692,6 +805,49 @@ function rememberCategoryRule(data, previewRow, categoryId, type, now) {
     },
     ...(data.importRules || [])
   ];
+}
+
+function rememberCsvColumnMapping(data, analysis, accountId, now) {
+  const headerSignature = buildCsvHeaderSignature(analysis.headers || []);
+  if (!headerSignature) return;
+
+  const existing = (data.csvColumnMappings || []).find(mapping => mapping.headerSignature === headerSignature);
+  const baseMapping = {
+    name: existing?.name || inferCsvMappingName(analysis.fileName),
+    fileName: analysis.fileName || existing?.fileName || "CSV import",
+    accountId: accountId || existing?.accountId || "",
+    headerSignature,
+    headers: analysis.headers || [],
+    columnMap: analysis.columnMap || {},
+    lastUsedAt: now
+  };
+
+  if (existing) {
+    data.csvColumnMappings = (data.csvColumnMappings || []).map(mapping => (
+      mapping.id === existing.id
+        ? { ...mapping, ...baseMapping, useCount: Number(mapping.useCount || 0) + 1 }
+        : mapping
+    ));
+    return;
+  }
+
+  data.csvColumnMappings = [
+    {
+      id: createId("csv_map"),
+      ...baseMapping,
+      createdAt: now,
+      useCount: 1
+    },
+    ...(data.csvColumnMappings || [])
+  ];
+}
+
+function inferCsvMappingName(fileName) {
+  const clean = String(fileName || "CSV format")
+    .replace(/\.csv$/i, "")
+    .replace(/[_-]+/g, " ")
+    .trim();
+  return clean || "CSV format";
 }
 
 function findHeader(headers, candidates) {
@@ -776,7 +932,7 @@ function parseDate(value) {
 
   const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString().slice(0, 10);
+  return formatIsoDateLocal(parsed);
 }
 
 function normaliseText(value) {
@@ -900,13 +1056,13 @@ function suggestCategoryId(data, type, description, importRules) {
 }
 
 function getFallbackCategoryId(data, type) {
-  const fallbackId = type === "income" ? "cat_other_income" : "cat_other_expense";
+  const fallbackId = type === "income" ? "cat_other_income" : "cat_everything_else";
   if (categoryExists(data, fallbackId, type)) return fallbackId;
-  return (data.categories || []).find(category => category.type === type && category.isActive)?.id || "";
+  return (data.categories || []).find(category => category.type === type && category.isActive !== false)?.id || "";
 }
 
 function categoryExists(data, categoryId, type) {
-  return (data.categories || []).some(category => category.id === categoryId && category.type === type && category.isActive);
+  return (data.categories || []).some(category => category.id === categoryId && category.type === type && category.isActive !== false);
 }
 
 function getCategoryName(data, categoryId) {
@@ -973,7 +1129,7 @@ function getConfidenceLabel(action, plannedMatch, transferMatch) {
   if (transferMatch) return "High";
   if (plannedMatch?.matchScore >= 75) return "High";
   if (plannedMatch) return "Medium";
-  if (action === "needs_transfer_account") return "Needs review";
+  if (action === "new_transfer") return "Needs review";
   return "Auto";
 }
 
@@ -985,7 +1141,9 @@ function summarisePreviewRows(rows) {
     totals.transfers += row.type === "transfer" ? 1 : 0;
     totals.plannedMatches += row.action === "match_planned" ? 1 : 0;
     totals.existingTransferMatches += row.action === "match_existing_transfer" ? 1 : 0;
-    totals.needsReview += row.warning ? 1 : 0;
+    totals.newRows += row.action === "new" || row.action === "new_transfer" ? 1 : 0;
+    totals.needsReview += row.warning || row.confidence === "Needs review" ? 1 : 0;
+    totals.largeExpenses += row.suggestedExcludeFromBudget ? 1 : 0;
     return totals;
   }, {
     total: 0,
@@ -994,7 +1152,9 @@ function summarisePreviewRows(rows) {
     transfers: 0,
     plannedMatches: 0,
     existingTransferMatches: 0,
-    needsReview: 0
+    newRows: 0,
+    needsReview: 0,
+    largeExpenses: 0
   });
 }
 

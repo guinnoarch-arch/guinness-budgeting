@@ -1,4 +1,4 @@
-const CACHE_NAME = "guinness-budgeting-v1.14-static";
+const CACHE_NAME = "guinness-holley-budgeting-v2.6.1-static";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -6,16 +6,21 @@ const APP_SHELL = [
   "/favicon.ico",
   "/icons/gb-icon-192.png",
   "/icons/gb-icon-512.png",
-  "/icons/gb-icon-maskable-192.png",
-  "/icons/gb-icon-maskable-512.png"
+  "/icons/gh-logo.png"
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL))
+      .then((cache) => Promise.allSettled(APP_SHELL.map((url) => cache.add(url))))
       .then(() => self.skipWaiting())
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("activate", (event) => {
@@ -23,7 +28,7 @@ self.addEventListener("activate", (event) => {
     caches.keys()
       .then((cacheNames) => Promise.all(
         cacheNames
-          .filter((name) => name.startsWith("guinness-budgeting-") && name !== CACHE_NAME)
+          .filter((name) => name.startsWith("guinness-holley-budgeting-") && name !== CACHE_NAME)
           .map((name) => caches.delete(name))
       ))
       .then(() => self.clients.claim())
@@ -54,9 +59,10 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.match(request)
       .then((cached) => cached || fetch(request).then((response) => {
+        if (!response || response.status !== 200 || response.type !== "basic") return response;
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         return response;
-      }))
+      }).catch(() => cached || caches.match("/index.html")))
   );
 });

@@ -161,7 +161,8 @@ export function getInitialAppData() {
       { id: "bud_rent", categoryId: "cat_rent", accountId: "acc_current", month, limit: 550, isEnabled: true },
       { id: "bud_food", categoryId: "cat_food", accountId: "acc_current", month, limit: 220, isEnabled: true },
       { id: "bud_fuel", categoryId: "cat_fuel", accountId: "acc_current", month, limit: 120, isEnabled: true },
-      { id: "bud_going_out", categoryId: "cat_going_out", accountId: "acc_current", month, limit: 100, isEnabled: true }
+      { id: "bud_going_out", categoryId: "cat_going_out", accountId: "acc_current", month, limit: 100, isEnabled: true },
+      { id: "bud_everything_else", categoryId: "cat_everything_else", accountId: "acc_current", month, limit: 80, isEnabled: true }
     ],
     recurringItems: [
       {
@@ -219,6 +220,63 @@ export function getInitialAppData() {
         isExample: true
       }
     ],
+    loans: [
+      {
+        id: "loan_example_student",
+        type: "studentLoan",
+        name: "Example Plan 2 Student Loan",
+        originalAmount: 45000,
+        currentBalance: 48000,
+        balanceDate: `${month}-01`,
+        startDate: `${now.getFullYear() - 3}-09-01`,
+        status: "active",
+        notes: "Example only. Replace with your real SLC statement balance.",
+        isExample: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        studentLoanDetails: {
+          planType: "plan2",
+          repaymentStartDate: `${now.getFullYear()}-04-06`,
+          grossAnnualSalary: 32000,
+          payFrequency: "monthly",
+          employmentType: "PAYE",
+          salaryGrowthPercent: 3,
+          manualAnnualInterestRate: null
+        },
+        mortgageDetails: null
+      },
+      {
+        id: "loan_example_mortgage",
+        type: "mortgage",
+        name: "Example Mortgage",
+        originalAmount: 220000,
+        currentBalance: 210500,
+        balanceDate: `${month}-01`,
+        startDate: `${now.getFullYear() - 2}-06-01`,
+        status: "active",
+        notes: "Example only. Replace with your lender statement details.",
+        isExample: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        studentLoanDetails: null,
+        mortgageDetails: {
+          repaymentType: "repayment",
+          termYears: 25,
+          remainingTermMonths: 276,
+          monthlyPayment: 1150,
+          paymentDay: 1,
+          interestType: "fixed",
+          currentRate: 4.75,
+          fixedUntil: `${now.getFullYear() + 2}-06-01`,
+          followOnRate: 6.5,
+          plannedMonthlyOverpayment: 100,
+          overpaymentAllowancePercent: 10,
+          earlyRepaymentChargeApplies: true,
+          propertyValue: 280000
+        }
+      }
+    ],
+    loanEvents: [],
     closedMonths: [
       {
         id: `closed_${previousMonth}`,
@@ -257,7 +315,9 @@ export function getInitialAppData() {
       hasStarted: false,
       hasCompletedSetup: false,
       useExampleData: true,
-      darkModeEnabled: false
+      themeMode: "light",
+      darkModeEnabled: false,
+      dashboardLayout: "full"
     }
   };
 }

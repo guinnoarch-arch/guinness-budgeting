@@ -1,19 +1,82 @@
 {
-  "name": "Guinness Budgeting",
-  "short_name": "GB Budget",
-  "description": "Personal, student, household and shared-house budgeting dashboard.",
-  "start_url": "/",
+  "name": "Guinness & Holley Budgeting",
+  "short_name": "GH Budget",
+  "description": "Local-first budgeting app with budgeting, accounts, loans, imports, reports, and safer offline storage.",
+  "start_url": "/?source=pwa",
   "scope": "/",
+  "id": "/",
   "display": "standalone",
-  "display_override": ["window-controls-overlay", "standalone", "browser"],
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "browser"
+  ],
   "background_color": "#f5f7fb",
   "theme_color": "#003b2d",
   "orientation": "any",
-  "categories": ["finance", "productivity"],
+  "categories": [
+    "finance",
+    "productivity",
+    "utilities"
+  ],
+  "launch_handler": {
+    "client_mode": [
+      "navigate-existing",
+      "auto"
+    ]
+  },
   "icons": [
+    {
+      "src": "/icons/gb-icon-16.png",
+      "sizes": "16x16",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/gb-icon-32.png",
+      "sizes": "32x32",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/gb-icon-48.png",
+      "sizes": "48x48",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/gb-icon-72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/gb-icon-96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/gb-icon-128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/gb-icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "/icons/gb-icon-192.png",
       "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/gb-icon-256.png",
+      "sizes": "256x256",
       "type": "image/png",
       "purpose": "any"
     },
@@ -22,18 +85,6 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
-    },
-    {
-      "src": "/icons/gb-icon-maskable-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
-    {
-      "src": "/icons/gb-icon-maskable-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
     }
   ],
   "shortcuts": [
@@ -42,7 +93,39 @@
       "short_name": "Dashboard",
       "description": "Open the main budgeting dashboard.",
       "url": "/",
-      "icons": [{ "src": "/icons/gb-icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icons/gb-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Add Transaction",
+      "short_name": "Add",
+      "description": "Open the app to add or review a transaction.",
+      "url": "/?action=add-transaction",
+      "icons": [
+        {
+          "src": "/icons/gb-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "short_name": "Reports",
+      "description": "Open monthly reports.",
+      "url": "/?page=reports",
+      "icons": [
+        {
+          "src": "/icons/gb-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     }
   ]
 }

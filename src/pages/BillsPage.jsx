@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { addDaysToIsoDate, getMonthKey, isInMonth, todayIsoDate } from "../utils/dates.js";
 import { formatMoney } from "../utils/money.js";
 
 const emptyRecurringForm = {
@@ -18,11 +19,18 @@ export default function BillsPage({ appData, actions }) {
   const [editingItem, setEditingItem] = useState(null);
   const [form, setForm] = useState(emptyRecurringForm);
 
-  const activeBills = (appData.recurringItems || []).filter(item => item.isActive !== false && !item.archivedAt);
+  const today = todayIsoDate();
+  const weekEnd = addDaysToIsoDate(today, 7);
+  const currentMonth = getMonthKey(new Date());
+  const activeBills = (appData.recurringItems || [])
+    .filter(item => item.isActive !== false && !item.archivedAt)
+    .sort((a, b) => String(a.nextDueDate || "9999-99-99").localeCompare(String(b.nextDueDate || "9999-99-99")));
+  const upcomingThisWeek = activeBills.filter(item => item.nextDueDate && item.nextDueDate >= today && item.nextDueDate <= weekEnd);
+  const upcomingThisMonth = activeBills.filter(item => item.nextDueDate && isInMonth(item.nextDueDate, currentMonth));
   const archivedBills = (appData.recurringItems || []).filter(item => item.isActive === false || item.archivedAt);
-  const paidThisMonth = appData.transactions.filter(txn => txn.isRecurring);
-  const expenseCategories = appData.categories.filter(category => category.type === "expense" && category.isActive);
-  const activeAccounts = appData.accounts.filter(account => account.isActive);
+  const paidThisMonth = (appData.transactions || []).filter(txn => txn.isRecurring && isInMonth(txn.date, currentMonth));
+  const expenseCategories = (appData.categories || []).filter(category => category.type === "expense" && category.isActive !== false);
+  const activeAccounts = (appData.accounts || []).filter(account => account.isActive !== false);
 
   function openEditRecurring(item) {
     setEditingItem(item);
@@ -34,7 +42,7 @@ export default function BillsPage({ appData, actions }) {
       categoryId: item.categoryId || expenseCategories[0]?.id || "cat_bills",
       accountId: item.accountId || activeAccounts[0]?.id || "acc_current",
       frequency: item.frequency || "monthly",
-      nextDueDate: item.nextDueDate || new Date().toISOString().slice(0, 10),
+      nextDueDate: item.nextDueDate || todayIsoDate(),
       autoAdd: Boolean(item.autoAdd),
       reminderEnabled: item.reminderEnabled !== false
     });
@@ -53,10 +61,20 @@ export default function BillsPage({ appData, actions }) {
     e.preventDefault();
     if (!editingItem || !form.name.trim()) return;
 
+    const previousAmount = Number(editingItem.amount || 0);
+    const nextAmount = Number(form.amount || 0);
+    const amountIncreased = nextAmount > previousAmount;
+    const now = new Date().toISOString();
+
     const updatedItem = {
       ...editingItem,
       name: form.name.trim(),
-      amount: Number(form.amount || 0),
+      amount: nextAmount,
+      ...(amountIncreased ? {
+        previousAmount,
+        amountChangedAt: now,
+        amountChangeType: "increase"
+      } : {}),
       amountType: form.amountType,
       categoryId: form.categoryId,
       accountId: form.accountId,
@@ -64,7 +82,7 @@ export default function BillsPage({ appData, actions }) {
       nextDueDate: form.nextDueDate,
       autoAdd: Boolean(form.autoAdd),
       reminderEnabled: Boolean(form.reminderEnabled),
-      updatedAt: new Date().toISOString()
+      updatedAt: now
     };
 
     actions.updateAppData({
@@ -114,19 +132,19 @@ export default function BillsPage({ appData, actions }) {
       <div className="two-column">
         <section className="card">
           <h3>Upcoming this week</h3>
-          {activeBills.length === 0 ? (
-            <p className="muted">No active recurring payments.</p>
+          {upcomingThisWeek.length === 0 ? (
+            <p className="muted">No bills due in the next 7 days.</p>
           ) : (
-            activeBills.slice(0, 4).map(item => <BillRow key={item.id} item={item} />)
+            upcomingThisWeek.map(item => <BillRow key={item.id} item={item} />)
           )}
         </section>
 
         <section className="card">
           <h3>Upcoming this month</h3>
-          {activeBills.length === 0 ? (
-            <p className="muted">No active recurring payments.</p>
+          {upcomingThisMonth.length === 0 ? (
+            <p className="muted">No active recurring payments due this month.</p>
           ) : (
-            activeBills.map(item => <BillRow key={item.id} item={item} />)
+            upcomingThisMonth.map(item => <BillRow key={item.id} item={item} />)
           )}
         </section>
       </div>

@@ -1,0 +1,270 @@
+/* V2.2.11: calmer Loans page mortgage tile/details view */
+.loans-page .page-title-row h2,
+.loans-page .page-title-row p {
+  margin-bottom: 0;
+}
+
+.loan-tile-section {
+  display: grid;
+  gap: 16px;
+}
+
+.loan-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.loan-summary-tile {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--card);
+  color: var(--text);
+  box-shadow: none;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.loan-summary-tile:hover,
+.loan-summary-tile:focus-visible {
+  transform: translateY(-1px);
+  border-color: var(--primary);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  outline: none;
+}
+
+.loan-summary-tile.selected {
+  border-color: var(--primary);
+  background: rgba(var(--primary-rgb), 0.055);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.10);
+}
+
+.loan-summary-type {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.loan-summary-tile strong {
+  font-size: 1.05rem;
+}
+
+.loan-summary-amount {
+  font-size: clamp(1.4rem, 3vw, 2.1rem);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.loan-summary-tile small,
+.loan-detail-card small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.loan-closed-state-card {
+  border-style: dashed;
+  background: rgba(var(--primary-rgb), 0.035);
+}
+
+.loan-detail-panel,
+.mortgage-focused-view,
+.loan-extra-details-card {
+  display: grid;
+  gap: 16px;
+}
+
+.mortgage-main-grid,
+.loan-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+
+.loan-detail-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+}
+
+.loan-detail-card strong {
+  font-size: 1.35rem;
+}
+
+.mortgage-main-card strong {
+  font-size: clamp(1.3rem, 2.5vw, 1.9rem);
+}
+
+.positive-card-soft {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.loan-chart-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--card);
+}
+
+.loan-chart-card h4,
+.loan-chart-card p {
+  margin: 0;
+}
+
+.loan-extra-details-card {
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(249, 250, 251, 0.82);
+  overflow: hidden;
+}
+
+.loan-extra-details-card > summary {
+  padding: 16px;
+  cursor: pointer;
+  font-weight: 900;
+  list-style: none;
+}
+
+.loan-extra-details-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.loan-extra-details-card > summary::after {
+  content: "+";
+  float: right;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.loan-extra-details-card[open] > summary::after {
+  content: "–";
+}
+
+.loan-extra-details-card[open] {
+  padding-bottom: 16px;
+}
+
+.loan-extra-details-card[open] .loan-detail-grid,
+.loan-extra-details-card[open] .loan-event-list {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
+.loan-event-list {
+  display: grid;
+  gap: 10px;
+}
+
+.loan-event-list h4 {
+  margin-bottom: 0;
+}
+
+[data-theme="dark"] .loan-summary-tile,
+[data-theme="dark"] .loan-chart-card,
+[data-theme="dark"] .loan-extra-details-card {
+  background: var(--card);
+  border-color: var(--line);
+}
+
+[data-theme="dark"] .loan-summary-tile.selected,
+[data-theme="dark"] .loan-closed-state-card {
+  background: rgba(var(--primary-rgb), 0.16);
+}
+
+[data-theme="dark"] .positive-card-soft {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.12);
+}
+
+@media (max-width: 720px) {
+  .loan-detail-panel .section-header,
+  .loan-tile-section .section-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .loan-detail-panel .row-actions {
+    width: 100%;
+  }
+}
+
+/* V2.2.12 mortgage graph history/projection tooltip */
+.loan-chart-tooltip {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+}
+
+.loan-chart-tooltip small {
+  display: block;
+  color: var(--text);
+}
+
+.linked-payment-tooltip-block {
+  display: grid;
+  gap: 3px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+/* V2.3: loan validation, event history and overpayment allowance */
+.loan-warning-list {
+  display: grid;
+  gap: 8px;
+}
+
+.loan-event-table-wrap {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+.loan-event-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+.loan-event-table th,
+.loan-event-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.loan-event-table th {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: rgba(var(--primary-rgb), 0.045);
+}
+
+.loan-event-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.loan-event-table small {
+  display: block;
+  color: var(--muted);
+}
+
+[data-theme="dark"] .loan-event-table th {
+  background: rgba(var(--primary-rgb), 0.16);
+}

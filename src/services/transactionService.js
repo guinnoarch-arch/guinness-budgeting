@@ -1,12 +1,19 @@
 import { createId } from "../utils/ids.js";
+import { removeLoanEventsForTransaction, syncLoanEventsForTransaction } from "../utils/loanLinking.js";
 
 export function upsertTransaction(data, formValues, existingId = null) {
   const now = new Date().toISOString();
   const shouldCreateRecurring = Boolean(formValues.isRecurring) && formValues.type !== "transfer";
   const recurringItemId = formValues.recurringItemId || (shouldCreateRecurring ? createId("rec") : null);
+  const existingTransaction = existingId
+    ? data.transactions.find(item => item.id === existingId)
+    : null;
+  const transactionId = existingId || formValues.id || createId("txn");
+  const linkedLoanId = formValues.type === "expense" ? formValues.linkedLoanId || null : null;
 
   const transaction = {
-    id: existingId || createId("txn"),
+    ...(existingTransaction || {}),
+    id: transactionId,
     type: formValues.type,
     date: formValues.date,
     amount: Number(formValues.amount || 0),
@@ -17,10 +24,21 @@ export function upsertTransaction(data, formValues, existingId = null) {
     fromAccountId: formValues.type === "transfer" ? formValues.fromAccountId : null,
     toAccountId: formValues.type === "transfer" ? formValues.toAccountId : null,
     linkedSavingsGoalId: formValues.type === "transfer" ? formValues.linkedSavingsGoalId || null : null,
+    linkedLoanId,
+    loanInterestAmount: linkedLoanId ? nullableNumber(formValues.loanInterestAmount) : null,
+    loanPrincipalAmount: linkedLoanId ? nullableNumber(formValues.loanPrincipalAmount) : null,
+    isLoanOverpayment: linkedLoanId ? Boolean(formValues.isLoanOverpayment) : false,
+    loanOverpaymentAmount: linkedLoanId && formValues.isLoanOverpayment ? Number(formValues.loanOverpaymentAmount || 0) : 0,
     recurringItemId,
     isRecurring: shouldCreateRecurring,
+    excludeFromBudget: formValues.type === "expense" ? Boolean(formValues.excludeFromBudget) : false,
     isExample: false,
-    createdAt: formValues.createdAt || now,
+    receiptId: formValues.receiptId || null,
+    receiptFileName: formValues.receiptFileName || null,
+    receiptMimeType: formValues.receiptMimeType || null,
+    receiptSizeBytes: Number(formValues.receiptSizeBytes || 0),
+    receiptUploadedAt: formValues.receiptUploadedAt || null,
+    createdAt: formValues.createdAt || existingTransaction?.createdAt || now,
     updatedAt: now
   };
 
@@ -54,12 +72,19 @@ export function upsertTransaction(data, formValues, existingId = null) {
       : [recurringItem, ...recurringItems];
   }
 
-  return { ...data, transactions, recurringItems };
+  const withTransaction = { ...data, transactions, recurringItems };
+  return syncLoanEventsForTransaction(withTransaction, transaction);
 }
 
 export function deleteTransaction(data, transactionId) {
-  return {
+  return removeLoanEventsForTransaction({
     ...data,
     transactions: data.transactions.filter(transaction => transaction.id !== transactionId)
-  };
+  }, transactionId);
+}
+
+function nullableNumber(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }

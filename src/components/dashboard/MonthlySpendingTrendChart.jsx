@@ -17,7 +17,7 @@ export default function MonthlySpendingTrendChart({ comparison }) {
 
   return (
     <section className="card chart-card wide-chart-card monthly-spending-trend-card">
-      <div className="section-header compact-header">
+      <div className="section-header compact-header chart-title-with-toggle">
         <div>
           <h3>{comparison?.title || "Spending through the month"}</h3>
           <p className="muted-text">

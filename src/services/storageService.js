@@ -1,10 +1,27 @@
 import { defaultCategories } from "../data/defaultCategories.js";
+import { exportReceiptBackupRecords } from "./receiptStorageService.js";
+import {
+  addStorageLog,
+  clearAppDataSnapshots,
+  clearCurrentAppDataRecord,
+  getIndexedDbStorageStats,
+  isAppIndexedDbAvailable,
+  isPersistentBrowserStorageGranted,
+  readCurrentAppDataRecord,
+  readIndexedDbRawExport,
+  requestPersistentBrowserStorage,
+  saveAppDataSnapshot,
+  saveCurrentAppDataRecord
+} from "./indexedDbStorageService.js";
+
 const STORAGE_KEY = "guinness-budgeting-data-v1";
+const STORAGE_META_KEY = "guinness-budgeting-storage-meta-v2";
+const LEGACY_MIGRATION_SNAPSHOT_KEY = "guinness-budgeting-v2-5-localstorage-migration-snapshot";
 const CORRUPT_SNAPSHOT_PREFIX = "guinness-budgeting-corrupt-snapshot";
 
-export const APP_VERSION = "2.0";
-export const DATA_SCHEMA_VERSION = "2.0";
-export const BACKUP_FORMAT_VERSION = "1.1";
+export const APP_VERSION = "2.6.1";
+export const DATA_SCHEMA_VERSION = "2.6.1";
+export const BACKUP_FORMAT_VERSION = "1.9";
 
 const REQUIRED_ARRAY_FIELDS = [
   "transactions",
@@ -16,7 +33,7 @@ const REQUIRED_ARRAY_FIELDS = [
   "closedMonths"
 ];
 
-const OPTIONAL_ARRAY_FIELDS = ["accountAdjustments", "importBatches", "importRules", "transferRules", "externalAccountMappings"];
+const OPTIONAL_ARRAY_FIELDS = ["accountAdjustments", "importBatches", "importRules", "transferRules", "externalAccountMappings", "csvColumnMappings", "profiles", "loans", "loanEvents"];
 
 const DEFAULT_PROFILE_TYPE = "Personal";
 
@@ -29,10 +46,15 @@ function createLocalProfileId() {
 
 function createDefaultProfile(existingProfile = {}, settings = {}) {
   const now = new Date().toISOString();
+  const localProfileId = existingProfile.localProfileId || existingProfile.id || createLocalProfileId();
+  const displayName = existingProfile.displayName || existingProfile.username || "";
+
   return {
-    localProfileId: existingProfile.localProfileId || createLocalProfileId(),
+    id: localProfileId,
+    localProfileId,
     cloudUserId: existingProfile.cloudUserId || null,
-    displayName: existingProfile.displayName || "",
+    username: existingProfile.username || displayName || "",
+    displayName,
     email: existingProfile.email || "",
     profileName: existingProfile.profileName || "Personal Budget",
     profileType: existingProfile.profileType || DEFAULT_PROFILE_TYPE,
@@ -42,47 +64,266 @@ function createDefaultProfile(existingProfile = {}, settings = {}) {
     monthMode: existingProfile.monthMode || settings.monthMode || "calendar",
     customMonthStartDay: Number(existingProfile.customMonthStartDay || settings.customMonthStartDay || 1),
     syncEnabled: Boolean(existingProfile.syncEnabled),
+    localOnly: existingProfile.localOnly !== false,
     createdAt: existingProfile.createdAt || now,
     updatedAt: existingProfile.updatedAt || now
   };
 }
 
-export function loadAppData() {
-  let raw = null;
+function applyActiveProfileToRecords(records, activeProfileId) {
+  return (records || []).map(record => {
+    if (!record || typeof record !== "object" || Array.isArray(record)) return record;
+    return {
+      ...record,
+      profileId: record.profileId || activeProfileId
+    };
+  });
+}
 
+export function loadAppData() {
+  return loadLegacyLocalStorageData();
+}
+
+async function writeStorageLogSafely(entry) {
   try {
-    raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? normaliseAppData(JSON.parse(raw)) : null;
+    await addStorageLog(entry);
   } catch (error) {
-    console.error("Failed to load app data:", error);
-    preserveCorruptStorageSnapshot(raw, error);
-    return null;
+    console.warn("Could not write storage log:", error);
   }
 }
+
+export async function loadAppDataAsync() {
+  let indexedDbError = null;
+
+  if (isAppIndexedDbAvailable()) {
+    try {
+      const record = await readCurrentAppDataRecord();
+      if (record?.data) {
+        await writeStorageLogSafely({
+          level: "info",
+          event: "indexeddb_load_success",
+          message: "Loaded app data from IndexedDB.",
+          details: { updatedAt: record.updatedAt || null, appVersion: record.appVersion || null }
+        });
+        return normaliseAppData({
+          ...record.data,
+          settings: {
+            ...(record.data.settings || {}),
+            storageMode: "indexedDB",
+            storagePrimary: "indexedDB",
+            lastIndexedDbLoadAt: new Date().toISOString(),
+            dataVersion: DATA_SCHEMA_VERSION,
+            appVersion: APP_VERSION
+          }
+        });
+      }
+    } catch (error) {
+      indexedDbError = error;
+      console.error("Failed to load IndexedDB app data:", error);
+      await writeStorageLogSafely({
+        level: "error",
+        event: "indexeddb_load_failed",
+        message: error.message || "Failed to load app data from IndexedDB.",
+        details: null
+      });
+    }
+  }
+
+  const legacyData = loadLegacyLocalStorageData();
+
+  if (legacyData) {
+    const migratedAt = new Date().toISOString();
+    const migratedData = normaliseAppData({
+      ...legacyData,
+      settings: {
+        ...(legacyData.settings || {}),
+        storageMode: "indexedDB",
+        storagePrimary: isAppIndexedDbAvailable() ? "indexedDB" : "localStorage-fallback",
+        migratedFromLocalStorageAt: legacyData.settings?.migratedFromLocalStorageAt || migratedAt,
+        lastIndexedDbLoadAt: null,
+        indexedDbLoadError: indexedDbError?.message || null,
+        dataVersion: DATA_SCHEMA_VERSION,
+        appVersion: APP_VERSION
+      }
+    });
+
+    if (isAppIndexedDbAvailable()) {
+      try {
+        await preserveLegacyLocalStorageMigrationSnapshot(legacyData, migratedAt);
+        await saveCurrentAppDataRecord(migratedData, {
+          savedAt: migratedAt,
+          appVersion: APP_VERSION,
+          dataSchemaVersion: DATA_SCHEMA_VERSION,
+          source: "localStorage-migration"
+        });
+        await writeStorageLogSafely({
+          level: "info",
+          event: "localstorage_migration_success",
+          message: "Migrated legacy localStorage data into IndexedDB.",
+          details: { migratedAt }
+        });
+        writeStorageMeta({
+          storageMode: "indexedDB",
+          migratedFromLocalStorageAt: migratedAt,
+          lastSavedAt: migratedAt
+        });
+      } catch (error) {
+        console.error("Failed to migrate localStorage data into IndexedDB:", error);
+        await writeStorageLogSafely({
+          level: "error",
+          event: "localstorage_migration_failed",
+          message: error.message || "Failed to migrate legacy localStorage data into IndexedDB.",
+          details: { migratedAt }
+        });
+      }
+    }
+
+    return migratedData;
+  }
+
+  if (indexedDbError) {
+    writeStorageMeta({
+      storageMode: "indexedDB",
+      lastLoadError: indexedDbError.message || "IndexedDB load failed",
+      lastLoadErrorAt: new Date().toISOString()
+    });
+  }
+
+  return null;
+}
+
+let saveQueue = Promise.resolve();
+let lastSaveError = null;
+let lastSaveAt = null;
 
 export function saveAppData(data) {
+  const safeData = normaliseAppData(data);
+  saveQueue = saveQueue
+    .catch(() => undefined)
+    .then(() => saveAppDataAsync(safeData));
+  return saveQueue;
+}
+
+export async function saveAppDataAsync(data) {
+  const safeData = normaliseAppData({
+    ...data,
+    settings: {
+      ...(data.settings || {}),
+      storageMode: "indexedDB",
+      storagePrimary: isAppIndexedDbAvailable() ? "indexedDB" : "localStorage-fallback",
+      dataVersion: DATA_SCHEMA_VERSION,
+      appVersion: APP_VERSION
+    }
+  });
+  const savedAt = new Date().toISOString();
+
+  if (isAppIndexedDbAvailable()) {
+    try {
+      await saveCurrentAppDataRecord(safeData, {
+        savedAt,
+        appVersion: APP_VERSION,
+        dataSchemaVersion: DATA_SCHEMA_VERSION,
+        source: "app-save"
+      });
+      lastSaveAt = savedAt;
+      lastSaveError = null;
+      writeStorageMeta({ storageMode: "indexedDB", lastSavedAt: savedAt, lastSaveError: null });
+      removeLegacyLiveDataAfterIndexedDbSave();
+      return { ok: true, storageMode: "indexedDB", savedAt };
+    } catch (error) {
+      lastSaveError = error;
+      console.error("Failed to save app data to IndexedDB:", error);
+      await writeStorageLogSafely({
+        level: "error",
+        event: "indexeddb_save_failed",
+        message: error.message || "Failed to save app data to IndexedDB.",
+        details: { savedAt }
+      });
+      writeStorageMeta({
+        storageMode: "indexedDB",
+        lastSaveError: error.message || "IndexedDB save failed",
+        lastSaveErrorAt: savedAt
+      });
+    }
+  }
+
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(normaliseAppData(data)));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(safeData));
+    lastSaveAt = savedAt;
+    lastSaveError = null;
+    await writeStorageLogSafely({
+      level: "warning",
+      event: "localstorage_fallback_save",
+      message: "Saved app data to localStorage fallback because IndexedDB was unavailable or failed.",
+      details: { savedAt }
+    });
+    writeStorageMeta({ storageMode: "localStorage-fallback", lastSavedAt: savedAt, lastSaveError: null });
+    return { ok: true, storageMode: "localStorage-fallback", savedAt };
   } catch (error) {
-    console.error("Failed to save app data:", error);
+    lastSaveError = error;
+    console.error("Failed to save app data to fallback localStorage:", error);
+    await writeStorageLogSafely({
+      level: "error",
+      event: "all_storage_save_failed",
+      message: error.message || "All browser storage saves failed.",
+      details: { savedAt }
+    });
+    writeStorageMeta({
+      storageMode: "failed",
+      lastSaveError: error.message || "All browser storage saves failed",
+      lastSaveErrorAt: savedAt
+    });
+    return { ok: false, storageMode: "failed", savedAt, error };
   }
 }
 
-export function clearAppData() {
+export async function clearAppData() {
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(STORAGE_META_KEY);
+
+  try {
+    await clearCurrentAppDataRecord();
+    await clearAppDataSnapshots();
+    await writeStorageLogSafely({ level: "warning", event: "app_data_cleared", message: "Cleared current app data and snapshots.", details: null });
+  } catch (error) {
+    console.error("Failed to clear IndexedDB app data:", error);
+  }
+}
+
+export async function enablePersistentBrowserStorage() {
+  return requestPersistentBrowserStorage();
+}
+
+export async function checkPersistentBrowserStorage() {
+  return isPersistentBrowserStorageGranted();
 }
 
 export async function exportJsonBackup(data, exportedAt = new Date().toISOString(), forcedFilename = null) {
   const filename = forcedFilename || buildBackupFilename(exportedAt);
   const payload = createBackupPayload(data, exportedAt);
-  const result = await saveJsonPayload(payload, filename, "Guinness Budgeting backup");
+
+  try {
+    payload.receiptStorage = await exportReceiptBackupRecords();
+    payload.counts.indexedDbReceipts = payload.receiptStorage.count || 0;
+  } catch (error) {
+    payload.receiptStorage = {
+      storageType: "indexedDB",
+      exportError: error.message || "Receipt storage could not be exported.",
+      count: 0,
+      receipts: []
+    };
+  }
+
+  const result = await saveJsonPayload(payload, filename, "Guinness & Holley Budgeting backup");
   return { ...result, exportedAt };
 }
 
 export async function exportRawSavedData(exportedAt = new Date().toISOString()) {
   const rawText = localStorage.getItem(STORAGE_KEY) || "";
+  const storageMetaText = localStorage.getItem(STORAGE_META_KEY) || "";
   let parsedData = null;
   let parseError = null;
+  let parsedStorageMeta = null;
 
   try {
     parsedData = rawText ? JSON.parse(rawText) : null;
@@ -90,20 +331,35 @@ export async function exportRawSavedData(exportedAt = new Date().toISOString()) 
     parseError = error.message || "Could not parse raw localStorage data.";
   }
 
+  try {
+    parsedStorageMeta = storageMetaText ? JSON.parse(storageMetaText) : null;
+  } catch (error) {
+    parsedStorageMeta = { parseError: error.message || "Could not parse storage metadata." };
+  }
+
+  const indexedDbRaw = await readIndexedDbRawExport();
+
   const filename = buildRawDataFilename(exportedAt);
   const payload = {
-    appName: "Guinness Budgeting",
-    exportType: "emergency-raw-local-storage",
+    appName: "Guinness & Holley Budgeting",
+    exportType: "emergency-raw-browser-storage",
     appVersion: APP_VERSION,
     dataSchemaVersion: DATA_SCHEMA_VERSION,
     exportedAt,
-    storageKey: STORAGE_KEY,
-    parseError,
-    rawText,
-    parsedData
+    primaryStorage: "indexedDB",
+    localStorage: {
+      storageKey: STORAGE_KEY,
+      metaKey: STORAGE_META_KEY,
+      parseError,
+      rawText,
+      parsedData,
+      storageMetaText,
+      parsedStorageMeta
+    },
+    indexedDb: indexedDbRaw
   };
 
-  const result = await saveJsonPayload(payload, filename, "Guinness Budgeting raw saved data");
+  const result = await saveJsonPayload(payload, filename, "Guinness & Holley Budgeting raw saved data");
   return { ...result, exportedAt };
 }
 
@@ -111,12 +367,12 @@ export function createBackupPayload(data, exportedAt = new Date().toISOString())
   const safeData = normaliseAppData(data);
 
   return {
-    appName: "Guinness Budgeting",
+    appName: "Guinness & Holley Budgeting",
     backupFormatVersion: BACKUP_FORMAT_VERSION,
     appVersion: APP_VERSION,
     dataSchemaVersion: DATA_SCHEMA_VERSION,
     exportedAt,
-    source: "local-browser-storage",
+    source: "indexeddb-local-browser-storage",
     profile: {
       localProfileId: safeData.profile.localProfileId,
       displayName: safeData.profile.displayName,
@@ -125,7 +381,8 @@ export function createBackupPayload(data, exportedAt = new Date().toISOString())
       syncEnabled: safeData.profile.syncEnabled
     },
     counts: getBackupCounts(safeData),
-    data: safeData
+    data: safeData,
+    receiptStorage: null
   };
 }
 
@@ -136,7 +393,7 @@ export async function parseBackupFile(file) {
   try {
     parsed = JSON.parse(rawText);
   } catch (error) {
-    throw new Error("This is not a valid JSON file. Choose a Guinness Budgeting backup file.");
+    throw new Error("This is not a valid JSON file. Choose a Guinness & Holley Budgeting backup file.");
   }
 
   return parseBackupObject(parsed, file.name);
@@ -156,8 +413,8 @@ export function parseBackupObject(parsed, filename = "backup file") {
     warnings.push("This looks like an older raw data export. It can be restored, but it does not include full backup metadata.");
   }
 
-  if (isWrappedBackup && parsed.appName && parsed.appName !== "Guinness Budgeting") {
-    warnings.push("This backup does not identify itself as a Guinness Budgeting backup.");
+  if (isWrappedBackup && parsed.appName && parsed.appName !== "Guinness & Holley Budgeting") {
+    warnings.push("This backup does not identify itself as a Guinness & Holley Budgeting backup.");
   }
 
   const restoredData = normaliseAppData(candidateData);
@@ -166,7 +423,7 @@ export function parseBackupObject(parsed, filename = "backup file") {
     filename,
     warnings,
     meta: {
-      appName: parsed.appName || "Guinness Budgeting",
+      appName: parsed.appName || "Guinness & Holley Budgeting",
       backupFormatVersion: parsed.backupFormatVersion || "legacy/raw-data",
       appVersion: parsed.appVersion || parsed?.settings?.appVersion || "unknown",
       dataSchemaVersion: parsed.dataSchemaVersion || parsed?.settings?.dataVersion || "unknown",
@@ -174,8 +431,12 @@ export function parseBackupObject(parsed, filename = "backup file") {
       source: parsed.source || "unknown"
     },
     profile: restoredData.profile,
-    counts: getBackupCounts(restoredData),
-    data: restoredData
+    counts: {
+      ...getBackupCounts(restoredData),
+      indexedDbReceipts: Array.isArray(parsed.receiptStorage?.receipts) ? parsed.receiptStorage.receipts.length : 0
+    },
+    data: restoredData,
+    receiptStorage: parsed.receiptStorage || null
   };
 }
 
@@ -187,6 +448,10 @@ export function prepareDataForBackupExport(data, exportedAt = new Date().toISOSt
       ...(data.settings || {}),
       lastBackupAt: exportedAt,
       lastBackupFilename: filename,
+      hasUnbackedChanges: false,
+      changesSinceBackup: 0,
+      lastDataChangedAt: null,
+      lastBackupReminderAt: exportedAt,
       dataVersion: DATA_SCHEMA_VERSION,
       appVersion: APP_VERSION
     }
@@ -207,6 +472,11 @@ export function prepareRestoredAppData(backupData, filename, restoredAt = new Da
       lastRestoredFilename: filename,
       restoredFromBackupExportedAt: backupMeta.exportedAt || null,
       restoredFromBackupVersion: backupMeta.backupFormatVersion || null,
+      hasUnbackedChanges: true,
+      changesSinceBackup: Number(safeData.settings?.changesSinceBackup || 0) + 1,
+      lastDataChangedAt: restoredAt,
+      lastMajorChangeAt: restoredAt,
+      lastBackupReminderAt: null,
       dataVersion: DATA_SCHEMA_VERSION,
       appVersion: APP_VERSION
     }
@@ -244,10 +514,34 @@ export function validateAppData(data) {
   return { ok: errors.length === 0, errors, warnings };
 }
 
-function mergeMissingDefaultCategories(categories) {
+
+function normaliseCloudBackupConfig(value = {}) {
+  const cloud = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    provider: cloud.provider || "supabase",
+    mode: cloud.mode || "manual-cloud-backup",
+    enabled: Boolean(cloud.enabled),
+    requireLoginBeforeData: cloud.requireLoginBeforeData !== false,
+    supabaseUrl: String(cloud.supabaseUrl || "").trim(),
+    supabaseAnonKey: String(cloud.supabaseAnonKey || "").trim(),
+    tableName: cloud.tableName || "gh_cloud_backups",
+    cloudUserId: cloud.cloudUserId || null,
+    cloudUserEmail: cloud.cloudUserEmail || "",
+    lastSignedInAt: cloud.lastSignedInAt || null,
+    lastCloudBackupAt: cloud.lastCloudBackupAt || null,
+    lastCloudBackupId: cloud.lastCloudBackupId || null,
+    lastCloudRestoreAt: cloud.lastCloudRestoreAt || null,
+    lastCloudListAt: cloud.lastCloudListAt || null,
+    lastCloudError: cloud.lastCloudError || null,
+    version: cloud.version || "1"
+  };
+}
+
+function mergeMissingDefaultCategories(categories, settings = {}) {
   const existing = Array.isArray(categories) ? categories : [];
   const existingIds = new Set(existing.map(category => category.id));
-  const missingDefaults = defaultCategories.filter(category => !existingIds.has(category.id));
+  const deletedDefaultIds = new Set(Array.isArray(settings.deletedDefaultCategoryIds) ? settings.deletedDefaultCategoryIds : []);
+  const missingDefaults = defaultCategories.filter(category => !existingIds.has(category.id) && !deletedDefaultIds.has(category.id));
   return [...existing, ...missingDefaults];
 }
 
@@ -263,23 +557,107 @@ export function normaliseAppData(data) {
     next[field] = Array.isArray(base[field]) ? base[field] : [];
   });
 
-  next.categories = mergeMissingDefaultCategories(next.categories);
-
   const baseSettings = base.settings && typeof base.settings === "object" && !Array.isArray(base.settings)
     ? base.settings
     : {};
+
+  next.accounts = next.accounts.map(accountRecord => {
+    const account = accountRecord && typeof accountRecord === "object" && !Array.isArray(accountRecord) ? accountRecord : {};
+    return {
+      ...account,
+      name: account.name || "Account",
+      type: account.type || "current",
+      openingBalance: Number(account.openingBalance || 0),
+      isActive: account.isActive !== false
+    };
+  });
+
+  next.categories = mergeMissingDefaultCategories(next.categories, baseSettings).map(categoryRecord => {
+    const category = categoryRecord && typeof categoryRecord === "object" && !Array.isArray(categoryRecord) ? categoryRecord : {};
+    const type = category.type || "expense";
+    return {
+      ...category,
+      name: category.name || "Category",
+      type,
+      group: category.group || (type === "income" ? "Income" : "Other"),
+      isActive: category.isActive !== false && !category.isArchived && !category.archivedAt
+    };
+  });
   const profileSource = base.profile && typeof base.profile === "object" && !Array.isArray(base.profile)
     ? base.profile
     : {};
-  const profile = createDefaultProfile(profileSource, baseSettings);
+  const initialProfile = createDefaultProfile(profileSource, baseSettings);
+  const normalisedProfiles = Array.isArray(base.profiles) && base.profiles.length > 0
+    ? base.profiles.map(profileItem => createDefaultProfile(profileItem, baseSettings))
+    : [initialProfile];
+  const activeProfileId = base.activeProfileId
+    || initialProfile.localProfileId
+    || normalisedProfiles[0]?.localProfileId;
+  const profile = normalisedProfiles.find(item => item.localProfileId === activeProfileId)
+    || normalisedProfiles[0]
+    || initialProfile;
 
+  next.activeProfileId = profile.localProfileId;
   next.profile = profile;
+  next.profiles = normalisedProfiles.some(item => item.localProfileId === profile.localProfileId)
+    ? normalisedProfiles.map(item => item.localProfileId === profile.localProfileId ? profile : item)
+    : [profile, ...normalisedProfiles];
+
+  [
+    "transactions",
+    "accounts",
+    "categories",
+    "budgets",
+    "recurringItems",
+    "savingsGoals",
+    "closedMonths",
+    "accountAdjustments",
+    "loans",
+    "loanEvents",
+    "importBatches",
+    "importRules",
+    "transferRules",
+    "externalAccountMappings",
+    "csvColumnMappings"
+  ].forEach(field => {
+    next[field] = applyActiveProfileToRecords(next[field], next.activeProfileId);
+  });
+
   next.settings = {
     ...baseSettings,
     currency: profile.currency || baseSettings.currency || "GBP",
     currencySymbol: profile.currencySymbol || baseSettings.currencySymbol || "£",
     monthMode: profile.monthMode || baseSettings.monthMode || "calendar",
     customMonthStartDay: Number(profile.customMonthStartDay || baseSettings.customMonthStartDay || 1),
+    hasUnbackedChanges: Boolean(baseSettings.hasUnbackedChanges),
+    changesSinceBackup: Number(baseSettings.changesSinceBackup || 0),
+    lastDataChangedAt: baseSettings.lastDataChangedAt || null,
+    lastMajorChangeAt: baseSettings.lastMajorChangeAt || null,
+    lastBackupReminderAt: baseSettings.lastBackupReminderAt || null,
+    themeMode: baseSettings.themeMode || (baseSettings.darkModeEnabled ? "dark" : "light"),
+    darkModeEnabled: Boolean(baseSettings.darkModeEnabled || baseSettings.themeMode === "dark"),
+    accentColor: baseSettings.accentColor || "#0b5d45",
+    dashboardLayout: baseSettings.dashboardLayout || "full",
+    largeExpenseThreshold: Number(baseSettings.largeExpenseThreshold || 200),
+    budgetWarningThresholds: {
+      greenMax: Number(baseSettings.budgetWarningThresholds?.greenMax ?? 75),
+      orangeMax: Number(baseSettings.budgetWarningThresholds?.orangeMax ?? 100)
+    },
+    budgetAffordabilityThreshold: Number(baseSettings.budgetAffordabilityThreshold || 100),
+    budgetAffordabilityWarningsEnabled: baseSettings.budgetAffordabilityWarningsEnabled !== false,
+    billReminderDays: Number(baseSettings.billReminderDays ?? 7),
+    futureSuggestions: Array.isArray(baseSettings.futureSuggestions) ? baseSettings.futureSuggestions : [],
+    backupButtonFlashEnabled: baseSettings.backupButtonFlashEnabled !== false,
+    backupBannerDismissedAt: baseSettings.backupBannerDismissedAt || null,
+    storageMode: baseSettings.storageMode || "indexedDB",
+    storagePrimary: baseSettings.storagePrimary || "indexedDB",
+    migratedFromLocalStorageAt: baseSettings.migratedFromLocalStorageAt || null,
+    lastIndexedDbLoadAt: baseSettings.lastIndexedDbLoadAt || null,
+    indexedDbLoadError: baseSettings.indexedDbLoadError || null,
+    persistentStorageRequestedAt: baseSettings.persistentStorageRequestedAt || null,
+    persistentStorageGranted: Boolean(baseSettings.persistentStorageGranted),
+    cloudBackup: normaliseCloudBackupConfig(baseSettings.cloudBackup),
+    deletedDefaultCategoryIds: Array.isArray(baseSettings.deletedDefaultCategoryIds) ? baseSettings.deletedDefaultCategoryIds : [],
     dataVersion: DATA_SCHEMA_VERSION,
     appVersion: APP_VERSION
   };
@@ -299,20 +677,98 @@ export function getBackupCounts(data) {
     savingsGoals: safeData.savingsGoals.length,
     closedMonths: safeData.closedMonths.length,
     accountAdjustments: safeData.accountAdjustments.length,
+    loans: safeData.loans.length,
+    loanEvents: safeData.loanEvents.length,
+    linkedLoanTransactions: safeData.transactions.filter(transaction => Boolean(transaction.linkedLoanId)).length,
     importBatches: safeData.importBatches.length,
     importRules: safeData.importRules.length,
     transferRules: safeData.transferRules.length,
-    externalAccountMappings: safeData.externalAccountMappings.length
+    externalAccountMappings: safeData.externalAccountMappings.length,
+    csvColumnMappings: safeData.csvColumnMappings.length,
+    receiptAttachments: safeData.transactions.filter(transaction => Boolean(transaction.receiptId)).length,
+    indexedDbReceipts: 0,
+    profiles: safeData.profiles.length
   };
 }
 
-export function getBackupReminder(lastBackupAt, now = new Date()) {
+export function updateLocalProfile(data, profilePatch = {}) {
+  const safeData = normaliseAppData(data);
+  const now = new Date().toISOString();
+  const displayName = String(profilePatch.displayName || profilePatch.username || safeData.profile.displayName || "").trim();
+  const updatedProfile = createDefaultProfile({
+    ...safeData.profile,
+    ...profilePatch,
+    username: String(profilePatch.username || displayName || safeData.profile.username || "").trim(),
+    displayName,
+    updatedAt: now
+  }, safeData.settings);
+
+  return normaliseAppData({
+    ...safeData,
+    activeProfileId: updatedProfile.localProfileId,
+    profile: updatedProfile,
+    profiles: safeData.profiles.map(profileItem => (
+      profileItem.localProfileId === updatedProfile.localProfileId ? updatedProfile : profileItem
+    ))
+  });
+}
+
+export function markAppDataChanged(data, options = {}) {
+  const safeData = normaliseAppData(data);
+
+  if (options.markDirty === false) {
+    return safeData;
+  }
+
+  const now = options.changedAt || new Date().toISOString();
+  const previousCount = Number(safeData.settings?.changesSinceBackup || 0);
+
+  return normaliseAppData({
+    ...safeData,
+    settings: {
+      ...safeData.settings,
+      hasUnbackedChanges: true,
+      changesSinceBackup: previousCount + 1,
+      lastDataChangedAt: now,
+      lastMajorChangeAt: options.major ? now : safeData.settings?.lastMajorChangeAt || null,
+      lastChangeReason: options.reason || safeData.settings?.lastChangeReason || "App data updated",
+      dataVersion: DATA_SCHEMA_VERSION,
+      appVersion: APP_VERSION
+    }
+  });
+}
+
+export function getBackupReminder(settingsOrLastBackupAt, now = new Date()) {
+  const settings = settingsOrLastBackupAt && typeof settingsOrLastBackupAt === "object"
+    ? settingsOrLastBackupAt
+    : { lastBackupAt: settingsOrLastBackupAt };
+
+  const changesSinceBackup = Number(settings.changesSinceBackup || 0);
+
+  if (settings.hasUnbackedChanges || changesSinceBackup > 0) {
+    const level = changesSinceBackup >= 25 ? "danger" : changesSinceBackup >= 5 ? "warning" : "notice";
+    return {
+      level,
+      title: "Backup recommended",
+      message: changesSinceBackup > 0
+        ? `${changesSinceBackup} change(s) have been made since the last recorded backup.`
+        : "There are changes that have not been backed up yet.",
+      ageDays: null,
+      hasUnbackedChanges: true,
+      changesSinceBackup
+    };
+  }
+
+  const lastBackupAt = settings.lastBackupAt;
+
   if (!lastBackupAt) {
     return {
       level: "warning",
       title: "No backup recorded",
       message: "Export a backup before adding a lot of real data.",
-      ageDays: null
+      ageDays: null,
+      hasUnbackedChanges: false,
+      changesSinceBackup
     };
   }
 
@@ -322,7 +778,9 @@ export function getBackupReminder(lastBackupAt, now = new Date()) {
       level: "warning",
       title: "Backup date unreadable",
       message: "Export a fresh backup so the app has a reliable recovery point.",
-      ageDays: null
+      ageDays: null,
+      hasUnbackedChanges: false,
+      changesSinceBackup
     };
   }
 
@@ -333,7 +791,9 @@ export function getBackupReminder(lastBackupAt, now = new Date()) {
       level: "danger",
       title: "Backup is more than 14 days old",
       message: "Export a fresh backup before making more changes.",
-      ageDays
+      ageDays,
+      hasUnbackedChanges: false,
+      changesSinceBackup
     };
   }
 
@@ -342,38 +802,79 @@ export function getBackupReminder(lastBackupAt, now = new Date()) {
       level: "notice",
       title: "Backup is more than 7 days old",
       message: "Consider exporting a fresh backup soon.",
-      ageDays
+      ageDays,
+      hasUnbackedChanges: false,
+      changesSinceBackup
     };
   }
 
   return {
     level: "ok",
     title: "Backup looks recent",
-    message: "Your last recorded backup is recent.",
-    ageDays
+    message: "Your last recorded backup is recent and there are no unbacked changes.",
+    ageDays,
+    hasUnbackedChanges: false,
+    changesSinceBackup
   };
 }
 
-export function getStorageHealth(data) {
+export function getStorageHealth(data, indexedDbStats = null) {
   const validation = validateAppData(data);
   const safeData = normaliseAppData(data);
+  const storageMeta = readStorageMeta();
   const raw = localStorage.getItem(STORAGE_KEY) || "";
-  const approxBytes = new Blob([raw]).size;
+  const approxBytes = new Blob([JSON.stringify(safeData)]).size;
+  const legacyLocalStorageBytes = new Blob([raw]).size;
+  const browserEstimate = indexedDbStats?.estimate || null;
+  const approxLimitBytes = browserEstimate?.quotaBytes || null;
+  const storagePercent = browserEstimate?.usagePercent ?? null;
   const counts = getBackupCounts(safeData);
-  const reminder = getBackupReminder(safeData.settings.lastBackupAt);
+  const reminder = getBackupReminder(safeData.settings);
+  const storageWarnings = [...validation.warnings];
+  const storageErrors = [...validation.errors];
+
+  if (!isAppIndexedDbAvailable()) {
+    storageWarnings.push("IndexedDB is not available, so the app is using localStorage fallback. Export backups often.");
+  }
+
+  if (indexedDbStats?.error) {
+    storageWarnings.push(`IndexedDB status check failed: ${indexedDbStats.error}`);
+  }
+
+  if (storageMeta?.lastSaveError) {
+    storageErrors.push(`Latest storage save reported an error: ${storageMeta.lastSaveError}`);
+  }
+
+  if (storagePercent !== null && storagePercent >= 80) {
+    storageWarnings.push("Browser storage usage is getting high. Export a JSON backup before importing more data or adding receipts.");
+  }
 
   return {
-    ok: validation.ok,
-    status: validation.ok ? "OK" : "Needs attention",
-    storageType: "localStorage",
-    storageKey: STORAGE_KEY,
+    ok: validation.ok && storageErrors.length === 0 && storagePercent !== null ? storagePercent < 95 : validation.ok && storageErrors.length === 0,
+    status: validation.ok && storageErrors.length === 0 && (storagePercent === null || storagePercent < 80) ? "OK" : "Needs attention",
+    storageType: indexedDbStats?.available === false ? "localStorage fallback" : "IndexedDB",
+    storageKey: "guinness-holley-budgeting-app/appData/current",
+    legacyStorageKey: STORAGE_KEY,
     approxBytes,
     approxKilobytes: Math.round((approxBytes / 1024) * 10) / 10,
-    errors: validation.errors,
-    warnings: validation.warnings,
+    legacyLocalStorageBytes,
+    legacyLocalStorageKilobytes: Math.round((legacyLocalStorageBytes / 1024) * 10) / 10,
+    approxLimitBytes: approxLimitBytes || 0,
+    approxLimitMegabytes: approxLimitBytes ? Math.round((approxLimitBytes / (1024 * 1024)) * 10) / 10 : null,
+    storagePercent,
+    indexedDb: indexedDbStats || null,
+    lastSaveAt: lastSaveAt || storageMeta?.lastSavedAt || indexedDbStats?.currentRecordUpdatedAt || safeData.settings?.lastDataChangedAt || null,
+    lastSaveError: lastSaveError?.message || storageMeta?.lastSaveError || null,
+    errors: storageErrors,
+    warnings: storageWarnings,
     counts,
     reminder
   };
+}
+
+export async function getStorageHealthAsync(data) {
+  const indexedDbStats = await getIndexedDbStorageStats();
+  return getStorageHealth(data, indexedDbStats);
 }
 
 export function buildRestoreComparisonWarnings(currentData, preview) {
@@ -394,6 +895,14 @@ export function buildRestoreComparisonWarnings(currentData, preview) {
 
   if (backupCounts.recurringItems < currentCounts.recurringItems) {
     warnings.push(`Backup has fewer recurring items than the current app (${backupCounts.recurringItems} vs ${currentCounts.recurringItems}).`);
+  }
+
+  if ((backupCounts.loans || 0) < (currentCounts.loans || 0)) {
+    warnings.push(`Backup has fewer loans than the current app (${backupCounts.loans || 0} vs ${currentCounts.loans || 0}). Restoring may remove loan tracking data.`);
+  }
+
+  if ((backupCounts.loanEvents || 0) < (currentCounts.loanEvents || 0)) {
+    warnings.push(`Backup has fewer loan events than the current app (${backupCounts.loanEvents || 0} vs ${currentCounts.loanEvents || 0}).`);
   }
 
   const currentLastBackup = current.settings.lastBackupAt ? new Date(current.settings.lastBackupAt) : null;
@@ -419,13 +928,13 @@ export function buildRestoreComparisonWarnings(currentData, preview) {
 export function buildBackupFilename(exportedAt = new Date().toISOString()) {
   const dateStamp = exportedAt.slice(0, 10);
   const timeStamp = exportedAt.slice(11, 16).replace(":", "");
-  return `Guinness-Budgeting-Backup-${dateStamp}-${timeStamp}.json`;
+  return `Guinness-Holley-Budgeting-Backup-${dateStamp}-${timeStamp}.json`;
 }
 
 export function buildRawDataFilename(exportedAt = new Date().toISOString()) {
   const dateStamp = exportedAt.slice(0, 10);
   const timeStamp = exportedAt.slice(11, 16).replace(":", "");
-  return `Guinness-Budgeting-Raw-Storage-${dateStamp}-${timeStamp}.json`;
+  return `Guinness-Holley-Budgeting-Raw-Storage-${dateStamp}-${timeStamp}.json`;
 }
 
 export function downloadUrl(url, filename) {
@@ -480,6 +989,88 @@ async function saveJsonPayload(payload, filename, description) {
   return { ok: true, filename, method: "download" };
 }
 
+
+function loadLegacyLocalStorageData() {
+  let raw = null;
+
+  try {
+    raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? normaliseAppData(JSON.parse(raw)) : null;
+  } catch (error) {
+    console.error("Failed to load legacy localStorage app data:", error);
+    preserveCorruptStorageSnapshot(raw, error);
+    return null;
+  }
+}
+
+function writeStorageMeta(patch = {}) {
+  try {
+    const existing = readStorageMeta();
+    const next = {
+      ...existing,
+      ...patch,
+      appVersion: APP_VERSION,
+      dataSchemaVersion: DATA_SCHEMA_VERSION,
+      updatedAt: new Date().toISOString()
+    };
+    localStorage.setItem(STORAGE_META_KEY, JSON.stringify(next));
+  } catch (error) {
+    console.warn("Could not write storage metadata:", error);
+  }
+}
+
+function readStorageMeta() {
+  try {
+    const raw = localStorage.getItem(STORAGE_META_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    return { parseError: error.message || "Could not read storage metadata." };
+  }
+}
+
+async function preserveLegacyLocalStorageMigrationSnapshot(data, migratedAt) {
+  const existingSnapshot = localStorage.getItem(LEGACY_MIGRATION_SNAPSHOT_KEY);
+  if (!existingSnapshot) {
+    try {
+      localStorage.setItem(LEGACY_MIGRATION_SNAPSHOT_KEY, JSON.stringify({
+        capturedAt: migratedAt,
+        appName: "Guinness & Holley Budgeting",
+        appVersion: APP_VERSION,
+        sourceStorageKey: STORAGE_KEY,
+        data
+      }));
+    } catch (error) {
+      console.warn("Could not keep localStorage migration snapshot:", error);
+    }
+  }
+
+  try {
+    await saveAppDataSnapshot(data, "pre-indexeddb-migration");
+  } catch (error) {
+    console.warn("Could not keep IndexedDB migration snapshot:", error);
+  }
+}
+
+function removeLegacyLiveDataAfterIndexedDbSave() {
+  try {
+    if (!localStorage.getItem(LEGACY_MIGRATION_SNAPSHOT_KEY)) {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        localStorage.setItem(LEGACY_MIGRATION_SNAPSHOT_KEY, JSON.stringify({
+          capturedAt: new Date().toISOString(),
+          appName: "Guinness & Holley Budgeting",
+          appVersion: APP_VERSION,
+          sourceStorageKey: STORAGE_KEY,
+          rawText: raw
+        }));
+      }
+    }
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (error) {
+    console.warn("Could not remove legacy localStorage live data:", error);
+  }
+}
+
 function preserveCorruptStorageSnapshot(raw, error) {
   if (!raw) return;
 
@@ -487,7 +1078,7 @@ function preserveCorruptStorageSnapshot(raw, error) {
     const key = `${CORRUPT_SNAPSHOT_PREFIX}-${new Date().toISOString()}`;
     const payload = {
       capturedAt: new Date().toISOString(),
-      appName: "Guinness Budgeting",
+      appName: "Guinness & Holley Budgeting",
       appVersion: APP_VERSION,
       storageKey: STORAGE_KEY,
       error: error?.message || "Unknown load error",

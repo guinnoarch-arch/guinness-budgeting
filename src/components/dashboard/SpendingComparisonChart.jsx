@@ -7,17 +7,23 @@ export default function SpendingComparisonChart({ summary }) {
     { name: "Last month", spending: summary.previousExpenses || 0 },
     { name: "This month", spending: summary.expenses || 0 }
   ];
+  const metricName = summary.chartMetricName || "Spending";
 
   return (
     <section className="card chart-card">
-      <h3>{summary.comparisonChartTitle || "Spending vs previous months"}</h3>
+      <div className="section-header compact-header chart-title-with-toggle">
+        <div>
+          <h3>{summary.comparisonChartTitle || `${metricName} - last 6 months`}</h3>
+          <p className="muted-text chart-subtitle">Monthly {metricName.toLowerCase()} total for the selected account view.</p>
+        </div>
+      </div>
       <ResponsiveContainer width="100%" height={240}>
-        <LineChart data={data}>
+        <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="name" />
-          <YAxis />
+          <XAxis dataKey="name" interval={0} minTickGap={4} />
+          <YAxis tickFormatter={(value) => formatMoney(value, false)} />
           <Tooltip formatter={(value) => formatMoney(value)} />
-          <Line type="monotone" dataKey="spending" name={summary.chartMetricName || "Spending"} stroke="#0f766e" strokeWidth={3} />
+          <Line type="monotone" dataKey="spending" name={metricName} stroke="#0f766e" strokeWidth={3} />
         </LineChart>
       </ResponsiveContainer>
     </section>

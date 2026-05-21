@@ -1,91 +1,63 @@
-import { useEffect, useState } from "react";
-import { isStandaloneDisplayMode } from "../../services/pwaService.js";
+export default function PwaInstallCard({ pwaInstall, actions, embedded = false }) {
+  const isInstalled = Boolean(pwaInstall?.isInstalled);
+  const canInstall = Boolean(pwaInstall?.installPrompt) && !isInstalled;
+  const isOnline = pwaInstall?.isOnline !== false;
+  const offlineReady = Boolean(pwaInstall?.serviceWorkerReady);
+  const hasUpdate = Boolean(pwaInstall?.hasUpdateAvailable);
 
-export default function PwaInstallCard() {
-  const [installPrompt, setInstallPrompt] = useState(null);
-  const [isInstalled, setIsInstalled] = useState(() => isStandaloneDisplayMode());
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    function handleBeforeInstallPrompt(event) {
-      event.preventDefault();
-      setInstallPrompt(event);
-      setMessage("");
-    }
-
-    function handleInstalled() {
-      setIsInstalled(true);
-      setInstallPrompt(null);
-      setMessage("Installed successfully.");
-    }
-
-    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-    window.addEventListener("appinstalled", handleInstalled);
-
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-      window.removeEventListener("appinstalled", handleInstalled);
-    };
-  }, []);
-
-  async function installApp() {
-    if (!installPrompt) {
-      setMessage("Install prompt is not available in this browser yet. Use the browser menu and choose Install app/Add to Home Screen after running the production build.");
-      return;
-    }
-
-    installPrompt.prompt();
-    const choice = await installPrompt.userChoice;
-    setInstallPrompt(null);
-
-    if (choice.outcome === "accepted") {
-      setIsInstalled(true);
-      setMessage("Install accepted. The app should now be available from your device apps/start menu.");
-    } else {
-      setMessage("Install cancelled. You can install it later from this settings page or the browser menu.");
-    }
-  }
+  const Wrapper = embedded ? "div" : "section";
 
   return (
-    <section className="card pwa-install-card">
-      <div className="section-header">
-        <div>
-          <h3>Install app</h3>
-          <p className="muted-text">V1.11 adds Progressive Web App support so the web app can behave more like an installed app.</p>
+    <Wrapper className={embedded ? "pwa-install-card-embedded" : "card pwa-install-card"}>
+      {!embedded && (
+        <div className="section-header">
+          <div>
+            <p className="eyebrow">Installable app</p>
+            <h3>Install app and offline mode</h3>
+            <p className="muted-text">V2.6 improves the PWA setup so the app is easier to install, update and use locally before cloud sync is built.</p>
+          </div>
+          <img className="settings-app-icon" src="/icons/gb-icon-192.png" alt="Guinness & Holley Budgeting app icon" />
         </div>
-        <img className="settings-app-icon" src="/icons/gb-icon-192.png" alt="Guinness Budgeting app icon" />
-      </div>
+      )}
 
       <div className="pwa-status-grid">
         <div className="backup-status-item">
-          <span>Status</span>
-          <strong>{isInstalled ? "Installed" : installPrompt ? "Ready to install" : "Browser controlled"}</strong>
-          <small>{isInstalled ? "Running as an installed app." : "The install option appears when the browser says the app is installable."}</small>
+          <span>Install status</span>
+          <strong>{isInstalled ? "Installed" : canInstall ? "Ready to install" : "Browser controlled"}</strong>
+          <small>{isInstalled ? "Running as an installed app." : canInstall ? "Click Install app below." : "Use the browser menu if the install prompt is not shown."}</small>
         </div>
         <div className="backup-status-item">
-          <span>Works on</span>
-          <strong>Web / phone / desktop browser</strong>
-          <small>This does not add cloud sync. Data is still local unless restored from backup.</small>
+          <span>Connection</span>
+          <strong>{isOnline ? "Online" : "Offline"}</strong>
+          <small>{isOnline ? "The app can refresh from the hosted version." : "The cached app shell should still open after it has been loaded once."}</small>
         </div>
         <div className="backup-status-item">
           <span>Offline shell</span>
-          <strong>Production build only</strong>
-          <small>Use npm run build and npm run preview to test install behaviour.</small>
+          <strong>{offlineReady ? "Ready" : "Production build only"}</strong>
+          <small>Offline support is active after a production build has registered the service worker.</small>
+        </div>
+        <div className="backup-status-item">
+          <span>Update status</span>
+          <strong>{hasUpdate ? "Update available" : "Current version loaded"}</strong>
+          <small>{hasUpdate ? "Backup first, then update." : "The browser will check for updates when the app reloads."}</small>
         </div>
       </div>
 
       <div className="backup-actions-row">
-        <button className="primary-button" onClick={installApp} disabled={isInstalled}>
+        <button className="primary-button" onClick={actions.installApp} disabled={isInstalled}>
           {isInstalled ? "App installed" : "Install app"}
+        </button>
+        <button className="secondary-button" onClick={actions.updateAppFromServiceWorker} disabled={!hasUpdate}>
+          Update app
         </button>
       </div>
 
       <div className="backup-warning-box">
         <strong>Important</strong>
-        <span>Installing the app does not move data between devices. Use Export full backup / Import backup until cloud sync is built.</span>
+        <span>Installing the app does not move data between devices. Use backups until cloud sync is built. A username-only local profile is not a secure password login.</span>
       </div>
 
-      {message && <p className="muted-text">{message}</p>}
-    </section>
+      {pwaInstall?.installStatus && <p className="muted-text">{pwaInstall.installStatus}</p>}
+    </Wrapper>
   );
 }
