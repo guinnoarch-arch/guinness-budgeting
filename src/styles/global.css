@@ -4041,3 +4041,111 @@ button[disabled] {
   border-color: rgba(185, 28, 28, 0.22);
   background: rgba(185, 28, 28, 0.08);
 }
+
+/* V2.6.5: offline/local unlock and open-on-phone QR */
+.connection-pill.local-mode {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: #fcd34d;
+}
+
+.local-access-box {
+  display: grid;
+  gap: 0.55rem;
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.local-access-box .secondary-button {
+  width: fit-content;
+}
+
+.device-share-wrapper {
+  position: relative;
+}
+
+.device-share-panel {
+  position: absolute;
+  top: 48px;
+  right: 0;
+  width: min(340px, 88vw);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: 14px;
+  z-index: 75;
+  display: grid;
+  gap: 10px;
+}
+
+.device-qr-card {
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+
+.device-qr-card img,
+.device-qr-card .inline-qr-code {
+  width: 220px;
+  height: 220px;
+  max-width: 100%;
+  display: block;
+}
+
+.inline-qr-error {
+  display: grid;
+  place-items: center;
+  width: 220px;
+  min-height: 160px;
+  padding: 1rem;
+  color: #991b1b;
+  text-align: center;
+  font-weight: 800;
+}
+
+.warning-status {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.08);
+  color: #92400e;
+}
+
+.device-share-link {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--soft);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.compact-status {
+  padding: 0.55rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+[data-theme="dark"] .connection-pill.local-mode {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+[data-theme="dark"] .local-access-box {
+  background: rgba(245, 158, 11, 0.12);
+}
+
+[data-theme="dark"] .device-share-panel {
+  background: var(--card);
+}
+
+@media (max-width: 920px) {
+  .device-share-panel {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+}

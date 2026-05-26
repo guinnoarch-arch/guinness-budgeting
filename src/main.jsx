@@ -6,6 +6,7 @@ import AppShell from "./components/layout/AppShell.jsx";
 import ErrorBoundary from "./components/layout/ErrorBoundary.jsx";
 import WelcomeScreen from "./components/setup/WelcomeScreen.jsx";
 import CloudLoginGate from "./components/auth/CloudLoginGate.jsx";
+import CloudConflictScreen from "./components/auth/CloudConflictScreen.jsx";
 
 import DashboardPage from "./pages/DashboardPage.jsx";
 import TransactionsPage from "./pages/TransactionsPage.jsx";
@@ -19,11 +20,23 @@ import ImportPage from "./pages/ImportPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 
 import { getInitialAppData } from "./data/exampleData.js";
-import { exportJsonBackup, loadAppDataAsync, markAppDataChanged, prepareDataForBackupExport, saveAppData, updateLocalProfile } from "./services/storageService.js";
+import { exportJsonBackup, loadAppDataAsync, markAppDataChanged, parseBackupObject, prepareDataForBackupExport, prepareRestoredAppData, saveAppData, updateLocalProfile } from "./services/storageService.js";
 import { processRecurringItems } from "./services/recurringService.js";
 import { getMonthKey } from "./utils/dates.js";
 import { applyServiceWorkerUpdate, isStandaloneDisplayMode, registerAppServiceWorker } from "./services/pwaService.js";
-import { getStoredCloudSessionSummary, isCloudLoginGateRequired, isCloudSessionAllowed, refreshSupabaseCloudSession } from "./services/cloudBackupService.js";
+import {
+  clearStoredCloudSession,
+  fetchLatestSupabaseCloudBackup,
+  getStoredCloudSessionSummary,
+  isCloudBackupConfigured,
+  isCloudLoginGateRequired,
+  isCloudSessionAllowed,
+  refreshSupabaseCloudSession,
+  uploadSupabaseCloudBackup
+} from "./services/cloudBackupService.js";
+import { getDisplayUsernameFromSession } from "./services/authService.js";
+import { buildDataFingerprint } from "./services/cloudMergeService.js";
+import { clearLocalAccessSession, hasUsableLocalBudgetData, isLocalAccessSessionAllowed, storeLocalAccessSession } from "./services/localAccessService.js";
 
 
 
@@ -84,6 +97,9 @@ function App() {
   const [serviceWorkerReady, setServiceWorkerReady] = useState(false);
   const [waitingServiceWorker, setWaitingServiceWorker] = useState(null);
   const [cloudAuthSummary, setCloudAuthSummary] = useState(() => getStoredCloudSessionSummary());
+  const [cloudBackupStatus, setCloudBackupStatus] = useState("");
+  const [cloudConflict, setCloudConflict] = useState(null);
+  const [localAccessUnlocked, setLocalAccessUnlocked] = useState(() => isLocalAccessSessionAllowed());
 
   useEffect(() => {
     let cancelled = false;
@@ -311,6 +327,64 @@ function App() {
     }
   }
 
+  async function cloudBackupNow({ backupType = "manual", requireConfirm = true } = {}) {
+    if (!appData) return null;
+    const settings = appData.settings || {};
+    if (!isCloudBackupConfigured(settings)) {
+      setCloudBackupStatus("Cloud backup unavailable");
+      return null;
+    }
+    if (!isCloudSessionAllowed(settings, cloudAuthSummary)) {
+      setCloudBackupStatus("Sign in before cloud backup");
+      return null;
+    }
+    if (requireConfirm && !confirm("Upload the current local app data as a cloud backup?")) return null;
+
+    setCloudBackupStatus("Backing up...");
+    try {
+      const row = await uploadSupabaseCloudBackup(settings, appData, {
+        exportedAt: new Date().toISOString(),
+        backupType,
+        label: backupType === "auto" ? "Automatic cloud backup" : "Manual cloud backup"
+      });
+      const uploadedAt = row?.created_at || new Date().toISOString();
+      setAppData(prev => ({
+        ...prev,
+        settings: {
+          ...(prev.settings || {}),
+          cloudBackup: {
+            ...(prev.settings?.cloudBackup || {}),
+            enabled: true,
+            linkedLocalDataAt: prev.settings?.cloudBackup?.linkedLocalDataAt || uploadedAt,
+            cloudBackupNeeded: false,
+            lastCloudBackupAt: uploadedAt,
+            lastAutoCloudBackupAt: backupType === "auto" ? uploadedAt : prev.settings?.cloudBackup?.lastAutoCloudBackupAt || null,
+            lastCloudBackupId: row?.id || prev.settings?.cloudBackup?.lastCloudBackupId || null,
+            lastCloudError: null
+          }
+        }
+      }));
+      setCloudBackupStatus("Cloud backup up to date");
+      window.setTimeout(() => setCloudBackupStatus(""), 3000);
+      return row;
+    } catch (error) {
+      const message = error.message || "Cloud backup failed";
+      setCloudBackupStatus(message);
+      setAppData(prev => ({
+        ...prev,
+        settings: {
+          ...(prev.settings || {}),
+          cloudBackup: {
+            ...(prev.settings?.cloudBackup || {}),
+            cloudBackupNeeded: true,
+            lastCloudError: message
+          }
+        }
+      }));
+      return null;
+    }
+  }
+
 
   useEffect(() => {
     if (!appData || !isCloudLoginGateRequired(appData.settings)) return undefined;
@@ -318,18 +392,18 @@ function App() {
     let cancelled = false;
 
     async function refreshCloudAuth() {
-      const summary = getStoredCloudSessionSummary();
-      if (!summary.signedIn || !summary.isExpired) {
+      const summary = getStoredCloudSessionSummary(appData.settings);
+      if (!summary.signedIn || !summary.isExpired || summary.appExpired) {
         if (!cancelled) setCloudAuthSummary(summary);
         return;
       }
 
       try {
         await refreshSupabaseCloudSession(appData.settings);
-        if (!cancelled) setCloudAuthSummary(getStoredCloudSessionSummary());
+        if (!cancelled) setCloudAuthSummary(getStoredCloudSessionSummary(appData.settings));
       } catch (error) {
         console.warn("Could not refresh Supabase session:", error);
-        if (!cancelled) setCloudAuthSummary(getStoredCloudSessionSummary());
+        if (!cancelled) setCloudAuthSummary(getStoredCloudSessionSummary(appData.settings));
       }
     }
 
@@ -348,7 +422,183 @@ function App() {
   ]);
 
   function refreshCloudAuthState() {
-    setCloudAuthSummary(getStoredCloudSessionSummary());
+    setCloudAuthSummary(getStoredCloudSessionSummary(appData?.settings));
+  }
+
+  function openLocalAccessMode() {
+    if (!hasUsableLocalBudgetData(appData)) {
+      setCloudBackupStatus("No trusted local budget data found on this device yet. Sign in first.");
+      return;
+    }
+    storeLocalAccessSession();
+    setLocalAccessUnlocked(true);
+    setCloudBackupStatus("Opened in local-only mode. Cloud backup will resume after Supabase sign-in.");
+    window.setTimeout(() => setCloudBackupStatus(""), 5000);
+  }
+
+  async function lockApp() {
+    if (appData?.settings?.cloudBackup?.cloudBackupNeeded) {
+      await cloudBackupNow({ backupType: "auto", requireConfirm: false });
+    }
+    clearStoredCloudSession();
+    setCloudAuthSummary(getStoredCloudSessionSummary(appData?.settings));
+  }
+
+  async function logoutApp() {
+    clearLocalAccessSession();
+    setLocalAccessUnlocked(false);
+    await lockApp();
+  }
+
+  useEffect(() => {
+    if (!appData) return undefined;
+    const cloud = appData.settings?.cloudBackup || {};
+    if (!cloud.enabled || !cloud.linkedLocalDataAt || !cloud.cloudBackupNeeded) return undefined;
+    if (!isCloudBackupConfigured(appData.settings) || !isCloudSessionAllowed(appData.settings, cloudAuthSummary)) return undefined;
+
+    const timer = window.setTimeout(() => {
+      cloudBackupNow({ backupType: "auto", requireConfirm: false });
+    }, 45000);
+    return () => window.clearTimeout(timer);
+  }, [
+    appData?.settings?.cloudBackup?.enabled,
+    appData?.settings?.cloudBackup?.linkedLocalDataAt,
+    appData?.settings?.cloudBackup?.cloudBackupNeeded,
+    appData?.settings?.lastDataChangedAt,
+    cloudAuthSummary?.signedIn,
+    cloudAuthSummary?.isExpired
+  ]);
+
+  useEffect(() => {
+    if (!appData) return undefined;
+    const cloud = appData.settings?.cloudBackup || {};
+    if (!cloud.linkedLocalDataAt || !isCloudBackupConfigured(appData.settings) || !isCloudSessionAllowed(appData.settings, cloudAuthSummary)) return undefined;
+    if (cloud.lastCloudConflictAt && !cloud.cloudConflict) return undefined;
+
+    let cancelled = false;
+    async function checkLatestCloudBackup() {
+      try {
+        const latest = await fetchLatestSupabaseCloudBackup(appData.settings);
+        if (cancelled || !latest) return;
+        const preview = parseBackupObject(latest.backup_json, `cloud-backup-${String(latest.id || "").slice(0, 8)}.json`);
+        const localFingerprint = buildDataFingerprint(appData);
+        const cloudFingerprint = buildDataFingerprint(preview.data);
+        const identical = localFingerprint.checksum === cloudFingerprint.checksum;
+        const cloudTime = new Date(cloudFingerprint.updatedAt || latest.client_generated_at || latest.created_at || 0).getTime();
+        const localTime = new Date(localFingerprint.updatedAt || appData.settings?.lastCloudBackupAt || 0).getTime();
+        if (!identical && Math.abs(cloudTime - localTime) > 30000) {
+          const nextConflict = {
+            backupId: latest.id,
+            createdAt: latest.client_generated_at || latest.created_at,
+            counts: latest.counts || cloudFingerprint.counts || null,
+            row: latest,
+            cloudData: preview.data,
+            localFingerprint,
+            cloudFingerprint,
+            message: cloudTime > localTime ? "Cloud backup looks newer than local data." : "Local data looks newer than cloud backup."
+          };
+          setCloudConflict(nextConflict);
+          setAppData(prev => ({
+            ...prev,
+            settings: {
+              ...(prev.settings || {}),
+              cloudBackup: {
+                ...(prev.settings?.cloudBackup || {}),
+                cloudConflict: nextConflict,
+                lastCloudConflictAt: new Date().toISOString()
+              }
+            }
+          }));
+        } else if (identical) {
+          setCloudConflict(null);
+        }
+      } catch (error) {
+        if (!cancelled) setCloudBackupStatus(error.message || "Could not check cloud backup");
+      }
+    }
+
+    checkLatestCloudBackup();
+    return () => {
+      cancelled = true;
+    };
+  }, [appData?.settings?.cloudBackup?.linkedLocalDataAt, cloudAuthSummary?.signedIn]);
+
+  function clearCloudConflict() {
+    setCloudConflict(null);
+    setAppData(prev => ({
+      ...prev,
+      settings: {
+        ...(prev.settings || {}),
+        cloudBackup: {
+          ...(prev.settings?.cloudBackup || {}),
+          cloudConflict: null
+        }
+      }
+    }));
+  }
+
+  async function keepLocalAfterConflict() {
+    clearCloudConflict();
+    setCloudBackupStatus("Keeping local data. Cloud was not overwritten.");
+  }
+
+  async function keepBothAfterConflict() {
+    await backupNow();
+    clearCloudConflict();
+    setCloudBackupStatus("Kept local and cloud separately. Local JSON backup was offered.");
+  }
+
+  async function useCloudAfterConflict() {
+    if (!cloudConflict?.cloudData) return;
+    await backupNow();
+    const restoredAt = new Date().toISOString();
+    const nextData = prepareRestoredAppData(
+      cloudConflict.cloudData,
+      `cloud-backup-${String(cloudConflict.backupId || "").slice(0, 8)}.json`,
+      restoredAt,
+      {
+        source: "supabase-cloud-backup",
+        exportedAt: cloudConflict.createdAt || restoredAt,
+        dataSchemaVersion: cloudConflict.cloudFingerprint?.dataVersion || "unknown"
+      }
+    );
+    setAppData({
+      ...nextData,
+      settings: {
+        ...(nextData.settings || {}),
+        cloudBackup: {
+          ...(appData.settings?.cloudBackup || {}),
+          cloudConflict: null,
+          lastCloudRestoreAt: restoredAt,
+          lastCloudError: null
+        }
+      }
+    });
+    setCloudConflict(null);
+    setCloudBackupStatus("Cloud backup restored locally.");
+  }
+
+  async function applyReviewedMerge(mergeReview) {
+    if (!mergeReview?.mergedData) return;
+    await backupNow();
+    const mergedAt = new Date().toISOString();
+    setAppData({
+      ...mergeReview.mergedData,
+      settings: {
+        ...(mergeReview.mergedData.settings || {}),
+        cloudBackup: {
+          ...(appData.settings?.cloudBackup || {}),
+          cloudBackupNeeded: true,
+          cloudConflict: null,
+          lastCloudError: null
+        },
+        lastDataChangedAt: mergedAt,
+        lastChangeReason: "Reviewed cloud/local merge saved locally",
+        hasUnbackedChanges: true
+      }
+    });
+    setCloudConflict(null);
+    setCloudBackupStatus("Merged data saved locally. Upload to cloud only after confirmation.");
   }
 
   const actions = useMemo(() => ({
@@ -385,11 +635,19 @@ function App() {
     dismissBackupBanner,
     updateAppFromServiceWorker,
     refreshCloudAuthState,
+    cloudBackupNow,
+    lockApp,
+    logoutApp,
+    openLocalAccessMode,
+    cloudAuthSummary,
+    cloudBackupStatus,
+    cloudUsername: getDisplayUsernameFromSession(cloudAuthSummary),
     pwaInstall: {
       installPrompt,
       installStatus,
       isInstalled,
       isOnline,
+      isLocalAccessMode: localAccessUnlocked && !isCloudSessionAllowed(appData?.settings, cloudAuthSummary),
       serviceWorkerReady,
       waitingServiceWorker,
       hasUpdateAvailable: Boolean(waitingServiceWorker)
@@ -399,7 +657,7 @@ function App() {
     setSelectedMonth,
     selectedDashboardAccountId,
     setSelectedDashboardAccountId
-  }), [appData, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker]);
+  }), [appData, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked]);
 
   const CurrentPage = pages[activePage] || DashboardPage;
 
@@ -417,14 +675,31 @@ function App() {
 
   const loginGateRequired = isCloudLoginGateRequired(appData.settings);
   const cloudSessionAllowed = isCloudSessionAllowed(appData.settings, cloudAuthSummary);
+  const localAccessAllowed = localAccessUnlocked && hasUsableLocalBudgetData(appData);
 
-  if (loginGateRequired && !cloudSessionAllowed) {
+  if (loginGateRequired && !cloudSessionAllowed && !localAccessAllowed) {
     return (
       <CloudLoginGate
         appData={appData}
         actions={actions}
         cloudAuthSummary={cloudAuthSummary}
         onAuthChanged={refreshCloudAuthState}
+        onOpenLocalMode={hasUsableLocalBudgetData(appData) ? openLocalAccessMode : null}
+        isOnline={isOnline}
+      />
+    );
+  }
+
+  if (cloudConflict?.cloudData) {
+    return (
+      <CloudConflictScreen
+        appData={appData}
+        conflict={cloudConflict}
+        onKeepLocal={keepLocalAfterConflict}
+        onUseCloud={useCloudAfterConflict}
+        onKeepBoth={keepBothAfterConflict}
+        onApplyMerge={applyReviewedMerge}
+        onDownloadLocal={backupNow}
       />
     );
   }

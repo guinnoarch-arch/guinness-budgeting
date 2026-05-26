@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import TopNav from "./TopNav.jsx";
 import TransactionModal from "../transactions/TransactionModal.jsx";
+import InlineQrCode from "../common/InlineQrCode.jsx";
 import { getBackupReminder } from "../../services/storageService.js";
 import { buildAppNotifications } from "../../utils/notifications.js";
 
@@ -31,6 +32,8 @@ export default function AppShell({
 }) {
   const settings = appData.settings || {};
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showDeviceShare, setShowDeviceShare] = useState(false);
+  const [shareCopyStatus, setShareCopyStatus] = useState("");
   const notifications = useMemo(() => buildAppNotifications(appData), [appData]);
   const notificationCount = notifications.length;
   const backupReminder = getBackupReminder(settings);
@@ -57,6 +60,23 @@ export default function AppShell({
     && !appData.settings?.pwaInstallPromptDismissedAt
   );
   const showUpdateBanner = Boolean(pwaInstall?.hasUpdateAvailable);
+  const runtimeUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
+  const configuredPublicUrl = import.meta.env.VITE_PUBLIC_APP_URL || import.meta.env.VITE_APP_PUBLIC_URL || "";
+  const isLocalRuntime = typeof window !== "undefined" && ["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname);
+  const shareUrl = isLocalRuntime && configuredPublicUrl ? configuredPublicUrl : runtimeUrl;
+  const shareUrlIsLocal = Boolean(shareUrl && /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/i.test(shareUrl));
+
+  async function copyShareLink() {
+    if (!shareUrl) return;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopyStatus("Link copied");
+    } catch {
+      setShareCopyStatus("Could not copy link");
+    }
+    window.setTimeout(() => setShareCopyStatus(""), 2500);
+  }
 
   return (
     <div className="app-shell">
@@ -71,12 +91,54 @@ export default function AppShell({
           </div>
 
           <div className="header-actions">
-            <span className={pwaInstall?.isOnline ? "connection-pill online" : "connection-pill offline"}>
-              {pwaInstall?.isOnline ? "Online" : "Offline"}
+            <span className={pwaInstall?.isLocalAccessMode ? "connection-pill local-mode" : pwaInstall?.isOnline ? "connection-pill online" : "connection-pill offline"}>
+              {pwaInstall?.isLocalAccessMode ? "Local mode" : pwaInstall?.isOnline ? "Online" : "Offline"}
             </span>
             <button className="secondary-button theme-toggle-button" onClick={actions.toggleTheme}>
               {themeLabel}
             </button>
+
+            <div className="device-share-wrapper">
+              <HeaderIconButton
+                label="Open on phone"
+                title="Open this app on another device"
+                active={showDeviceShare}
+                onClick={() => setShowDeviceShare(prev => !prev)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <rect x="7" y="2.5" width="10" height="19" rx="2.2" />
+                  <path d="M10 5h4" />
+                  <path d="M11 18.5h2" />
+                </svg>
+              </HeaderIconButton>
+              {showDeviceShare && (
+                <div className="device-share-panel" role="dialog" aria-label="Open app on another device">
+                  <div className="notification-panel-header">
+                    <strong>Open on phone</strong>
+                    <button type="button" className="text-button" onClick={() => setShowDeviceShare(false)}>Close</button>
+                  </div>
+                  <p className="muted">Scan this QR code on your phone, then sign in and restore the latest cloud backup.</p>
+                  {shareUrl ? (
+                    <div className="device-qr-card">
+                      <InlineQrCode value={shareUrl} size={220} />
+                    </div>
+                  ) : (
+                    <p className="muted">App link is not available in this browser.</p>
+                  )}
+                  {shareUrlIsLocal && (
+                    <div className="cloud-status-message compact-status warning-status">
+                      This QR code points to a local development address. A phone usually cannot open localhost. Deploy to Vercel or set VITE_PUBLIC_APP_URL to your live app link.
+                    </div>
+                  )}
+                  <input className="device-share-link" value={shareUrl} readOnly aria-label="App link" />
+                  <div className="row-actions cloud-action-row">
+                    <button type="button" className="secondary-button small" onClick={copyShareLink}>Copy link</button>
+                    <a className="secondary-button small" href={shareUrl} target="_blank" rel="noreferrer">Open link</a>
+                  </div>
+                  {shareCopyStatus && <p className="cloud-status-message compact-status">{shareCopyStatus}</p>}
+                </div>
+              )}
+            </div>
 
             <HeaderIconButton
               label="Reports"
@@ -169,6 +231,9 @@ export default function AppShell({
             <button className={backupButtonClassName} onClick={actions.backupNow} title={backupReminder.message}>
               Backup Now
             </button>
+            <button className="secondary-button" onClick={actions.logoutApp} title="Back up if needed, then sign out">
+              Logout
+            </button>
             <button className="primary-button" onClick={actions.openAddTransaction}>
               + Add Transaction
             </button>
@@ -178,6 +243,11 @@ export default function AppShell({
         {quickBackupStatus && (
           <div className="quick-backup-status" role="status" aria-live="polite">
             {quickBackupStatus}
+          </div>
+        )}
+        {actions.cloudBackupStatus && (
+          <div className="quick-backup-status" role="status" aria-live="polite">
+            {actions.cloudBackupStatus}
           </div>
         )}
 

@@ -1,51 +1,53 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  clearStoredCloudSession,
   getStoredCloudSessionSummary,
-  getSupabaseSetupSql,
   isCloudBackupConfigured,
-  refreshSupabaseCloudSession,
-  signInToSupabaseCloud,
-  signUpToSupabaseCloud
+  refreshSupabaseCloudSession
 } from "../../services/cloudBackupService.js";
-
-function normaliseSupabaseUrl(value) {
-  return String(value || "").trim().replace(/\/rest\/v1\/?$/i, "").replace(/\/+$/, "");
-}
+import {
+  ensureProfileForSignedInUser,
+  normaliseEmail,
+  normaliseUsername,
+  signInWithEmailOrUsername,
+  signUpWithEmail,
+  validateEmail,
+  validatePassword,
+  validateSignInPassword,
+  validateUsername
+} from "../../services/authService.js";
 
 function cloudConfigFromData(appData, form) {
   const current = appData?.settings?.cloudBackup || {};
+  const username = normaliseUsername(form.username || current.cloudUsername || "");
+  const email = normaliseEmail(form.email || current.cloudUserEmail || "");
   return {
+    ...current,
     provider: "supabase",
-    mode: "manual-cloud-backup",
+    mode: current.mode || "auto-cloud-backup",
     enabled: true,
     requireLoginBeforeData: true,
-    supabaseUrl: normaliseSupabaseUrl(form.supabaseUrl),
-    supabaseAnonKey: String(form.supabaseAnonKey || "").trim(),
+    supabaseUrl: "",
+    supabaseAnonKey: "",
     tableName: current.tableName || "gh_cloud_backups",
-    cloudUserId: current.cloudUserId || null,
-    cloudUserEmail: String(form.email || current.cloudUserEmail || "").trim(),
-    lastSignedInAt: current.lastSignedInAt || null,
-    lastCloudBackupAt: current.lastCloudBackupAt || null,
-    lastCloudBackupId: current.lastCloudBackupId || null,
-    lastCloudRestoreAt: current.lastCloudRestoreAt || null,
-    lastCloudListAt: current.lastCloudListAt || null,
+    cloudUserEmail: email,
+    cloudUsername: username,
     lastCloudError: null,
     version: current.version || "1"
   };
 }
 
-export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onAuthChanged }) {
+export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onAuthChanged, onOpenLocalMode, isOnline = true }) {
   const settings = appData?.settings || {};
   const cloud = settings.cloudBackup || {};
+  const [mode, setMode] = useState("sign-in");
   const [form, setForm] = useState(() => ({
-    supabaseUrl: cloud.supabaseUrl || "",
-    supabaseAnonKey: cloud.supabaseAnonKey || "",
-    email: cloud.cloudUserEmail || appData?.profile?.email || ""
+    email: cloud.cloudUserEmail || appData?.profile?.email || "",
+    loginIdentifier: cloud.cloudUserEmail || "",
+    username: cloud.cloudUsername || appData?.profile?.username || "",
+    password: "",
+    confirmPassword: ""
   }));
-  const [password, setPassword] = useState("");
   const [status, setStatus] = useState("");
-  const [showSql, setShowSql] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
 
   const configured = useMemo(() => {
@@ -53,25 +55,31 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
     return isCloudBackupConfigured({ ...settings, cloudBackup: nextCloud });
   }, [appData, form, settings]);
 
-  const session = cloudAuthSummary || getStoredCloudSessionSummary();
+  const session = cloudAuthSummary || getStoredCloudSessionSummary(settings);
   const storedUserId = cloud.cloudUserId || null;
   const wrongAccount = Boolean(storedUserId && session?.user?.id && storedUserId !== session.user.id);
+  const emailIssue = mode === "create" ? validateEmail(form.email) : "";
+  const usernameIssue = mode === "create" ? validateUsername(form.username) : "";
+  const passwordIssue = mode === "create"
+    ? validatePassword(form.password, form.confirmPassword)
+    : validateSignInPassword(form.password);
 
   useEffect(() => {
     setForm(prev => ({
-      supabaseUrl: cloud.supabaseUrl || prev.supabaseUrl || "",
-      supabaseAnonKey: cloud.supabaseAnonKey || prev.supabaseAnonKey || "",
-      email: cloud.cloudUserEmail || appData?.profile?.email || prev.email || ""
+      ...prev,
+      email: cloud.cloudUserEmail || appData?.profile?.email || prev.email || "",
+      loginIdentifier: prev.loginIdentifier || cloud.cloudUserEmail || appData?.profile?.email || "",
+      username: cloud.cloudUsername || appData?.profile?.username || prev.username || ""
     }));
-  }, [cloud.supabaseUrl, cloud.supabaseAnonKey, cloud.cloudUserEmail, appData?.profile?.email]);
+  }, [cloud.cloudUserEmail, cloud.cloudUsername, appData?.profile?.email, appData?.profile?.username]);
 
   async function saveCloudSettings(patch = {}) {
     const baseCloud = cloudConfigFromData(appData, form);
     const nextCloud = {
       ...baseCloud,
       ...patch,
-      supabaseUrl: normaliseSupabaseUrl(patch.supabaseUrl ?? baseCloud.supabaseUrl),
-      supabaseAnonKey: String((patch.supabaseAnonKey ?? baseCloud.supabaseAnonKey) || "").trim(),
+      supabaseUrl: "",
+      supabaseAnonKey: "",
       requireLoginBeforeData: true,
       enabled: true,
       lastCloudError: patch.lastCloudError ?? null
@@ -88,78 +96,47 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
     return nextCloud;
   }
 
-  async function handleSaveSettings() {
-    const nextCloud = await saveCloudSettings({
-      supabaseUrl: form.supabaseUrl,
-      supabaseAnonKey: form.supabaseAnonKey,
-      cloudUserEmail: form.email,
-      lastCloudError: null
-    });
-    setForm(prev => ({ ...prev, supabaseUrl: nextCloud.supabaseUrl }));
-    setStatus(isCloudBackupConfigured({ ...settings, cloudBackup: nextCloud })
-      ? "Cloud settings saved. Now sign in or sign up."
-      : "Cloud settings saved, but the Supabase URL/key are still not valid.");
-  }
-
-  async function handleSignIn() {
-    setIsBusy(true);
-    setStatus("Signing in...");
-    try {
-      const nextCloud = await saveCloudSettings({
-        supabaseUrl: form.supabaseUrl,
-        supabaseAnonKey: form.supabaseAnonKey,
-        cloudUserEmail: form.email,
-        lastCloudError: null
-      });
-      const sessionResult = await signInToSupabaseCloud({ ...settings, cloudBackup: nextCloud }, form.email, password);
-      await saveCloudSettings({
-        ...nextCloud,
-        cloudUserId: sessionResult.user?.id || nextCloud.cloudUserId || null,
-        cloudUserEmail: sessionResult.user?.email || form.email,
-        lastSignedInAt: new Date().toISOString(),
-        lastCloudError: null
-      });
-      setPassword("");
-      setStatus("Signed in. Opening app...");
-      onAuthChanged?.();
-    } catch (error) {
-      const message = error.message || "Cloud sign-in failed.";
-      setStatus(message);
-      await saveCloudSettings({ lastCloudError: message });
-      onAuthChanged?.();
-    } finally {
-      setIsBusy(false);
+  async function handleAuth() {
+    if (!configured || emailIssue || usernameIssue || passwordIssue) {
+      setStatus(!configured ? "Cloud login is not configured for this build." : emailIssue || usernameIssue || passwordIssue);
+      return;
     }
-  }
 
-  async function handleSignUp() {
     setIsBusy(true);
-    setStatus("Creating cloud account...");
+    setStatus(mode === "create" ? "Creating account..." : "Signing in...");
     try {
+      const username = normaliseUsername(form.username);
+      const email = normaliseEmail(form.email);
       const nextCloud = await saveCloudSettings({
-        supabaseUrl: form.supabaseUrl,
-        supabaseAnonKey: form.supabaseAnonKey,
-        cloudUserEmail: form.email,
+        cloudUserEmail: email,
+        cloudUsername: username,
         lastCloudError: null
       });
-      const result = await signUpToSupabaseCloud({ ...settings, cloudBackup: nextCloud }, form.email, password);
-      setPassword("");
+      const sessionResult = mode === "create"
+        ? await signUpWithEmail({ ...settings, cloudBackup: nextCloud }, { email, username, password: form.password, confirmPassword: form.confirmPassword })
+        : await signInWithEmailOrUsername({ ...settings, cloudBackup: nextCloud }, form.loginIdentifier, form.password);
 
-      if (result.pendingEmailConfirmation) {
-        setStatus("Sign-up created. Check your email, confirm the account, then sign in here.");
+      setForm(prev => ({ ...prev, password: "", confirmPassword: "" }));
+
+      if (sessionResult.pendingEmailConfirmation) {
+        setStatus("Account created. Check your email if Supabase confirmation is enabled, then sign in.");
       } else {
+        const profileUsername = username || sessionResult.user?.user_metadata?.username || appData?.profile?.username || "";
+        await ensureProfileForSignedInUser({ ...settings, cloudBackup: nextCloud }, sessionResult, profileUsername).catch(() => null);
         await saveCloudSettings({
           ...nextCloud,
-          cloudUserId: result.user?.id || nextCloud.cloudUserId || null,
-          cloudUserEmail: result.user?.email || form.email,
+          cloudUserId: sessionResult.user?.id || nextCloud.cloudUserId || null,
+          cloudUserEmail: sessionResult.user?.email || email,
+          cloudUsername: normaliseUsername(profileUsername),
           lastSignedInAt: new Date().toISOString(),
+          cloudBackupNeeded: Boolean(!nextCloud.linkedLocalDataAt),
           lastCloudError: null
         });
-        setStatus("Signed up and signed in. Opening app...");
+        setStatus("Signed in. Opening app...");
       }
       onAuthChanged?.();
     } catch (error) {
-      const message = error.message || "Cloud sign-up failed.";
+      const message = error.message || "Authentication failed.";
       setStatus(message);
       await saveCloudSettings({ lastCloudError: message });
       onAuthChanged?.();
@@ -173,9 +150,8 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
     setStatus("Refreshing session...");
     try {
       const nextCloud = await saveCloudSettings({
-        supabaseUrl: form.supabaseUrl,
-        supabaseAnonKey: form.supabaseAnonKey,
-        cloudUserEmail: form.email,
+        cloudUserEmail: normaliseEmail(form.email),
+        cloudUsername: normaliseUsername(form.username),
         lastCloudError: null
       });
       await refreshSupabaseCloudSession({ ...settings, cloudBackup: nextCloud });
@@ -189,12 +165,6 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
     }
   }
 
-  function handleClearSession() {
-    clearStoredCloudSession();
-    setStatus("Signed out on this browser. Sign in to open the app.");
-    onAuthChanged?.();
-  }
-
   return (
     <main className="login-gate-page">
       <section className="card login-gate-card">
@@ -203,73 +173,102 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
           <div>
             <p className="eyebrow">Guinness & Holley Budgeting</p>
             <h1>Sign in to open your budget</h1>
-            <p className="muted-text">Your finance data is hidden until your Supabase cloud account is signed in on this browser.</p>
+            <p className="muted-text">Sign in for cloud backup, or open this device in local-only mode if Supabase is unavailable.</p>
           </div>
         </div>
 
         <div className="backup-warning-box">
-          <strong>Login gate enabled</strong>
-          <span>This blocks the app interface before any budget data is shown. Local IndexedDB data still stays on this device; keep JSON backups as well.</span>
+          <strong>Local-first with cloud backup</strong>
+          <span>Your working data still saves on this device first. Supabase is used for sign-in and cloud backup, not as the only copy of your data.</span>
+        </div>
+
+        {!configured && (
+          <div className="backup-warning-box danger-box">
+            <strong>Cloud login is not configured for this build.</strong>
+            <span>Ask the app owner to enable cloud login for this deployment.</span>
+          </div>
+        )}
+
+        {onOpenLocalMode && (
+          <div className="backup-warning-box local-access-box">
+            <strong>{isOnline ? "Need to open without Supabase?" : "You are offline"}</strong>
+            <span>Open the local copy saved on this device. Cloud backup, restore and device switching will stay paused until you sign in again.</span>
+            <button type="button" className="secondary-button small" onClick={onOpenLocalMode} disabled={isBusy}>
+              Open local-only mode
+            </button>
+          </div>
+        )}
+
+        <div className="row-actions cloud-action-row">
+          <button type="button" className={mode === "sign-in" ? "primary-button" : "secondary-button"} onClick={() => setMode("sign-in")}>Sign in</button>
+          <button type="button" className={mode === "create" ? "primary-button" : "secondary-button"} onClick={() => setMode("create")}>Create account</button>
         </div>
 
         <div className="cloud-setup-grid login-gate-grid">
+          {mode === "create" ? (
+            <label>
+              Email address
+              <input
+                type="email"
+                value={form.email}
+                onChange={event => setForm(prev => ({ ...prev, email: event.target.value }))}
+                placeholder="you@example.com"
+                autoComplete="email"
+              />
+            </label>
+          ) : (
+            <label>
+              Email or username
+              <input
+                value={form.loginIdentifier}
+                onChange={event => setForm(prev => ({ ...prev, loginIdentifier: event.target.value }))}
+                placeholder="you@example.com or yourusername"
+                autoComplete="username"
+              />
+            </label>
+          )}
+          {mode === "create" && (
+            <label>
+              Username
+              <input
+                value={form.username}
+                onChange={event => setForm(prev => ({ ...prev, username: event.target.value }))}
+                placeholder="guinness"
+                autoComplete="username"
+              />
+            </label>
+          )}
           <label>
-            Supabase project URL
-            <input
-              value={form.supabaseUrl}
-              onChange={event => setForm(prev => ({ ...prev, supabaseUrl: event.target.value }))}
-              placeholder="https://your-project.supabase.co"
-              autoComplete="off"
-            />
-          </label>
-          <label>
-            Supabase anon public key
-            <input
-              value={form.supabaseAnonKey}
-              onChange={event => setForm(prev => ({ ...prev, supabaseAnonKey: event.target.value }))}
-              placeholder="sb_publishable_..."
-              autoComplete="off"
-            />
-          </label>
-          <label>
-            Cloud account email
-            <input
-              type="email"
-              value={form.email}
-              onChange={event => setForm(prev => ({ ...prev, email: event.target.value }))}
-              placeholder="you@example.com"
-              autoComplete="username"
-            />
-          </label>
-          <label>
-            Cloud account password
+            Password
             <input
               type="password"
-              value={password}
-              onChange={event => setPassword(event.target.value)}
-              placeholder="Not saved in app data"
-              autoComplete="current-password"
+              value={form.password}
+              onChange={event => setForm(prev => ({ ...prev, password: event.target.value }))}
+              placeholder="At least 8 characters"
+              autoComplete={mode === "create" ? "new-password" : "current-password"}
             />
           </label>
+          {mode === "create" && (
+            <label>
+              Confirm password
+              <input
+                type="password"
+                value={form.confirmPassword}
+                onChange={event => setForm(prev => ({ ...prev, confirmPassword: event.target.value }))}
+                placeholder="Repeat password"
+                autoComplete="new-password"
+              />
+            </label>
+          )}
         </div>
 
         <div className="row-actions cloud-action-row">
-          <button type="button" className="secondary-button" onClick={handleSaveSettings} disabled={isBusy}>Save cloud settings</button>
-          <button type="button" className="secondary-button" onClick={handleSignUp} disabled={isBusy || !configured}>Sign up</button>
-          <button type="button" className="primary-button" onClick={handleSignIn} disabled={isBusy || !configured}>Sign in</button>
-          {session.signedIn && session.isExpired && (
+          <button type="button" className="primary-button" onClick={handleAuth} disabled={isBusy || !configured}>
+            {mode === "create" ? "Create account" : "Sign in"}
+          </button>
+          {session.signedIn && session.tokenExpired && !session.appExpired && (
             <button type="button" className="secondary-button" onClick={handleRefreshSession} disabled={isBusy || !configured}>Refresh session</button>
           )}
-          {session.signedIn && (
-            <button type="button" className="secondary-button" onClick={handleClearSession} disabled={isBusy}>Clear saved session</button>
-          )}
-        </div>
-
-        <div className="storage-health-grid cloud-status-grid login-status-grid">
-          <p><span>Configured</span><strong>{configured ? "Yes" : "No"}</strong></p>
-          <p><span>Saved session</span><strong>{session.signedIn ? session.user?.email || "Yes" : "No"}</strong></p>
-          <p><span>Session expires</span><strong>{session.expiresAt ? new Date(session.expiresAt).toLocaleString("en-GB") : "Never"}</strong></p>
-          <p><span>Account check</span><strong>{wrongAccount ? "Wrong account" : "OK"}</strong></p>
         </div>
 
         {wrongAccount && (
@@ -281,18 +280,6 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
 
         {status && <p className="cloud-status-message">{status}</p>}
 
-        <div className="row-actions">
-          <button type="button" className="secondary-button small" onClick={() => setShowSql(value => !value)}>
-            {showSql ? "Hide Supabase SQL setup" : "Show Supabase SQL setup"}
-          </button>
-        </div>
-
-        {showSql && (
-          <div className="cloud-sql-box">
-            <p className="muted-text">Run this once in the Supabase SQL Editor. It creates the backup table and security policies.</p>
-            <textarea readOnly value={getSupabaseSetupSql()} rows={16} />
-          </div>
-        )}
       </section>
     </main>
   );

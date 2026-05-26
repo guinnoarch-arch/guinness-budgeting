@@ -84,6 +84,40 @@ export function loadAppData() {
   return loadLegacyLocalStorageData();
 }
 
+function readDataVersion(data, fallback = "unknown") {
+  return data?.settings?.dataVersion || data?.settings?.appVersion || data?.dataSchemaVersion || data?.appVersion || fallback;
+}
+
+function buildMigrationActions(previousVersion, source) {
+  const actions = [
+    "Normalised required lists and optional app sections.",
+    "Filled missing settings defaults.",
+    "Preserved archived categories, archived savings goals, loans, imports, accounts, settings, and closed months."
+  ];
+
+  if (source === "localStorage") {
+    actions.unshift("Migrated legacy localStorage data into the current browser storage record.");
+  }
+
+  if (previousVersion === DATA_SCHEMA_VERSION) {
+    actions.push("Data was already on the current schema; no structural migration was required.");
+  }
+
+  return actions;
+}
+
+function buildMigrationSettingsPatch(previousVersion, migratedAt, warnings = []) {
+  return previousVersion && previousVersion !== DATA_SCHEMA_VERSION
+    ? {
+        lastMigrationRunAt: migratedAt,
+        lastMigrationPreviousVersion: previousVersion,
+        lastMigrationNewVersion: DATA_SCHEMA_VERSION,
+        lastMigrationWarnings: warnings,
+        lastMigrationError: null
+      }
+    : {};
+}
+
 async function writeStorageLogSafely(entry) {
   try {
     await addStorageLog(entry);
@@ -99,23 +133,45 @@ export async function loadAppDataAsync() {
     try {
       const record = await readCurrentAppDataRecord();
       if (record?.data) {
+        const loadedAt = new Date().toISOString();
+        const previousVersion = readDataVersion(record.data, record.dataSchemaVersion || record.appVersion || "unknown");
+        const normalisedData = normaliseAppData({
+          ...record.data,
+          settings: {
+            ...(record.data.settings || {}),
+            ...buildMigrationSettingsPatch(previousVersion, loadedAt),
+            storageMode: "indexedDB",
+            storagePrimary: "indexedDB",
+            lastIndexedDbLoadAt: loadedAt,
+            dataVersion: DATA_SCHEMA_VERSION,
+            appVersion: APP_VERSION
+          }
+        });
+
         await writeStorageLogSafely({
           level: "info",
           event: "indexeddb_load_success",
           message: "Loaded app data from IndexedDB.",
           details: { updatedAt: record.updatedAt || null, appVersion: record.appVersion || null }
         });
-        return normaliseAppData({
-          ...record.data,
-          settings: {
-            ...(record.data.settings || {}),
-            storageMode: "indexedDB",
-            storagePrimary: "indexedDB",
-            lastIndexedDbLoadAt: new Date().toISOString(),
-            dataVersion: DATA_SCHEMA_VERSION,
-            appVersion: APP_VERSION
-          }
-        });
+
+        if (previousVersion !== DATA_SCHEMA_VERSION) {
+          await writeStorageLogSafely({
+            level: "warning",
+            event: "data_migration_success",
+            message: `Upgraded saved app data from ${previousVersion} to ${DATA_SCHEMA_VERSION}.`,
+            details: {
+              previousVersion,
+              newVersion: DATA_SCHEMA_VERSION,
+              migratedAt: loadedAt,
+              source: "indexedDB",
+              actions: buildMigrationActions(previousVersion, "indexedDB"),
+              warnings: []
+            }
+          });
+        }
+
+        return normalisedData;
       }
     } catch (error) {
       indexedDbError = error;
@@ -133,10 +189,12 @@ export async function loadAppDataAsync() {
 
   if (legacyData) {
     const migratedAt = new Date().toISOString();
+    const previousVersion = readDataVersion(legacyData);
     const migratedData = normaliseAppData({
       ...legacyData,
       settings: {
         ...(legacyData.settings || {}),
+        ...buildMigrationSettingsPatch(previousVersion, migratedAt),
         storageMode: "indexedDB",
         storagePrimary: isAppIndexedDbAvailable() ? "indexedDB" : "localStorage-fallback",
         migratedFromLocalStorageAt: legacyData.settings?.migratedFromLocalStorageAt || migratedAt,
@@ -157,10 +215,17 @@ export async function loadAppDataAsync() {
           source: "localStorage-migration"
         });
         await writeStorageLogSafely({
-          level: "info",
+          level: previousVersion === DATA_SCHEMA_VERSION ? "info" : "warning",
           event: "localstorage_migration_success",
           message: "Migrated legacy localStorage data into IndexedDB.",
-          details: { migratedAt }
+          details: {
+            previousVersion,
+            newVersion: DATA_SCHEMA_VERSION,
+            migratedAt,
+            source: "localStorage",
+            actions: buildMigrationActions(previousVersion, "localStorage"),
+            warnings: []
+          }
         });
         writeStorageMeta({
           storageMode: "indexedDB",
@@ -173,7 +238,15 @@ export async function loadAppDataAsync() {
           level: "error",
           event: "localstorage_migration_failed",
           message: error.message || "Failed to migrate legacy localStorage data into IndexedDB.",
-          details: { migratedAt }
+          details: {
+            previousVersion,
+            newVersion: DATA_SCHEMA_VERSION,
+            migratedAt,
+            source: "localStorage",
+            actions: buildMigrationActions(previousVersion, "localStorage"),
+            success: false,
+            warnings: [error.message || "Failed to migrate legacy localStorage data into IndexedDB."]
+          }
         });
       }
     }
@@ -229,6 +302,7 @@ export async function saveAppDataAsync(data) {
       lastSaveError = null;
       writeStorageMeta({ storageMode: "indexedDB", lastSavedAt: savedAt, lastSaveError: null });
       removeLegacyLiveDataAfterIndexedDbSave();
+      writeLocalStorageRecoveryCopy(safeData);
       return { ok: true, storageMode: "indexedDB", savedAt };
     } catch (error) {
       lastSaveError = error;
@@ -387,6 +461,11 @@ export function createBackupPayload(data, exportedAt = new Date().toISOString())
 }
 
 export async function parseBackupFile(file) {
+  const fileCheck = isSupportedBackupFile(file);
+  if (!fileCheck.ok) {
+    throw new Error(fileCheck.message);
+  }
+
   const rawText = await file.text();
   let parsed;
 
@@ -519,11 +598,11 @@ function normaliseCloudBackupConfig(value = {}) {
   const cloud = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
     provider: cloud.provider || "supabase",
-    mode: cloud.mode || "manual-cloud-backup",
+    mode: cloud.mode || "auto-cloud-backup",
     enabled: Boolean(cloud.enabled),
     requireLoginBeforeData: cloud.requireLoginBeforeData !== false,
-    supabaseUrl: String(cloud.supabaseUrl || "").trim(),
-    supabaseAnonKey: String(cloud.supabaseAnonKey || "").trim(),
+    supabaseUrl: "",
+    supabaseAnonKey: "",
     tableName: cloud.tableName || "gh_cloud_backups",
     cloudUserId: cloud.cloudUserId || null,
     cloudUserEmail: cloud.cloudUserEmail || "",
@@ -533,8 +612,32 @@ function normaliseCloudBackupConfig(value = {}) {
     lastCloudRestoreAt: cloud.lastCloudRestoreAt || null,
     lastCloudListAt: cloud.lastCloudListAt || null,
     lastCloudError: cloud.lastCloudError || null,
+    cloudBackupNeeded: Boolean(cloud.cloudBackupNeeded),
+    linkedLocalDataAt: cloud.linkedLocalDataAt || null,
+    lastAutoCloudBackupAt: cloud.lastAutoCloudBackupAt || null,
+    lastCloudConflictAt: cloud.lastCloudConflictAt || null,
+    cloudConflict: cloud.cloudConflict || null,
+    appSessionDays: Number(cloud.appSessionDays || 7),
     version: cloud.version || "1"
   };
+}
+
+export function isSupportedBackupFile(file) {
+  if (!file) {
+    return { ok: false, message: "Choose a JSON backup file first." };
+  }
+
+  const maxBytes = 25 * 1024 * 1024;
+  if (Number(file.size || 0) > maxBytes) {
+    return { ok: false, message: "This backup file is over 25 MB. Export emergency raw data first, then split or inspect the file before restoring." };
+  }
+
+  const name = String(file.name || "").toLowerCase();
+  if (name && !name.endsWith(".json")) {
+    return { ok: false, message: "Choose a .json backup file." };
+  }
+
+  return { ok: true, message: "" };
 }
 
 function mergeMissingDefaultCategories(categories, settings = {}) {
@@ -543,6 +646,84 @@ function mergeMissingDefaultCategories(categories, settings = {}) {
   const deletedDefaultIds = new Set(Array.isArray(settings.deletedDefaultCategoryIds) ? settings.deletedDefaultCategoryIds : []);
   const missingDefaults = defaultCategories.filter(category => !existingIds.has(category.id) && !deletedDefaultIds.has(category.id));
   return [...existing, ...missingDefaults];
+}
+
+function safeNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function normaliseSavingsGoalRecord(goalRecord) {
+  const goal = goalRecord && typeof goalRecord === "object" && !Array.isArray(goalRecord) ? goalRecord : {};
+  return {
+    ...goal,
+    name: goal.name || "Savings goal",
+    targetAmount: safeNumber(goal.targetAmount, 0),
+    currentManualAmount: safeNumber(goal.currentManualAmount, 0),
+    linkedAccountId: goal.linkedAccountId || null,
+    targetDate: goal.targetDate || null,
+    isActive: goal.isActive !== false && !goal.isArchived && !goal.archivedAt,
+    isArchived: Boolean(goal.isArchived || goal.archivedAt || goal.isActive === false),
+    archivedAt: goal.archivedAt || null
+  };
+}
+
+function normaliseLoanRecord(loanRecord) {
+  const loan = loanRecord && typeof loanRecord === "object" && !Array.isArray(loanRecord) ? loanRecord : {};
+  const type = loan.type || "studentLoan";
+  const baseLoan = {
+    ...loan,
+    type,
+    name: loan.name || (type === "mortgage" ? "Mortgage" : "Loan"),
+    originalAmount: safeNumber(loan.originalAmount, 0),
+    currentBalance: safeNumber(loan.currentBalance, 0),
+    balanceDate: loan.balanceDate || null,
+    startDate: loan.startDate || null,
+    status: loan.status || (loan.isActive === false || loan.archivedAt ? "archived" : "active"),
+    archivedAt: loan.archivedAt || null
+  };
+
+  if (type === "mortgage") {
+    return {
+      ...baseLoan,
+      mortgageDetails: {
+        repaymentType: "repayment",
+        termYears: 25,
+        remainingTermMonths: 0,
+        monthlyPayment: 0,
+        paymentDay: 1,
+        interestType: "fixed",
+        currentRate: 0,
+        fixedUntil: null,
+        followOnRate: 0,
+        plannedMonthlyOverpayment: 0,
+        overpaymentAllowancePercent: 10,
+        earlyRepaymentChargeApplies: false,
+        propertyValue: 0,
+        ...(loan.mortgageDetails && typeof loan.mortgageDetails === "object" && !Array.isArray(loan.mortgageDetails) ? loan.mortgageDetails : {})
+      },
+      studentLoanDetails: null
+    };
+  }
+
+  if (type === "studentLoan") {
+    return {
+      ...baseLoan,
+      studentLoanDetails: {
+        planType: "plan2",
+        repaymentStartDate: null,
+        grossAnnualSalary: 0,
+        payFrequency: "monthly",
+        employmentType: "PAYE",
+        salaryGrowthPercent: 0,
+        manualAnnualInterestRate: null,
+        ...(loan.studentLoanDetails && typeof loan.studentLoanDetails === "object" && !Array.isArray(loan.studentLoanDetails) ? loan.studentLoanDetails : {})
+      },
+      mortgageDetails: null
+    };
+  }
+
+  return baseLoan;
 }
 
 export function normaliseAppData(data) {
@@ -583,6 +764,10 @@ export function normaliseAppData(data) {
       isActive: category.isActive !== false && !category.isArchived && !category.archivedAt
     };
   });
+
+  next.savingsGoals = next.savingsGoals.map(normaliseSavingsGoalRecord);
+  next.loans = next.loans.map(normaliseLoanRecord);
+
   const profileSource = base.profile && typeof base.profile === "object" && !Array.isArray(base.profile)
     ? base.profile
     : {};
@@ -732,6 +917,10 @@ export function markAppDataChanged(data, options = {}) {
       lastDataChangedAt: now,
       lastMajorChangeAt: options.major ? now : safeData.settings?.lastMajorChangeAt || null,
       lastChangeReason: options.reason || safeData.settings?.lastChangeReason || "App data updated",
+      cloudBackup: {
+        ...(safeData.settings.cloudBackup || {}),
+        cloudBackupNeeded: Boolean(safeData.settings.cloudBackup?.enabled || safeData.settings.cloudBackup?.linkedLocalDataAt)
+      },
       dataVersion: DATA_SCHEMA_VERSION,
       appVersion: APP_VERSION
     }
@@ -822,7 +1011,8 @@ export function getStorageHealth(data, indexedDbStats = null) {
   const validation = validateAppData(data);
   const safeData = normaliseAppData(data);
   const storageMeta = readStorageMeta();
-  const raw = localStorage.getItem(STORAGE_KEY) || "";
+  const localStorageStatus = getLocalStorageStatus();
+  const raw = localStorageStatus.available ? localStorage.getItem(STORAGE_KEY) || "" : "";
   const approxBytes = new Blob([JSON.stringify(safeData)]).size;
   const legacyLocalStorageBytes = new Blob([raw]).size;
   const browserEstimate = indexedDbStats?.estimate || null;
@@ -835,6 +1025,10 @@ export function getStorageHealth(data, indexedDbStats = null) {
 
   if (!isAppIndexedDbAvailable()) {
     storageWarnings.push("IndexedDB is not available, so the app is using localStorage fallback. Export backups often.");
+  }
+
+  if (!localStorageStatus.available) {
+    storageErrors.push(`localStorage is not available: ${localStorageStatus.error || "browser blocked access"}`);
   }
 
   if (indexedDbStats?.error) {
@@ -852,9 +1046,11 @@ export function getStorageHealth(data, indexedDbStats = null) {
   return {
     ok: validation.ok && storageErrors.length === 0 && storagePercent !== null ? storagePercent < 95 : validation.ok && storageErrors.length === 0,
     status: validation.ok && storageErrors.length === 0 && (storagePercent === null || storagePercent < 80) ? "OK" : "Needs attention",
-    storageType: indexedDbStats?.available === false ? "localStorage fallback" : "IndexedDB",
+    storageType: indexedDbStats?.available === false ? "localStorage fallback" : "IndexedDB with localStorage recovery support",
     storageKey: "guinness-holley-budgeting-app/appData/current",
     legacyStorageKey: STORAGE_KEY,
+    localStorageAvailable: localStorageStatus.available,
+    localStorageError: localStorageStatus.error,
     approxBytes,
     approxKilobytes: Math.round((approxBytes / 1024) * 10) / 10,
     legacyLocalStorageBytes,
@@ -865,6 +1061,11 @@ export function getStorageHealth(data, indexedDbStats = null) {
     indexedDb: indexedDbStats || null,
     lastSaveAt: lastSaveAt || storageMeta?.lastSavedAt || indexedDbStats?.currentRecordUpdatedAt || safeData.settings?.lastDataChangedAt || null,
     lastSaveError: lastSaveError?.message || storageMeta?.lastSaveError || null,
+    lastMigrationRunAt: safeData.settings?.lastMigrationRunAt || safeData.settings?.migratedFromLocalStorageAt || null,
+    lastMigrationPreviousVersion: safeData.settings?.lastMigrationPreviousVersion || null,
+    lastMigrationNewVersion: safeData.settings?.lastMigrationNewVersion || null,
+    lastMigrationWarnings: Array.isArray(safeData.settings?.lastMigrationWarnings) ? safeData.settings.lastMigrationWarnings : [],
+    lastMigrationError: safeData.settings?.lastMigrationError || storageMeta?.lastMigrationError || null,
     errors: storageErrors,
     warnings: storageWarnings,
     counts,
@@ -1028,6 +1229,17 @@ function readStorageMeta() {
   }
 }
 
+function getLocalStorageStatus() {
+  try {
+    const testKey = `${STORAGE_META_KEY}-availability-check`;
+    localStorage.setItem(testKey, "1");
+    localStorage.removeItem(testKey);
+    return { available: true, error: null };
+  } catch (error) {
+    return { available: false, error: error.message || "localStorage access failed." };
+  }
+}
+
 async function preserveLegacyLocalStorageMigrationSnapshot(data, migratedAt) {
   const existingSnapshot = localStorage.getItem(LEGACY_MIGRATION_SNAPSHOT_KEY);
   if (!existingSnapshot) {
@@ -1065,9 +1277,16 @@ function removeLegacyLiveDataAfterIndexedDbSave() {
         }));
       }
     }
-    localStorage.removeItem(STORAGE_KEY);
   } catch (error) {
-    console.warn("Could not remove legacy localStorage live data:", error);
+    console.warn("Could not preserve legacy localStorage snapshot:", error);
+  }
+}
+
+function writeLocalStorageRecoveryCopy(data) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.warn("Could not write localStorage recovery copy:", error);
   }
 }
 

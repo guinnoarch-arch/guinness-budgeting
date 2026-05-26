@@ -56,8 +56,8 @@ export default function WelcomeScreen({ onSetup, onExplore }) {
         </div>
 
         <div className="local-login-note">
-          <strong>Local profile only</strong>
-          <span>No password is used in V2.6. This is not secure authentication; data is still stored locally in this browser/device.</span>
+          <strong>Local profile details</strong>
+          <span>This names the local budget profile after sign-in. Your working data still stores locally on this browser/device.</span>
         </div>
 
         <div className="welcome-actions">

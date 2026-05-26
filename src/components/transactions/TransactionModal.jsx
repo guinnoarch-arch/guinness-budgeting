@@ -55,13 +55,26 @@ export default function TransactionModal({ appData, actions, editingTransaction 
   }));
 
   const categories = useMemo(() => (
-    (appData.categories || []).filter(category => category.isActive !== false && category.type === form.type)
+    (appData.categories || []).filter(category => category.isActive !== false && !category.isArchived && !category.archivedAt && category.type === form.type)
   ), [appData.categories, form.type]);
+  const linkedArchivedCategory = form.categoryId
+    ? (appData.categories || []).find(category => (
+        category.id === form.categoryId
+        && category.type === form.type
+        && !categories.some(activeCategory => activeCategory.id === category.id)
+      ))
+    : null;
 
   const activeLoans = useMemo(() => (
     (appData.loans || []).filter(loan => loan.status !== "archived" && loan.status !== "closed")
   ), [appData.loans]);
   const selectedLoan = activeLoans.find(loan => loan.id === form.linkedLoanId) || null;
+  const activeSavingsGoals = useMemo(() => (
+    (appData.savingsGoals || []).filter(goal => goal.isActive !== false && !goal.isArchived && !goal.archivedAt)
+  ), [appData.savingsGoals]);
+  const linkedArchivedSavingsGoal = form.linkedSavingsGoalId
+    ? (appData.savingsGoals || []).find(goal => goal.id === form.linkedSavingsGoalId && !activeSavingsGoals.some(activeGoal => activeGoal.id === goal.id))
+    : null;
 
   const largeExpenseThreshold = Number(appData.settings?.largeExpenseThreshold || 200);
   const amountValue = Number(form.amount || 0);
@@ -261,6 +274,9 @@ export default function TransactionModal({ appData, actions, editingTransaction 
                 Category
                 <select value={form.categoryId} onChange={e => update("categoryId", e.target.value)}>
                   <option value="">Choose category</option>
+                  {linkedArchivedCategory && (
+                    <option value={linkedArchivedCategory.id}>{linkedArchivedCategory.name || "Archived category"} (archived)</option>
+                  )}
                   {categories.map(category => (
                     <option key={category.id} value={category.id}>{category.name}</option>
                   ))}
@@ -386,7 +402,10 @@ export default function TransactionModal({ appData, actions, editingTransaction 
                 Linked savings goal
                 <select value={form.linkedSavingsGoalId} onChange={e => update("linkedSavingsGoalId", e.target.value)}>
                   <option value="">None</option>
-                  {(appData.savingsGoals || []).filter(goal => goal.isActive !== false).map(goal => (
+                  {linkedArchivedSavingsGoal && (
+                    <option value={linkedArchivedSavingsGoal.id}>{linkedArchivedSavingsGoal.name || "Archived savings goal"} (archived)</option>
+                  )}
+                  {activeSavingsGoals.map(goal => (
                     <option key={goal.id} value={goal.id}>{goal.name}</option>
                   ))}
                 </select>

@@ -54,7 +54,7 @@ export default function PwaInstallCard({ pwaInstall, actions, embedded = false }
 
       <div className="backup-warning-box">
         <strong>Important</strong>
-        <span>Installing the app does not move data between devices. Use backups until cloud sync is built. A username-only local profile is not a secure password login.</span>
+        <span>Installing the app does not move data between devices. Local JSON backup remains the safest portable recovery copy; cloud backup is an extra safety layer after sign-in.</span>
       </div>
 
       {pwaInstall?.installStatus && <p className="muted-text">{pwaInstall.installStatus}</p>}

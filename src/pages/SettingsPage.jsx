@@ -23,20 +23,30 @@ import PwaInstallCard from "../components/settings/PwaInstallCard.jsx";
 import { createId } from "../utils/ids.js";
 import { getReceiptStorageStats, restoreReceiptBackupRecords } from "../services/receiptStorageService.js";
 import { repairSafeAppDataIssues, validateCurrentAppData } from "../services/dataValidationService.js";
-import { addStorageLog, clearStorageLogs, listStorageLogs } from "../services/indexedDbStorageService.js";
+import { addStorageLog, clearStorageLogs, listStorageLogs, saveAppDataSnapshot } from "../services/indexedDbStorageService.js";
 import {
   clearStoredCloudSession,
   deleteSupabaseCloudBackup,
   downloadCloudBackupJson,
   fetchSupabaseCloudBackup,
+  fetchLatestSupabaseCloudBackup,
+  getCloudConfig,
+  getSupabaseKeySafetyIssue,
   getStoredCloudSessionSummary,
   getSupabaseSetupSql,
   isCloudBackupConfigured,
+  isCloudLoginGateRequired,
   listSupabaseCloudBackups,
-  signInToSupabaseCloud,
-  signUpToSupabaseCloud,
   uploadSupabaseCloudBackup
 } from "../services/cloudBackupService.js";
+import {
+  getDisplayUsernameFromSession,
+  ensureProfileForSignedInUser,
+  normaliseEmail,
+  normaliseUsername,
+  signInWithEmailOrUsername,
+  signUpWithEmail
+} from "../services/authService.js";
 
 function formatDateTime(value) {
   if (!value) return "Never";
@@ -143,6 +153,15 @@ function StorageLogList({ logs }) {
           <span>{formatDateTime(log.createdAt)}</span>
           <strong>{log.event || "storage_event"}</strong>
           <p>{log.message}</p>
+          {log.details?.previousVersion && (
+            <small>Version {log.details.previousVersion} to {log.details.newVersion || "current"}</small>
+          )}
+          {Array.isArray(log.details?.actions) && log.details.actions.length > 0 && (
+            <small>{log.details.actions.join(" ")}</small>
+          )}
+          {Array.isArray(log.details?.warnings) && log.details.warnings.length > 0 && (
+            <small>Warnings: {log.details.warnings.join(" ")}</small>
+          )}
         </div>
       ))}
     </div>
@@ -152,7 +171,7 @@ function StorageLogList({ logs }) {
 
 function CloudBackupRows({ rows, onPreview, onDownload, onDelete }) {
   if (!rows || rows.length === 0) {
-    return <p className="muted-text">No cloud backups listed yet. Upload one after signing in.</p>;
+    return <p className="muted-text">No cloud backups found yet.</p>;
   }
 
   return (
@@ -161,6 +180,7 @@ function CloudBackupRows({ rows, onPreview, onDownload, onDelete }) {
         <div key={row.id} className="cloud-backup-row">
           <div>
             <strong>{row.backup_label || "Cloud backup"}</strong>
+            <small>Type: {(row.source || "manual-cloud-backup").replace("-cloud-backup", "")}</small>
             <small>{formatDateTime(row.client_generated_at || row.created_at)} · V{row.app_version || "?"}</small>
             <small>{row.counts?.transactions ?? 0} transactions · {row.counts?.accounts ?? 0} accounts · {row.counts?.loans ?? 0} loans</small>
           </div>
@@ -180,6 +200,31 @@ function backupReminderClass(level) {
   if (level === "warning") return "storage-reminder warning";
   if (level === "notice") return "storage-reminder notice";
   return "storage-reminder ok";
+}
+
+async function createEmergencyRestoreSnapshot(data, reason) {
+  try {
+    await saveAppDataSnapshot(data, reason);
+    await addStorageLog({
+      level: "warning",
+      event: "pre_restore_snapshot_created",
+      message: "Created an emergency snapshot before replacing current app data.",
+      details: {
+        reason,
+        createdAt: new Date().toISOString(),
+        counts: getBackupCounts(data)
+      }
+    });
+    return true;
+  } catch (error) {
+    await addStorageLog({
+      level: "error",
+      event: "pre_restore_snapshot_failed",
+      message: error.message || "Could not create emergency snapshot before restore.",
+      details: { reason }
+    });
+    return false;
+  }
 }
 
 function normaliseRuleText(value) {
@@ -222,11 +267,12 @@ export default function SettingsPage({ appData, actions }) {
   const [storageLogs, setStorageLogs] = useState([]);
   const [storageLogStatus, setStorageLogStatus] = useState("");
   const [cloudForm, setCloudForm] = useState(() => ({
-    supabaseUrl: appData.settings?.cloudBackup?.supabaseUrl || "",
-    supabaseAnonKey: appData.settings?.cloudBackup?.supabaseAnonKey || "",
-    email: appData.settings?.cloudBackup?.cloudUserEmail || appData.profile?.email || ""
+    email: appData.settings?.cloudBackup?.cloudUserEmail || appData.profile?.email || "",
+    loginIdentifier: appData.settings?.cloudBackup?.cloudUserEmail || "",
+    username: appData.settings?.cloudBackup?.cloudUsername || appData.profile?.username || ""
   }));
   const [cloudPassword, setCloudPassword] = useState("");
+  const [cloudConfirmPassword, setCloudConfirmPassword] = useState("");
   const [cloudSession, setCloudSession] = useState(() => getStoredCloudSessionSummary());
   const [cloudStatus, setCloudStatus] = useState("");
   const [cloudBackups, setCloudBackups] = useState([]);
@@ -239,6 +285,8 @@ export default function SettingsPage({ appData, actions }) {
   const profile = appData.profile || {};
   const cloudSettings = settings.cloudBackup || {};
   const cloudConfigured = isCloudBackupConfigured(settings);
+  const cloudLoginGateRequired = isCloudLoginGateRequired(settings);
+  const cloudKeySafetyIssue = getSupabaseKeySafetyIssue(getCloudConfig(settings).anonKey);
   const cloudSetupSql = getSupabaseSetupSql();
   const backupReminder = getBackupReminder(settings);
   const comparisonWarnings = restorePreview
@@ -305,12 +353,12 @@ export default function SettingsPage({ appData, actions }) {
 
   useEffect(() => {
     setCloudForm(prev => ({
-      supabaseUrl: settings.cloudBackup?.supabaseUrl || prev.supabaseUrl || "",
-      supabaseAnonKey: settings.cloudBackup?.supabaseAnonKey || prev.supabaseAnonKey || "",
-      email: settings.cloudBackup?.cloudUserEmail || profile.email || prev.email || ""
+      email: settings.cloudBackup?.cloudUserEmail || profile.email || prev.email || "",
+      loginIdentifier: prev.loginIdentifier || settings.cloudBackup?.cloudUserEmail || profile.email || "",
+      username: settings.cloudBackup?.cloudUsername || profile.username || prev.username || ""
     }));
-    setCloudSession(getStoredCloudSessionSummary());
-  }, [settings.cloudBackup?.supabaseUrl, settings.cloudBackup?.supabaseAnonKey, settings.cloudBackup?.cloudUserEmail, profile.email]);
+    setCloudSession(getStoredCloudSessionSummary(settings));
+  }, [settings.cloudBackup?.cloudUserEmail, settings.cloudBackup?.cloudUsername, profile.email, profile.username]);
 
   async function requestPersistentStorage() {
     setPersistentStorageStatus("Requesting persistent browser storage...");
@@ -411,20 +459,27 @@ export default function SettingsPage({ appData, actions }) {
   function saveCloudSettings(patch = {}) {
     const nextCloud = {
       provider: "supabase",
-      mode: "manual-cloud-backup",
+      mode: "auto-cloud-backup",
       enabled: Boolean(patch.enabled ?? cloudSettings.enabled ?? false),
       requireLoginBeforeData: patch.requireLoginBeforeData ?? cloudSettings.requireLoginBeforeData ?? true,
-      supabaseUrl: String(patch.supabaseUrl ?? cloudForm.supabaseUrl ?? "").trim(),
-      supabaseAnonKey: String(patch.supabaseAnonKey ?? cloudForm.supabaseAnonKey ?? "").trim(),
+      supabaseUrl: "",
+      supabaseAnonKey: "",
       tableName: patch.tableName || cloudSettings.tableName || "gh_cloud_backups",
       cloudUserId: patch.cloudUserId ?? cloudSettings.cloudUserId ?? null,
-      cloudUserEmail: patch.cloudUserEmail ?? cloudForm.email ?? cloudSettings.cloudUserEmail ?? "",
+      cloudUsername: patch.cloudUsername ?? normaliseUsername(cloudForm.username || cloudSettings.cloudUsername || ""),
+      cloudUserEmail: patch.cloudUserEmail ?? normaliseEmail(cloudForm.email || cloudSettings.cloudUserEmail || ""),
       lastSignedInAt: patch.lastSignedInAt ?? cloudSettings.lastSignedInAt ?? null,
       lastCloudBackupAt: patch.lastCloudBackupAt ?? cloudSettings.lastCloudBackupAt ?? null,
       lastCloudBackupId: patch.lastCloudBackupId ?? cloudSettings.lastCloudBackupId ?? null,
       lastCloudRestoreAt: patch.lastCloudRestoreAt ?? cloudSettings.lastCloudRestoreAt ?? null,
       lastCloudListAt: patch.lastCloudListAt ?? cloudSettings.lastCloudListAt ?? null,
       lastCloudError: patch.lastCloudError ?? null,
+      cloudBackupNeeded: patch.cloudBackupNeeded ?? cloudSettings.cloudBackupNeeded ?? false,
+      linkedLocalDataAt: patch.linkedLocalDataAt ?? cloudSettings.linkedLocalDataAt ?? null,
+      lastAutoCloudBackupAt: patch.lastAutoCloudBackupAt ?? cloudSettings.lastAutoCloudBackupAt ?? null,
+      cloudConflict: patch.cloudConflict ?? cloudSettings.cloudConflict ?? null,
+      lastCloudConflictAt: patch.lastCloudConflictAt ?? cloudSettings.lastCloudConflictAt ?? null,
+      appSessionDays: Number(patch.appSessionDays ?? cloudSettings.appSessionDays ?? 7),
       version: "1"
     };
 
@@ -440,38 +495,52 @@ export default function SettingsPage({ appData, actions }) {
   }
 
   function saveCloudConfiguration() {
+    const keySafetyIssue = getSupabaseKeySafetyIssue(getCloudConfig(settings).anonKey);
+    if (keySafetyIssue) {
+      setCloudStatus(keySafetyIssue);
+      return;
+    }
+
     const nextCloud = saveCloudSettings({
       enabled: true,
-      supabaseUrl: cloudForm.supabaseUrl,
-      supabaseAnonKey: cloudForm.supabaseAnonKey,
-      cloudUserEmail: cloudForm.email,
+      cloudUserEmail: normaliseEmail(cloudForm.email),
+      cloudUsername: normaliseUsername(cloudForm.username),
       lastCloudError: null
     });
-    setCloudStatus(nextCloud.supabaseUrl && nextCloud.supabaseAnonKey
-      ? "Cloud configuration saved. Now sign in or sign up."
-      : "Cloud settings saved, but the URL/key are still missing.");
+    setCloudStatus(isCloudBackupConfigured({ ...settings, cloudBackup: nextCloud })
+      ? "Cloud account details saved."
+      : "Cloud backup is not available for this build.");
   }
 
   async function cloudSignIn() {
+    const keySafetyIssue = getSupabaseKeySafetyIssue(getCloudConfig(settings).anonKey);
+    if (keySafetyIssue) {
+      setCloudStatus(keySafetyIssue);
+      return;
+    }
+
     setCloudStatus("Signing in...");
     try {
       const nextCloud = saveCloudSettings({
         enabled: true,
-        supabaseUrl: cloudForm.supabaseUrl,
-        supabaseAnonKey: cloudForm.supabaseAnonKey,
-        cloudUserEmail: cloudForm.email,
+        cloudUserEmail: normaliseEmail(cloudForm.email),
+        cloudUsername: normaliseUsername(cloudForm.username),
         lastCloudError: null
       });
-      const session = await signInToSupabaseCloud({ ...settings, cloudBackup: nextCloud }, cloudForm.email, cloudPassword);
-      setCloudSession(getStoredCloudSessionSummary());
+      const session = await signInWithEmailOrUsername({ ...settings, cloudBackup: nextCloud }, cloudForm.loginIdentifier || cloudForm.email, cloudPassword);
+      setCloudSession(getStoredCloudSessionSummary({ ...settings, cloudBackup: nextCloud }));
       actions.refreshCloudAuthState?.();
       setCloudPassword("");
+      const profileUsername = cloudForm.username || session.user?.user_metadata?.username || profile.username || "";
+      await ensureProfileForSignedInUser({ ...settings, cloudBackup: nextCloud }, session, profileUsername).catch(() => null);
       saveCloudSettings({
         ...nextCloud,
         enabled: true,
         cloudUserId: session.user?.id || null,
-        cloudUserEmail: session.user?.email || cloudForm.email,
+        cloudUsername: normaliseUsername(profileUsername),
+        cloudUserEmail: session.user?.email || normaliseEmail(cloudForm.email),
         lastSignedInAt: new Date().toISOString(),
+        cloudBackupNeeded: Boolean(!nextCloud.linkedLocalDataAt),
         lastCloudError: null
       });
       setCloudStatus("Signed in to Supabase cloud backup.");
@@ -482,28 +551,41 @@ export default function SettingsPage({ appData, actions }) {
   }
 
   async function cloudSignUp() {
+    const keySafetyIssue = getSupabaseKeySafetyIssue(getCloudConfig(settings).anonKey);
+    if (keySafetyIssue) {
+      setCloudStatus(keySafetyIssue);
+      return;
+    }
+
     setCloudStatus("Creating cloud account...");
     try {
       const nextCloud = saveCloudSettings({
         enabled: true,
-        supabaseUrl: cloudForm.supabaseUrl,
-        supabaseAnonKey: cloudForm.supabaseAnonKey,
-        cloudUserEmail: cloudForm.email,
+        cloudUserEmail: normaliseEmail(cloudForm.email),
+        cloudUsername: normaliseUsername(cloudForm.username),
         lastCloudError: null
       });
-      const result = await signUpToSupabaseCloud({ ...settings, cloudBackup: nextCloud }, cloudForm.email, cloudPassword);
-      setCloudSession(getStoredCloudSessionSummary());
+      const result = await signUpWithEmail({ ...settings, cloudBackup: nextCloud }, {
+        email: cloudForm.email,
+        username: cloudForm.username,
+        password: cloudPassword,
+        confirmPassword: cloudConfirmPassword
+      });
+      setCloudSession(getStoredCloudSessionSummary({ ...settings, cloudBackup: nextCloud }));
       actions.refreshCloudAuthState?.();
       setCloudPassword("");
+      setCloudConfirmPassword("");
       if (result.pendingEmailConfirmation) {
-        setCloudStatus("Sign-up created. Check email confirmation if Supabase requires it, then sign in.");
+        setCloudStatus("Account created. Check your email if Supabase confirmation is enabled, then sign in.");
       } else {
         saveCloudSettings({
           ...nextCloud,
           enabled: true,
           cloudUserId: result.user?.id || null,
-          cloudUserEmail: result.user?.email || cloudForm.email,
+          cloudUsername: normaliseUsername(cloudForm.username),
+          cloudUserEmail: result.user?.email || normaliseEmail(cloudForm.email),
           lastSignedInAt: new Date().toISOString(),
+          cloudBackupNeeded: Boolean(!nextCloud.linkedLocalDataAt),
           lastCloudError: null
         });
         setCloudStatus("Signed up and signed in to Supabase cloud backup.");
@@ -516,7 +598,7 @@ export default function SettingsPage({ appData, actions }) {
 
   function cloudSignOut() {
     clearStoredCloudSession();
-    setCloudSession(getStoredCloudSessionSummary());
+    setCloudSession(getStoredCloudSessionSummary(settings));
     actions.refreshCloudAuthState?.();
     setCloudBackups([]);
     setCloudStatus("Signed out from cloud backup on this browser.");
@@ -536,8 +618,8 @@ export default function SettingsPage({ appData, actions }) {
   }
 
   async function uploadCloudBackupNow() {
-    if (!cloudConfigured && !isCloudBackupConfigured({ ...settings, cloudBackup: { ...cloudSettings, supabaseUrl: cloudForm.supabaseUrl, supabaseAnonKey: cloudForm.supabaseAnonKey } })) {
-      setCloudStatus("Save a valid Supabase URL and anon key first.");
+    if (!cloudConfigured) {
+      setCloudStatus("Cloud backup is not available for this build.");
       return;
     }
 
@@ -548,11 +630,13 @@ export default function SettingsPage({ appData, actions }) {
 
     setCloudStatus("Uploading cloud backup...");
     try {
-      const row = await uploadSupabaseCloudBackup(settings, appData, { exportedAt: new Date().toISOString() });
+      const row = await uploadSupabaseCloudBackup(settings, appData, { exportedAt: new Date().toISOString(), backupType: "manual" });
       const uploadedAt = row?.created_at || new Date().toISOString();
       saveCloudSettings({
         lastCloudBackupAt: uploadedAt,
         lastCloudBackupId: row?.id || null,
+        linkedLocalDataAt: cloudSettings.linkedLocalDataAt || uploadedAt,
+        cloudBackupNeeded: false,
         lastCloudError: null
       });
       await refreshCloudBackupList();
@@ -560,6 +644,35 @@ export default function SettingsPage({ appData, actions }) {
     } catch (error) {
       setCloudStatus(error.message || "Cloud backup upload failed.");
       saveCloudSettings({ lastCloudError: error.message || "Cloud backup upload failed." });
+    }
+  }
+
+  async function linkLocalDataToCloud() {
+    if (!cloudSession.signedIn) {
+      setCloudStatus("Sign in before linking local data to cloud backup.");
+      return;
+    }
+    if (!confirm("Link this browser's existing local data to the signed-in account and upload the first cloud backup?")) return;
+    setCloudStatus("Linking local data and uploading first cloud backup...");
+    try {
+      const row = await uploadSupabaseCloudBackup(settings, appData, {
+        exportedAt: new Date().toISOString(),
+        backupType: "manual",
+        label: "Initial linked local data"
+      });
+      const uploadedAt = row?.created_at || new Date().toISOString();
+      saveCloudSettings({
+        linkedLocalDataAt: uploadedAt,
+        lastCloudBackupAt: uploadedAt,
+        lastCloudBackupId: row?.id || null,
+        cloudBackupNeeded: false,
+        lastCloudError: null
+      });
+      setCloudStatus("Existing local data is linked to this account and backed up.");
+      await refreshCloudBackupList();
+    } catch (error) {
+      setCloudStatus(error.message || "Could not link local data to cloud backup.");
+      saveCloudSettings({ lastCloudError: error.message || "Could not link local data to cloud backup.", cloudBackupNeeded: true });
     }
   }
 
@@ -574,6 +687,20 @@ export default function SettingsPage({ appData, actions }) {
       setCloudStatus("Cloud backup preview loaded. Check counts before restoring.");
     } catch (error) {
       setCloudStatus(error.message || "Could not load cloud backup preview.");
+    }
+  }
+
+  async function previewLatestCloudRestore() {
+    setCloudStatus("Loading latest cloud backup...");
+    try {
+      const row = await fetchLatestSupabaseCloudBackup(settings);
+      if (!row?.id) {
+        setCloudStatus("No cloud backup found for this account.");
+        return;
+      }
+      await previewCloudRestore(row.id);
+    } catch (error) {
+      setCloudStatus(error.message || "Could not load latest cloud backup.");
     }
   }
 
@@ -603,6 +730,12 @@ export default function SettingsPage({ appData, actions }) {
   async function confirmCloudRestore() {
     if (!cloudRestorePreview || cloudRestorePhrase !== "CLOUD RESTORE") return;
     const restoredAt = new Date().toISOString();
+    const snapshotCreated = await createEmergencyRestoreSnapshot(appData, "pre-cloud-restore");
+    if (!snapshotCreated && !confirm("Could not create an emergency browser snapshot before cloud restore. Continue replacing local data anyway?")) {
+      setCloudStatus("Cloud restore cancelled because the emergency snapshot could not be created.");
+      return;
+    }
+
     const nextData = prepareRestoredAppData(
       cloudRestorePreview.data,
       cloudRestorePreview.filename,
@@ -769,6 +902,12 @@ export default function SettingsPage({ appData, actions }) {
     if (!restorePreview || restorePhrase !== "RESTORE") return;
 
     const restoredAt = new Date().toISOString();
+    const snapshotCreated = await createEmergencyRestoreSnapshot(appData, "pre-json-restore");
+    if (!snapshotCreated && !confirm("Could not create an emergency browser snapshot before restore. Continue replacing current data anyway?")) {
+      setRestoreError("Restore cancelled because the emergency snapshot could not be created.");
+      return;
+    }
+
     const nextData = prepareRestoredAppData(
       restorePreview.data,
       restorePreview.filename,
@@ -1006,7 +1145,7 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header compact-header settings-accordion-heading" {...sectionHeaderProps("profile")}>
           <div>
             <h3>Profile</h3>
-            <p className="muted-text">Local username/profile only. No password is used yet; this prepares the app for future cloud sync without pretending to be secure authentication.</p>
+            <p className="muted-text">Local profile details for display, currency and month settings. Supabase email/password access is managed in Cloud backup.</p>
           </div>
           <div className="settings-accordion-heading-side"><span className="pill">Local profile</span><SectionChevron sectionId="profile" /></div>
         </div>
@@ -1569,9 +1708,10 @@ export default function SettingsPage({ appData, actions }) {
 
         <div className="storage-health-grid">
           <p><span>Storage type</span><strong>{storageHealth.storageType}</strong></p>
+          <p><span>localStorage available</span><strong>{storageHealth.localStorageAvailable ? "Yes" : "No"}</strong></p>
           <p><span>Primary record</span><strong>{storageHealth.storageKey}</strong></p>
           <p><span>Approx. app data size</span><strong>{storageHealth.approxKilobytes} KB</strong></p>
-          <p><span>Legacy localStorage left</span><strong>{storageHealth.legacyLocalStorageKilobytes} KB</strong></p>
+          <p><span>localStorage recovery copy</span><strong>{storageHealth.legacyLocalStorageKilobytes} KB</strong></p>
           <p><span>Receipt files</span><strong>{receiptStats.count} file(s)</strong></p>
           <p><span>Receipt storage used</span><strong>{receiptStats.totalMegabytes >= 1 ? `${receiptStats.totalMegabytes} MB` : `${receiptStats.totalKilobytes} KB`}</strong></p>
           <p><span>Browser storage quota</span><strong>{storageHealth.approxLimitMegabytes ? `${storageHealth.approxLimitMegabytes} MB` : "Browser did not report quota"}</strong></p>
@@ -1581,6 +1721,10 @@ export default function SettingsPage({ appData, actions }) {
           <p><span>App version</span><strong>V{APP_VERSION}</strong></p>
           <p><span>Data version</span><strong>{settings.dataVersion || DATA_SCHEMA_VERSION}</strong></p>
           <p><span>Last backup</span><strong>{formatDateTime(settings.lastBackupAt)}</strong></p>
+          <p><span>Unbacked changes</span><strong>{settings.hasUnbackedChanges ? `Yes (${Number(settings.changesSinceBackup || 0)})` : "No"}</strong></p>
+          <p><span>Last migration</span><strong>{formatDateTime(storageHealth.lastMigrationRunAt)}</strong></p>
+          <p><span>Migration version</span><strong>{storageHealth.lastMigrationPreviousVersion ? `${storageHealth.lastMigrationPreviousVersion} -> ${storageHealth.lastMigrationNewVersion || DATA_SCHEMA_VERSION}` : "No migration recorded"}</strong></p>
+          <p><span>Migration warnings</span><strong>{storageHealth.lastMigrationError || storageHealth.lastMigrationWarnings?.join(" ") || "None"}</strong></p>
         </div>
 
         <div className="row-actions">
@@ -1621,7 +1765,7 @@ export default function SettingsPage({ appData, actions }) {
           </div>
           <div className="settings-accordion-heading-side">
             <span className={cloudSession.signedIn ? "pill storage-ok" : cloudConfigured ? "pill storage-warning" : "pill storage-bad"}>
-              {cloudSession.signedIn ? "Signed in" : cloudConfigured ? "Configured" : "Local only"}
+              {cloudSession.signedIn ? "Signed in" : cloudConfigured ? "Backup available" : "Not available"}
             </span>
             <SectionChevron sectionId="cloud" />
           </div>
@@ -1630,106 +1774,169 @@ export default function SettingsPage({ appData, actions }) {
         {activeSettingsSection === "cloud" && (
           <div className="cloud-backup-panel">
             <div className="backup-warning-box cloud-warning-box">
-              <strong>V2.6 is cloud backup mode, not automatic live sync.</strong>
+              <strong>Auth cloud backup mode, not automatic live sync.</strong>
               <ul>
                 <li>Data still saves locally in IndexedDB first.</li>
-                <li>Cloud upload and restore are manual buttons.</li>
+                <li>Cloud backup is an extra safety copy after sign-in.</li>
                 <li>Receipt/image cloud backup is intentionally disabled for now to protect the free quota.</li>
                 <li>Do not restore from cloud unless you have checked the preview counts.</li>
               </ul>
             </div>
 
-            <div className="cloud-setup-grid">
-              <label>
-                Supabase project URL
-                <input
-                  value={cloudForm.supabaseUrl}
-                  onChange={event => setCloudForm(prev => ({ ...prev, supabaseUrl: event.target.value }))}
-                  placeholder="https://your-project.supabase.co"
-                />
-              </label>
-              <label>
-                Supabase anon public key
-                <input
-                  value={cloudForm.supabaseAnonKey}
-                  onChange={event => setCloudForm(prev => ({ ...prev, supabaseAnonKey: event.target.value }))}
-                  placeholder="eyJhbGciOi..."
-                />
-              </label>
-              <label>
-                Cloud account email
-                <input
-                  type="email"
-                  value={cloudForm.email}
-                  onChange={event => setCloudForm(prev => ({ ...prev, email: event.target.value }))}
-                  placeholder="you@example.com"
-                />
-              </label>
-              <label>
-                Cloud account password
-                <input
-                  type="password"
-                  value={cloudPassword}
-                  onChange={event => setCloudPassword(event.target.value)}
-                  placeholder="Not saved in app data"
-                />
-              </label>
+            {!cloudSettings.linkedLocalDataAt && cloudSession.signedIn && (
+              <div className="backup-warning-box cloud-warning-box">
+                <strong>Existing local data is not linked yet</strong>
+                <span>To protect existing users, the app will not upload this browser's saved budget to the signed-in account until you confirm.</span>
+                <div className="row-actions">
+                  <button type="button" className="primary-button small" onClick={linkLocalDataToCloud}>Link local data and upload first backup</button>
+                </div>
+              </div>
+            )}
+
+            {cloudSettings.cloudConflict && (
+              <div className="backup-warning-box danger-box">
+                <strong>Newer cloud backup detected</strong>
+                <span>{cloudSettings.cloudConflict.message || "Review the latest cloud backup before replacing local or cloud data."}</span>
+                <div className="row-actions">
+                  <button type="button" className="secondary-button small" onClick={actions.backupNow}>Download local backup first</button>
+                  <button type="button" className="secondary-button small" onClick={() => saveCloudSettings({ cloudConflict: null })}>Keep local data</button>
+                  <button type="button" className="primary-button small" onClick={previewLatestCloudRestore}>Restore cloud backup</button>
+                </div>
+              </div>
+            )}
+
+            {!cloudConfigured && (
+              <div className="backup-warning-box danger-box">
+                <strong>Cloud backup is not available for this build.</strong>
+                <span>Ask the app owner to enable cloud backup for this deployment.</span>
+              </div>
+            )}
+
+            <div className="backup-status-grid">
+              <div className="backup-status-item">
+                <span>Account</span>
+                <strong>{cloudSession.signedIn ? getDisplayUsernameFromSession(cloudSession) : "Signed out"}</strong>
+                <small>{cloudSession.signedIn ? "Supabase Auth is active on this browser." : "Sign in before using cloud backup."}</small>
+                {cloudSession.signedIn ? (
+                  <button type="button" className="secondary-button small" onClick={cloudSignOut}>Sign out</button>
+                ) : null}
+              </div>
+
+              <div className="backup-status-item">
+                <span>Cloud backup</span>
+                <strong>{!cloudConfigured ? "Not available" : cloudSettings.lastCloudError ? "Failed" : cloudSettings.cloudBackupNeeded ? "Backup needed" : cloudSettings.lastCloudBackupAt ? "Up to date" : "Not backed up yet"}</strong>
+                <small>Last backup: {formatDateTime(cloudSettings.lastCloudBackupAt)}</small>
+              </div>
+
+              <div className="backup-status-item">
+                <span>Local backup</span>
+                <strong>{settings.lastBackupAt ? "Available" : "Recommended"}</strong>
+                <small>Last local backup: {formatDateTime(settings.lastBackupAt)}</small>
+              </div>
             </div>
 
-
-            <label className="settings-checkbox-row cloud-login-lock-row">
-              <input
-                type="checkbox"
-                checked={cloudSettings.requireLoginBeforeData !== false}
-                onChange={event => saveCloudSettings({ requireLoginBeforeData: event.target.checked })}
-              />
-              <span>Require cloud login before showing app data</span>
-            </label>
-
-            <div className="row-actions cloud-action-row">
-              <button type="button" className="secondary-button" onClick={saveCloudConfiguration}>Save cloud settings</button>
-              <button type="button" className="secondary-button" onClick={cloudSignUp}>Sign up</button>
-              <button type="button" className="primary-button" onClick={cloudSignIn}>Sign in</button>
-              <button type="button" className="secondary-button" onClick={cloudSignOut}>Sign out</button>
-            </div>
-
-            <div className="storage-health-grid cloud-status-grid">
-              <p><span>Mode</span><strong>Manual cloud backup</strong></p>
-              <p><span>Login gate</span><strong>{cloudSettings.requireLoginBeforeData !== false ? "Required" : "Off"}</strong></p>
-              <p><span>Cloud table</span><strong>{cloudSettings.tableName || "gh_cloud_backups"}</strong></p>
-              <p><span>Configured</span><strong>{cloudConfigured ? "Yes" : "No"}</strong></p>
-              <p><span>Signed in</span><strong>{cloudSession.signedIn ? cloudSession.user?.email || "Yes" : "No"}</strong></p>
-              <p><span>Session expires</span><strong>{formatDateTime(cloudSession.expiresAt)}</strong></p>
-              <p><span>Last cloud backup</span><strong>{formatDateTime(cloudSettings.lastCloudBackupAt)}</strong></p>
-              <p><span>Last cloud restore</span><strong>{formatDateTime(cloudSettings.lastCloudRestoreAt)}</strong></p>
-              <p><span>Last cloud error</span><strong>{cloudSettings.lastCloudError || "None"}</strong></p>
-            </div>
+            {!cloudSession.signedIn ? (
+              <div className="restore-preview-box">
+                <div className="section-header compact-header">
+                  <div>
+                    <h4>Sign in</h4>
+                    <p className="muted-text">Use your email or username. Passwords are checked by Supabase Auth and are not stored in app data.</p>
+                  </div>
+                </div>
+                <div className="cloud-setup-grid">
+                  <label>
+                    Email or username
+                    <input
+                      value={cloudForm.loginIdentifier}
+                      onChange={event => setCloudForm(prev => ({ ...prev, loginIdentifier: event.target.value }))}
+                      placeholder="you@example.com or yourusername"
+                    />
+                  </label>
+                  <label>
+                    Password
+                    <input
+                      type="password"
+                      value={cloudPassword}
+                      onChange={event => setCloudPassword(event.target.value)}
+                      placeholder="Not saved in app data"
+                    />
+                  </label>
+                </div>
+                <div className="row-actions cloud-action-row">
+                  <button type="button" className="primary-button" onClick={cloudSignIn} disabled={!cloudConfigured}>Sign in</button>
+                  <button type="button" className="secondary-button" onClick={() => setCloudStatus("Use the login screen to create a new account if you are signed out.")}>Create account</button>
+                </div>
+              </div>
+            ) : null}
 
             {cloudStatus && <p className="cloud-status-message">{cloudStatus}</p>}
 
-            <div className="cloud-sync-actions">
-              <button type="button" className="primary-button" onClick={uploadCloudBackupNow} disabled={!cloudSession.signedIn}>
-                Upload current data to cloud
-              </button>
-              <button type="button" className="secondary-button" onClick={refreshCloudBackupList} disabled={!cloudSession.signedIn}>
-                Refresh cloud backup list
-              </button>
-              <button type="button" className="secondary-button" onClick={() => setShowCloudSql(value => !value)}>
-                {showCloudSql ? "Hide Supabase SQL" : "Show Supabase SQL setup"}
-              </button>
+            <div className="restore-preview-box">
+              <div className="section-header compact-header">
+                <div>
+                  <h4>Cloud backup</h4>
+                  <p className="muted-text">Cloud backup is an extra safety copy. Local storage remains the working source.</p>
+                </div>
+              </div>
+              <div className="storage-health-grid cloud-status-grid">
+                <p><span>Enabled</span><strong>{cloudSettings.enabled ? "Yes" : "No"}</strong></p>
+                <p><span>Last auto backup</span><strong>{formatDateTime(cloudSettings.lastAutoCloudBackupAt)}</strong></p>
+                <p><span>Local changes waiting</span><strong>{cloudSettings.cloudBackupNeeded ? "Yes" : "No"}</strong></p>
+                <p><span>Last restore</span><strong>{formatDateTime(cloudSettings.lastCloudRestoreAt)}</strong></p>
+                <p><span>Last error</span><strong>{cloudSettings.lastCloudError || "None"}</strong></p>
+              </div>
+              <div className="cloud-sync-actions">
+                <button type="button" className="primary-button" onClick={uploadCloudBackupNow} disabled={!cloudSession.signedIn || !cloudConfigured}>
+                  Back up now
+                </button>
+                <button type="button" className="secondary-button" onClick={previewLatestCloudRestore} disabled={!cloudSession.signedIn || !cloudConfigured}>
+                  Restore latest cloud backup
+                </button>
+                <button type="button" className="secondary-button" onClick={refreshCloudBackupList} disabled={!cloudSession.signedIn || !cloudConfigured}>
+                  Refresh cloud backup list
+                </button>
+              </div>
             </div>
 
-            {showCloudSql && (
-              <div className="cloud-sql-box">
-                <p className="muted-text">Run this once in the Supabase SQL Editor. It creates the backup table and Row Level Security policies.</p>
-                <textarea readOnly value={cloudSetupSql} rows={18} />
+            <div className="restore-preview-box">
+              <div className="section-header compact-header">
+                <div>
+                  <h4>Local backup</h4>
+                  <p className="muted-text">Download a JSON backup before major changes or cloud restores.</p>
+                </div>
               </div>
-            )}
+              <div className="row-actions">
+                <button type="button" className="secondary-button" onClick={actions.backupNow}>Download local JSON backup</button>
+              </div>
+            </div>
+
+            <details className="restore-preview-box">
+              <summary><strong>Advanced / developer info</strong></summary>
+              <div className="storage-health-grid cloud-status-grid">
+                <p><span>App version</span><strong>V{APP_VERSION}</strong></p>
+                <p><span>Data version</span><strong>{settings.dataVersion || DATA_SCHEMA_VERSION}</strong></p>
+                <p><span>Cloud table</span><strong>{cloudSettings.tableName || "gh_cloud_backups"}</strong></p>
+                <p><span>Cloud records listed</span><strong>{cloudBackups.length}</strong></p>
+                <p><span>Storage status</span><strong>{storageHealth.status}</strong></p>
+                <p><span>Last migration</span><strong>{formatDateTime(storageHealth.lastMigrationRunAt)}</strong></p>
+              </div>
+              <div className="row-actions">
+                <button type="button" className="secondary-button small" onClick={() => setShowCloudSql(value => !value)}>
+                  {showCloudSql ? "Hide Supabase SQL" : "Show Supabase SQL setup"}
+                </button>
+              </div>
+              {showCloudSql && (
+                <div className="cloud-sql-box">
+                  <p className="muted-text">Run this in Supabase SQL Editor. It creates the backup table, profile table, resolver RPC and Row Level Security policies.</p>
+                  <textarea readOnly value={cloudSetupSql} rows={18} />
+                </div>
+              )}
+            </details>
 
             <div className="section-header compact-header">
               <div>
                 <h4>Cloud backups</h4>
-                <p className="muted-text">Only the signed-in Supabase user can read these rows if the RLS policies are installed.</p>
+                <p className="muted-text">Listed backups belong to the signed-in Supabase account.</p>
               </div>
               <span className="pill">{cloudBackups.length}</span>
             </div>
