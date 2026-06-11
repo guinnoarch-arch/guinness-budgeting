@@ -1,81 +1,71 @@
-# Guinness Budgeting
+# Guinness & Holley Budgeting
 
-Local React budgeting app for personal, student and household budgeting.
+Local-first React/Vite budgeting app for personal, student and household budgeting.
 
-## Current version
+## Current Version
 
-V1.11.0 — installable PWA/app icon patch.
+V2.6.10 - phone QR, compact phone view and cloud-backup wording patch.
 
-## What is included
+## What Is Included
 
 - React/Vite app structure
-- Top navigation
-- Dashboard
-- Example data
-- localStorage save/load
-- Add/edit/delete transactions
-- Expense / income / transfer transaction types
-- Category budgets with expandable progress cards
-- Savings goal cards
-- Accounts page with calculated balances
-- Bills page structure
-- Reports page
-- CSV export
-- Full JSON backup export
-- JSON backup import/restore with preview and validation
-- Backup status in Settings
-- Data/app version metadata in saved data and backup files
-- Print/PDF report export
-- Hidden reset with `DELETE` confirmation
-- Progressive Web App manifest
-- Service worker for production/offline app shell
-- GB app icon, favicon and mobile icons
-- Install app panel in Settings
-- Responsive layout
+- Dashboard, accounts, budgets, bills, savings, loans, reports and transactions
+- Add/edit/delete transactions with CSV import and import rules
+- Local IndexedDB storage with localStorage fallback/recovery support
+- Full JSON backup export and restore with preview and validation
+- Supabase Auth cloud backup/restore support
+- Local/offline fallback behaviour after the production service worker is registered
+- Progressive Web App manifest, app icons and install/update prompts
+- Open-on-phone QR panel for the public deployed app URL
+- Manual compact Phone view mode plus responsive small-screen CSS
 
-## Install and run for development
+## Local-First Storage
+
+The app saves working data locally in the browser first. Supabase is used for sign-in and cloud backup/restore, not full live database sync.
+
+For a phone or new device:
+
+1. Open the public deployed app URL.
+2. Sign in with the same Supabase account.
+3. Restore the latest cloud backup if this device needs the existing data.
+4. Continue using the app locally and back up again when needed.
+
+Local JSON backup remains the safest portable recovery copy.
+
+## Install And Run For Development
 
 1. Install Node.js if needed.
-2. Open this folder in VS Code.
-3. In the terminal, run:
+2. Run:
 
 ```bash
-npm.cmd install
-npm.cmd run dev
+npm install
+npm run dev
 ```
 
-4. Open the local Vite URL shown in the terminal, usually:
+3. Open the local Vite URL, usually:
 
 ```bash
 http://localhost:5173
 ```
 
-## Test the installable app/PWA behaviour
+When running locally, set `VITE_PUBLIC_APP_URL` in `.env` if you want the phone QR panel to point at the deployed Vercel app. Without that, the app shows a warning instead of generating a localhost QR code.
 
-The service worker is only registered in the production build. This avoids development-cache problems while coding.
+## Production Build And PWA Test
 
-Run:
+The service worker is registered only in production builds. Run:
 
 ```bash
 npm run build
 npm run preview
 ```
 
-Then open the preview URL shown in the terminal. In Chrome/Edge, the browser may show an install icon in the address bar. You can also check:
+Then open the preview URL shown in the terminal. In Chrome or Edge, the browser may show an install icon in the address bar. You can also use:
 
 ```text
-Settings -> Install app
+Settings -> Install app and offline mode
 ```
 
-If the install button is not available, use the browser menu:
-
-```text
-Install app / Apps / Add to Home Screen
-```
-
-Exact wording depends on the browser and device.
-
-## Backup and restore
+## Backup And Restore
 
 Go to:
 
@@ -83,16 +73,18 @@ Go to:
 Settings -> Data backup and restore
 ```
 
-Use **Export full backup** to download a full `.json` backup file. Save this somewhere safe, such as OneDrive.
+Use **Export full backup** to download a `.json` backup. Use **Import / restore backup** to preview and restore a previous backup. Restoring replaces the current local data in that browser.
 
-Use **Import / restore backup** to choose a previous backup file. The app previews the contents before restoring. Restoring replaces all current local app data in that browser.
+Cloud backup is available after Supabase sign-in:
 
-## Storage note
+```text
+Settings -> Cloud backup
+```
 
-This version still uses `localStorage` through `src/services/storageService.js`. The PWA install feature does not add cloud sync. Data is still local to the browser/app install unless you export and restore a backup manually.
+Preview counts before restoring cloud data, especially on a phone or new device.
 
-Future storage options remain:
+## Supabase Security
 
-- IndexedDB for stronger local browser storage
-- cloud database/login for access from phone/web/different computers
-- desktop wrapper later if needed
+Frontend code must use only the Supabase anon/publishable key. Do not add service-role or secret keys to this repo.
+
+The SQL setup shown in Settings enables Row Level Security so each signed-in user can access only their own profile and cloud-backup rows.

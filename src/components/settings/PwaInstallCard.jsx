@@ -14,7 +14,7 @@ export default function PwaInstallCard({ pwaInstall, actions, embedded = false }
           <div>
             <p className="eyebrow">Installable app</p>
             <h3>Install app and offline mode</h3>
-            <p className="muted-text">V2.6 improves the PWA setup so the app is easier to install, update and use locally before cloud sync is built.</p>
+            <p className="muted-text">V2.6 improves the PWA setup so the app is easier to install, update, use offline and restore from cloud backup when signed in.</p>
           </div>
           <img className="settings-app-icon" src="/icons/gb-icon-192.png" alt="Guinness & Holley Budgeting app icon" />
         </div>
@@ -54,7 +54,7 @@ export default function PwaInstallCard({ pwaInstall, actions, embedded = false }
 
       <div className="backup-warning-box">
         <strong>Important</strong>
-        <span>Installing the app does not move data between devices. Local JSON backup remains the safest portable recovery copy; cloud backup is an extra safety layer after sign-in.</span>
+        <span>Installing the app does not live-sync data between devices. Open the app on the phone, sign in, then restore the latest cloud backup if needed. Local JSON backup remains the safest portable recovery copy.</span>
       </div>
 
       {pwaInstall?.installStatus && <p className="muted-text">{pwaInstall.installStatus}</p>}

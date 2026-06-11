@@ -32,7 +32,7 @@ export default function WelcomeScreen({ onSetup, onExplore }) {
         <p className="eyebrow">Local profile setup</p>
         <h1>Guinness & Holley Budgeting</h1>
         <p>
-          Create a local username before you start. This makes the app feel more official and prepares the data structure for future cloud sync.
+          Create a local username before you start. This makes the app feel more official and prepares the data structure for cloud backup/restore.
         </p>
 
         <div className="welcome-profile-form">

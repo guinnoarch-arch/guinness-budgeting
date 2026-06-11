@@ -19,6 +19,57 @@ function HeaderIconButton({ label, title, active = false, onClick, children }) {
   );
 }
 
+function normalisePublicAppUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text);
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function isLocalAppHost(hostname = "") {
+  return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname);
+}
+
+function resolveDeviceShareUrl() {
+  if (typeof window === "undefined") {
+    return { url: "", isLocalRuntime: false, needsDeployedUrl: false };
+  }
+
+  const configuredPublicUrl = normalisePublicAppUrl(import.meta.env.VITE_PUBLIC_APP_URL || import.meta.env.VITE_APP_PUBLIC_URL);
+  const currentUrl = new URL(window.location.href);
+  const isLocalRuntime = isLocalAppHost(currentUrl.hostname);
+  const isVercelDashboard = currentUrl.hostname === "vercel.com" || currentUrl.hostname.endsWith(".vercel.com");
+
+  if (isLocalRuntime) {
+    return {
+      url: configuredPublicUrl,
+      isLocalRuntime: true,
+      needsDeployedUrl: !configuredPublicUrl
+    };
+  }
+
+  if (isVercelDashboard) {
+    return {
+      url: configuredPublicUrl,
+      isLocalRuntime: false,
+      needsDeployedUrl: !configuredPublicUrl
+    };
+  }
+
+  currentUrl.search = "";
+  currentUrl.hash = "";
+  return {
+    url: `${currentUrl.origin}${currentUrl.pathname}`.replace(/\/$/, "") || currentUrl.origin,
+    isLocalRuntime: false,
+    needsDeployedUrl: false
+  };
+}
+
 export default function AppShell({
   children,
   activePage,
@@ -60,11 +111,8 @@ export default function AppShell({
     && !appData.settings?.pwaInstallPromptDismissedAt
   );
   const showUpdateBanner = Boolean(pwaInstall?.hasUpdateAvailable);
-  const runtimeUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
-  const configuredPublicUrl = import.meta.env.VITE_PUBLIC_APP_URL || import.meta.env.VITE_APP_PUBLIC_URL || "";
-  const isLocalRuntime = typeof window !== "undefined" && ["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname);
-  const shareUrl = isLocalRuntime && configuredPublicUrl ? configuredPublicUrl : runtimeUrl;
-  const shareUrlIsLocal = Boolean(shareUrl && /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/i.test(shareUrl));
+  const deviceShare = resolveDeviceShareUrl();
+  const shareUrl = deviceShare.url;
 
   async function copyShareLink() {
     if (!shareUrl) return;
@@ -79,7 +127,7 @@ export default function AppShell({
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${actions.phoneMode ? "phone-mode" : ""}`.trim()}>
       <div className="app-fixed-area">
         <header className="app-header">
           <div className="brand" onClick={() => setActivePage("dashboard")} role="button" tabIndex={0}>
@@ -96,6 +144,15 @@ export default function AppShell({
             </span>
             <button className="secondary-button theme-toggle-button" onClick={actions.toggleTheme}>
               {themeLabel}
+            </button>
+            <button
+              type="button"
+              className={`secondary-button phone-mode-toggle ${actions.phoneMode ? "active" : ""}`}
+              onClick={actions.togglePhoneMode}
+              aria-pressed={actions.phoneMode}
+              title={actions.phoneMode ? "Return to desktop layout" : "Use compact phone-friendly layout"}
+            >
+              {actions.phoneMode ? "Desktop view" : "Phone view"}
             </button>
 
             <div className="device-share-wrapper">
@@ -117,23 +174,25 @@ export default function AppShell({
                     <strong>Open on phone</strong>
                     <button type="button" className="text-button" onClick={() => setShowDeviceShare(false)}>Close</button>
                   </div>
-                  <p className="muted">Scan this QR code on your phone, then sign in and restore the latest cloud backup.</p>
+                  <p className="muted">Scan this QR code on your phone, then sign in and restore the latest cloud backup if this device has newer data.</p>
                   {shareUrl ? (
                     <div className="device-qr-card">
                       <InlineQrCode value={shareUrl} size={220} />
                     </div>
                   ) : (
-                    <p className="muted">App link is not available in this browser.</p>
-                  )}
-                  {shareUrlIsLocal && (
                     <div className="cloud-status-message compact-status warning-status">
-                      This QR code points to a local development address. A phone usually cannot open localhost. Deploy to Vercel or set VITE_PUBLIC_APP_URL to your live app link.
+                      Open the public Vercel app URL before testing the phone QR code, or set VITE_PUBLIC_APP_URL to your deployed app link for local testing.
+                    </div>
+                  )}
+                  {deviceShare.isLocalRuntime && shareUrl && (
+                    <div className="cloud-status-message compact-status warning-status">
+                      You are running locally, so this QR uses the configured public app URL. Test the full phone flow from the deployed Vercel app.
                     </div>
                   )}
                   <input className="device-share-link" value={shareUrl} readOnly aria-label="App link" />
                   <div className="row-actions cloud-action-row">
-                    <button type="button" className="secondary-button small" onClick={copyShareLink}>Copy link</button>
-                    <a className="secondary-button small" href={shareUrl} target="_blank" rel="noreferrer">Open link</a>
+                    <button type="button" className="secondary-button small" onClick={copyShareLink} disabled={!shareUrl}>Copy link</button>
+                    {shareUrl && <a className="secondary-button small" href={shareUrl} target="_blank" rel="noreferrer">Open link</a>}
                   </div>
                   {shareCopyStatus && <p className="cloud-status-message compact-status">{shareCopyStatus}</p>}
                 </div>
@@ -277,7 +336,7 @@ export default function AppShell({
             <div className="install-app-banner" role="status" aria-live="polite">
               <div>
                 <strong>Install the app</strong>
-                <span>Use GH Budgeting from your desktop or phone home screen. Data still stays local until cloud sync is built.</span>
+                <span>Use GH Budgeting from your desktop or phone home screen. Data still saves locally first; sign in to restore cloud backups between devices.</span>
               </div>
               <div className="unbacked-changes-actions">
                 <button className="primary-button small" onClick={actions.installApp}>Install app</button>

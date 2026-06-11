@@ -1701,7 +1701,7 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header compact-header settings-accordion-heading" {...sectionHeaderProps("storage")}>
           <div>
             <h3>Storage health</h3>
-            <p className="muted-text">Checks the local saved data before bigger storage or cloud-sync changes are added.</p>
+            <p className="muted-text">Checks the local saved data before bigger storage or cloud-backup changes are added.</p>
           </div>
           <div className="settings-accordion-heading-side"><span className={storageHealth.ok ? "pill storage-ok" : "pill storage-bad"}>{storageHealth.status}</span><SectionChevron sectionId="storage" /></div>
         </div>
@@ -1745,7 +1745,7 @@ export default function SettingsPage({ appData, actions }) {
           <div className="section-header compact-header">
             <div>
               <h4>Storage and migration logs</h4>
-              <p className="muted-text">Shows IndexedDB migration/load/save problems and safe repair actions. This is for debugging before cloud sync.</p>
+                <p className="muted-text">Shows IndexedDB migration/load/save problems and safe repair actions. This is for debugging before cloud-backup changes.</p>
             </div>
             <div className="row-actions">
               <button type="button" className="secondary-button small" onClick={refreshStorageLogList}>Refresh logs</button>
@@ -1778,6 +1778,7 @@ export default function SettingsPage({ appData, actions }) {
               <ul>
                 <li>Data still saves locally in IndexedDB first.</li>
                 <li>Cloud backup is an extra safety copy after sign-in.</li>
+                <li>On a phone or new device, open the app, sign in, preview the latest backup, then restore it only if it is the data you expect.</li>
                 <li>Receipt/image cloud backup is intentionally disabled for now to protect the free quota.</li>
                 <li>Do not restore from cloud unless you have checked the preview counts.</li>
               </ul>
@@ -2140,7 +2141,7 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header settings-accordion-heading" {...sectionHeaderProps("install")}>
           <div>
             <h3>Install app and offline mode</h3>
-            <p className="muted-text">Install, update and use the local app shell before cloud sync is built.</p>
+            <p className="muted-text">Install, update and use the local app shell with offline fallback and cloud backup/restore support.</p>
           </div>
           <div className="settings-accordion-heading-side"><img className="settings-app-icon compact" src="/icons/gb-icon-192.png" alt="" /><SectionChevron sectionId="install" /></div>
         </div>
@@ -2180,7 +2181,7 @@ export default function SettingsPage({ appData, actions }) {
         </div>
         {activeSettingsSection === "future" && (
           <div className="future-feature-panel">
-            <p className="muted">Full automatic cloud sync and desktop app wrapper are planned later. Manual Supabase cloud backup, bank CSV import, import-rules management, backup restore/data safety, reports upgrades, IndexedDB receipt storage, dark mode, dashboard layouts, local profile setup, install prompts, offline/update handling, and loan tracking are now available.</p>
+            <p className="muted">Full automatic live sync and desktop app wrapper are planned later. Supabase cloud backup/restore, bank CSV import, import-rules management, backup restore/data safety, reports upgrades, IndexedDB receipt storage, dark mode, dashboard layouts, local profile setup, install prompts, offline/update handling, and loan tracking are now available.</p>
 
             <div className="suggestion-section">
               <div>

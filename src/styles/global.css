@@ -4123,6 +4123,12 @@ button[disabled] {
   font-size: 0.85rem;
 }
 
+.phone-mode-toggle.active {
+  color: #ffffff;
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
 .compact-status {
   padding: 0.55rem 0.7rem;
   font-size: 0.85rem;
@@ -4147,5 +4153,198 @@ button[disabled] {
     right: auto;
     left: 50%;
     transform: translateX(-50%);
+  }
+}
+
+/* V2.6.10: manual phone-friendly compact mode */
+.app-shell.phone-mode {
+  max-width: 760px;
+  padding: 10px;
+}
+
+.app-shell.phone-mode .app-header {
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.app-shell.phone-mode .brand {
+  min-width: 0;
+}
+
+.app-shell.phone-mode .brand-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+}
+
+.app-shell.phone-mode .brand h1 {
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.app-shell.phone-mode .brand p {
+  font-size: 0.78rem;
+}
+
+.app-shell.phone-mode .header-actions {
+  gap: 6px;
+}
+
+.app-shell.phone-mode button,
+.app-shell.phone-mode .primary-button,
+.app-shell.phone-mode .secondary-button,
+.app-shell.phone-mode .danger-button {
+  min-height: 36px;
+  padding: 8px 10px;
+  font-size: 0.86rem;
+}
+
+.app-shell.phone-mode .notification-button,
+.app-shell.phone-mode .header-icon-button,
+.app-shell.phone-mode .icon-button {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  padding: 8px;
+}
+
+.app-shell.phone-mode .top-nav {
+  gap: 6px;
+  padding: 7px;
+  border-radius: 14px;
+}
+
+.app-shell.phone-mode .nav-item {
+  padding: 8px 10px;
+  font-size: 0.86rem;
+}
+
+.app-shell.phone-mode .page-content {
+  gap: 12px;
+  padding: 12px 0 24px;
+}
+
+.app-shell.phone-mode .card,
+.app-shell.phone-mode .table-card,
+.app-shell.phone-mode .budget-card,
+.app-shell.phone-mode .sub-card {
+  border-radius: 14px;
+}
+
+.app-shell.phone-mode .card,
+.app-shell.phone-mode .budget-card {
+  padding: 14px;
+}
+
+.app-shell.phone-mode .page-title-row,
+.app-shell.phone-mode .section-header,
+.app-shell.phone-mode .compact-header,
+.app-shell.phone-mode .modal-actions,
+.app-shell.phone-mode .backup-actions-row,
+.app-shell.phone-mode .row-actions,
+.app-shell.phone-mode .cloud-action-row,
+.app-shell.phone-mode .cloud-sync-actions {
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-shell.phone-mode .summary-grid,
+.app-shell.phone-mode .summary-grid.summary-grid-two,
+.app-shell.phone-mode .summary-grid.summary-grid-three,
+.app-shell.phone-mode .summary-grid.summary-grid-five,
+.app-shell.phone-mode .budget-grid,
+.app-shell.phone-mode .list-grid,
+.app-shell.phone-mode .filters-card,
+.app-shell.phone-mode .form-grid,
+.app-shell.phone-mode .profile-form-grid,
+.app-shell.phone-mode .backup-status-grid,
+.app-shell.phone-mode .backup-meta-grid,
+.app-shell.phone-mode .backup-count-grid,
+.app-shell.phone-mode .storage-health-grid,
+.app-shell.phone-mode .pwa-status-grid,
+.app-shell.phone-mode .cloud-setup-grid,
+.app-shell.phone-mode .import-setup-grid,
+.app-shell.phone-mode .import-map-grid,
+.app-shell.phone-mode .import-summary-grid,
+.app-shell.phone-mode .import-balance-grid,
+.app-shell.phone-mode .reports-summary-grid,
+.app-shell.phone-mode .report-chart-grid,
+.app-shell.phone-mode .report-insight-grid,
+.app-shell.phone-mode .accounts-total-grid,
+.app-shell.phone-mode .settings-section-summary-grid,
+.app-shell.phone-mode .external-add-grid,
+.app-shell.phone-mode .category-add-grid,
+.app-shell.phone-mode .budget-detail-grid,
+.app-shell.phone-mode .loan-link-split-grid {
+  grid-template-columns: 1fr;
+}
+
+.app-shell.phone-mode .transaction-table,
+.app-shell.phone-mode table {
+  font-size: 0.84rem;
+}
+
+.app-shell.phone-mode .table-card {
+  overflow-x: auto;
+}
+
+.app-shell.phone-mode input,
+.app-shell.phone-mode select,
+.app-shell.phone-mode textarea {
+  min-width: 0;
+}
+
+.app-shell.phone-mode .modal-card,
+.app-shell.phone-mode .wide-modal-card {
+  width: min(100%, 720px);
+  max-height: calc(100vh - 24px);
+  padding: 14px;
+  overflow-y: auto;
+}
+
+.app-shell.phone-mode .device-share-panel {
+  position: fixed;
+  top: 74px;
+  left: 50%;
+  right: auto;
+  width: min(340px, calc(100vw - 20px));
+  transform: translateX(-50%);
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 10px;
+  }
+
+  .app-header {
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .brand-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+  }
+
+  .brand h1 {
+    font-size: 1rem;
+    line-height: 1.2;
+  }
+
+  .header-actions {
+    gap: 6px;
+  }
+
+  .page-content {
+    gap: 12px;
+    padding: 12px 0 24px;
+  }
+
+  .card,
+  .budget-card {
+    padding: 14px;
   }
 }

@@ -438,6 +438,9 @@ export async function downloadCloudBackupJson(row) {
 export function getSupabaseSetupSql() {
   return `-- GH Budgeting auth profile + cloud backup setup
 -- Run this in Supabase SQL Editor after creating a project.
+-- Security model: the browser uses only the public anon/publishable key.
+-- Row Level Security below ensures signed-in users can access only rows where
+-- auth.uid() matches their own profile id or cloud-backup user_id.
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,

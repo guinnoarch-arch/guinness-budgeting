@@ -39,6 +39,15 @@ import { buildDataFingerprint } from "./services/cloudMergeService.js";
 import { clearLocalAccessSession, hasUsableLocalBudgetData, isLocalAccessSessionAllowed, storeLocalAccessSession } from "./services/localAccessService.js";
 
 
+const PHONE_MODE_STORAGE_KEY = "ghBudgetingPhoneMode";
+
+function readStoredPhoneMode() {
+  try {
+    return window.localStorage.getItem(PHONE_MODE_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 
 function sanitiseHexColour(value, fallback = "#0b5d45") {
   const text = String(value || "").trim();
@@ -100,6 +109,7 @@ function App() {
   const [cloudBackupStatus, setCloudBackupStatus] = useState("");
   const [cloudConflict, setCloudConflict] = useState(null);
   const [localAccessUnlocked, setLocalAccessUnlocked] = useState(() => isLocalAccessSessionAllowed());
+  const [phoneMode, setPhoneMode] = useState(readStoredPhoneMode);
 
   useEffect(() => {
     let cancelled = false;
@@ -238,6 +248,14 @@ function App() {
       onUpdateReady: (worker) => setWaitingServiceWorker(worker)
     });
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PHONE_MODE_STORAGE_KEY, phoneMode ? "true" : "false");
+    } catch {
+      // Cosmetic preference only; ignore storage failures.
+    }
+  }, [phoneMode]);
 
   function updateAppData(nextOrUpdater, options = {}) {
     setAppData(prevData => {
@@ -617,6 +635,7 @@ function App() {
         };
       }, { reason: "Theme changed", markDirty: false });
     },
+    togglePhoneMode: () => setPhoneMode(prev => !prev),
     openAddTransaction: () => {
       setEditingTransaction(null);
       setShowTransactionModal(true);
@@ -641,6 +660,7 @@ function App() {
     openLocalAccessMode,
     cloudAuthSummary,
     cloudBackupStatus,
+    phoneMode,
     cloudUsername: getDisplayUsernameFromSession(cloudAuthSummary),
     pwaInstall: {
       installPrompt,
@@ -657,7 +677,7 @@ function App() {
     setSelectedMonth,
     selectedDashboardAccountId,
     setSelectedDashboardAccountId
-  }), [appData, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked]);
+  }), [appData, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode]);
 
   const CurrentPage = pages[activePage] || DashboardPage;
 

@@ -19,8 +19,8 @@ const STORAGE_META_KEY = "guinness-budgeting-storage-meta-v2";
 const LEGACY_MIGRATION_SNAPSHOT_KEY = "guinness-budgeting-v2-5-localstorage-migration-snapshot";
 const CORRUPT_SNAPSHOT_PREFIX = "guinness-budgeting-corrupt-snapshot";
 
-export const APP_VERSION = "2.6.1";
-export const DATA_SCHEMA_VERSION = "2.6.1";
+export const APP_VERSION = "2.6.10";
+export const DATA_SCHEMA_VERSION = "2.6.10";
 export const BACKUP_FORMAT_VERSION = "1.9";
 
 const REQUIRED_ARRAY_FIELDS = [
