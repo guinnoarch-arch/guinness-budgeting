@@ -7,7 +7,7 @@ function makeUsername(value) {
     .slice(0, 40);
 }
 
-export default function WelcomeScreen({ onSetup, onExplore }) {
+export default function WelcomeScreen({ onSetup, onExplore, phoneMode = false, onTogglePhoneMode }) {
   const [displayName, setDisplayName] = useState("");
   const [profileName, setProfileName] = useState("Personal Budget");
 
@@ -26,8 +26,18 @@ export default function WelcomeScreen({ onSetup, onExplore }) {
   }
 
   return (
-    <main className="welcome-screen">
+    <main className={`welcome-screen ${phoneMode ? "phone-mode" : ""}`.trim()}>
       <div className="welcome-card welcome-card-v26">
+        <div className="auth-compact-toggle-row">
+          <button
+            type="button"
+            className={`secondary-button phone-mode-toggle ${phoneMode ? "active" : ""}`}
+            onClick={onTogglePhoneMode}
+            aria-pressed={phoneMode}
+          >
+            {phoneMode ? "Desktop view" : "Phone view"}
+          </button>
+        </div>
         <div className="brand-icon large"><img src="/icons/gb-icon-192.png" alt="" /></div>
         <p className="eyebrow">Local profile setup</p>
         <h1>Guinness & Holley Budgeting</h1>

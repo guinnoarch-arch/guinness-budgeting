@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.10 - phone QR, compact phone view and cloud-backup wording patch.
+V2.6.11 - update-safe storage recovery, auth compact view and stable production QR patch.
 
 ## What Is Included
 
@@ -18,6 +18,7 @@ V2.6.10 - phone QR, compact phone view and cloud-backup wording patch.
 - Progressive Web App manifest, app icons and install/update prompts
 - Open-on-phone QR panel for the public deployed app URL
 - Manual compact Phone view mode plus responsive small-screen CSS
+- Storage recovery screen if browser storage cannot be read safely
 
 ## Local-First Storage
 
@@ -31,6 +32,8 @@ For a phone or new device:
 4. Continue using the app locally and back up again when needed.
 
 Local JSON backup remains the safest portable recovery copy.
+
+App updates should not clear local data. If browser storage cannot be read after an update, the app shows a recovery screen instead of loading defaults over existing data. Export raw storage before resetting or starting fresh.
 
 ## Install And Run For Development
 
@@ -48,7 +51,7 @@ npm run dev
 http://localhost:5173
 ```
 
-When running locally, set `VITE_PUBLIC_APP_URL` in `.env` if you want the phone QR panel to point at the deployed Vercel app. Without that, the app shows a warning instead of generating a localhost QR code.
+Set `VITE_PUBLIC_APP_URL` in `.env` and in Vercel project environment variables to the stable public production app URL. The phone QR panel uses this value on localhost and Vercel-hosted pages so phones do not open localhost, a Vercel preview deployment, or the Vercel dashboard.
 
 ## Production Build And PWA Test
 
@@ -64,6 +67,8 @@ Then open the preview URL shown in the terminal. In Chrome or Edge, the browser 
 ```text
 Settings -> Install app and offline mode
 ```
+
+Installed PWA updates use the normal service-worker flow. After deploying to Vercel, open the installed app, wait for the **Update available** banner, export a backup if prompted, then click **Update app**. The manifest keeps a stable `name`, `short_name`, `start_url`, `scope`, `id` and icon set so the browser should treat it as the same installed app.
 
 ## Backup And Restore
 

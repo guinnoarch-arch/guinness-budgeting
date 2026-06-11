@@ -19,9 +19,11 @@ const STORAGE_META_KEY = "guinness-budgeting-storage-meta-v2";
 const LEGACY_MIGRATION_SNAPSHOT_KEY = "guinness-budgeting-v2-5-localstorage-migration-snapshot";
 const CORRUPT_SNAPSHOT_PREFIX = "guinness-budgeting-corrupt-snapshot";
 
-export const APP_VERSION = "2.6.10";
-export const DATA_SCHEMA_VERSION = "2.6.10";
+export const APP_VERSION = "2.6.11";
+export const DATA_SCHEMA_VERSION = "2.6.11";
 export const BACKUP_FORMAT_VERSION = "1.9";
+
+export const STORAGE_LOAD_FAILURE_CODE = "GH_STORAGE_LOAD_FAILED";
 
 const REQUIRED_ARRAY_FIELDS = [
   "transactions",
@@ -42,6 +44,17 @@ function createLocalProfileId() {
     return `profile_${crypto.randomUUID()}`;
   }
   return `profile_${Date.now().toString(36)}`;
+}
+
+function createStorageLoadFailure(indexedDbError) {
+  const message = indexedDbError?.message
+    ? `Saved app data could not be loaded from IndexedDB: ${indexedDbError.message}`
+    : "Saved app data could not be loaded from IndexedDB.";
+  const error = new Error(message);
+  error.code = STORAGE_LOAD_FAILURE_CODE;
+  error.recoverable = true;
+  error.cause = indexedDbError || null;
+  return error;
 }
 
 function createDefaultProfile(existingProfile = {}, settings = {}) {
@@ -260,6 +273,7 @@ export async function loadAppDataAsync() {
       lastLoadError: indexedDbError.message || "IndexedDB load failed",
       lastLoadErrorAt: new Date().toISOString()
     });
+    throw createStorageLoadFailure(indexedDbError);
   }
 
   return null;

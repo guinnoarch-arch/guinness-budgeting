@@ -4042,6 +4042,45 @@ button[disabled] {
   background: rgba(185, 28, 28, 0.08);
 }
 
+.auth-compact-toggle-row,
+.recovery-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.auth-compact-toggle-row {
+  justify-content: flex-end;
+}
+
+.storage-recovery-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.storage-recovery-card {
+  width: min(860px, 100%);
+  display: grid;
+  gap: 14px;
+}
+
+.recovery-file-button {
+  position: relative;
+  overflow: hidden;
+  display: inline-grid;
+  place-items: center;
+}
+
+.recovery-file-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
 /* V2.6.5: offline/local unlock and open-on-phone QR */
 .connection-pill.local-mode {
   color: #92400e;
@@ -4156,7 +4195,72 @@ button[disabled] {
   }
 }
 
-/* V2.6.10: manual phone-friendly compact mode */
+.login-gate-page.phone-mode,
+.welcome-screen.phone-mode,
+.storage-recovery-page.phone-mode {
+  padding: 10px;
+  align-items: start;
+}
+
+.login-gate-page.phone-mode .login-gate-card,
+.welcome-screen.phone-mode .welcome-card,
+.storage-recovery-page.phone-mode .storage-recovery-card {
+  width: min(100%, 560px);
+  padding: 14px;
+  border-radius: 14px;
+  gap: 12px;
+}
+
+.login-gate-page.phone-mode .login-gate-brand {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.login-gate-page.phone-mode .brand-icon.large,
+.welcome-screen.phone-mode .brand-icon.large {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+}
+
+.login-gate-page.phone-mode h1,
+.welcome-screen.phone-mode h1,
+.storage-recovery-page.phone-mode h1 {
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+
+.login-gate-page.phone-mode .cloud-setup-grid,
+.welcome-screen.phone-mode .welcome-profile-form {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.login-gate-page.phone-mode button,
+.welcome-screen.phone-mode button,
+.storage-recovery-page.phone-mode button,
+.login-gate-page.phone-mode .secondary-button,
+.welcome-screen.phone-mode .secondary-button,
+.storage-recovery-page.phone-mode .secondary-button,
+.storage-recovery-page.phone-mode .primary-button {
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: 0.88rem;
+}
+
+.login-gate-page.phone-mode input,
+.welcome-screen.phone-mode input,
+.storage-recovery-page.phone-mode input {
+  min-width: 0;
+}
+
+.storage-recovery-page.phone-mode .recovery-top-row,
+.storage-recovery-page.phone-mode .backup-actions-row {
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+/* V2.6.11: manual phone-friendly compact mode */
 .app-shell.phone-mode {
   max-width: 760px;
   padding: 10px;

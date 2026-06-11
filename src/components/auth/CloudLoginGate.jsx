@@ -36,7 +36,7 @@ function cloudConfigFromData(appData, form) {
   };
 }
 
-export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onAuthChanged, onOpenLocalMode, isOnline = true }) {
+export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onAuthChanged, onOpenLocalMode, isOnline = true, phoneMode = false, onTogglePhoneMode }) {
   const settings = appData?.settings || {};
   const cloud = settings.cloudBackup || {};
   const [mode, setMode] = useState("sign-in");
@@ -166,8 +166,19 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
   }
 
   return (
-    <main className="login-gate-page">
+    <main className={`login-gate-page ${phoneMode ? "phone-mode" : ""}`.trim()}>
       <section className="card login-gate-card">
+        <div className="auth-compact-toggle-row">
+          <button
+            type="button"
+            className={`secondary-button phone-mode-toggle ${phoneMode ? "active" : ""}`}
+            onClick={onTogglePhoneMode}
+            aria-pressed={phoneMode}
+          >
+            {phoneMode ? "Desktop view" : "Phone view"}
+          </button>
+        </div>
+
         <div className="login-gate-brand">
           <div className="brand-icon large"><img src="/icons/gb-icon-192.png" alt="" /></div>
           <div>

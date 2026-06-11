@@ -20,7 +20,19 @@ import ImportPage from "./pages/ImportPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 
 import { getInitialAppData } from "./data/exampleData.js";
-import { exportJsonBackup, loadAppDataAsync, markAppDataChanged, parseBackupObject, prepareDataForBackupExport, prepareRestoredAppData, saveAppData, updateLocalProfile } from "./services/storageService.js";
+import {
+  STORAGE_LOAD_FAILURE_CODE,
+  exportJsonBackup,
+  exportRawSavedData,
+  loadAppDataAsync,
+  markAppDataChanged,
+  parseBackupFile,
+  parseBackupObject,
+  prepareDataForBackupExport,
+  prepareRestoredAppData,
+  saveAppData,
+  updateLocalProfile
+} from "./services/storageService.js";
 import { processRecurringItems } from "./services/recurringService.js";
 import { getMonthKey } from "./utils/dates.js";
 import { applyServiceWorkerUpdate, isStandaloneDisplayMode, registerAppServiceWorker } from "./services/pwaService.js";
@@ -90,9 +102,125 @@ const pages = {
   settings: SettingsPage
 };
 
+function PhoneModeToggle({ phoneMode, onToggle }) {
+  return (
+    <button
+      type="button"
+      className={`secondary-button phone-mode-toggle ${phoneMode ? "active" : ""}`}
+      onClick={onToggle}
+      aria-pressed={phoneMode}
+      title={phoneMode ? "Return to desktop layout" : "Use compact phone-friendly layout"}
+    >
+      {phoneMode ? "Desktop view" : "Phone view"}
+    </button>
+  );
+}
+
+function StorageRecoveryScreen({ error, phoneMode, onTogglePhoneMode, onRestoreBackup, onStartFresh }) {
+  const [status, setStatus] = useState("");
+  const [isBusy, setIsBusy] = useState(false);
+
+  async function exportRawBackup() {
+    setIsBusy(true);
+    setStatus("Preparing emergency raw storage export...");
+    try {
+      const result = await exportRawSavedData();
+      setStatus(result.ok ? "Emergency raw storage export saved." : "Export was cancelled.");
+    } catch (exportError) {
+      console.error("Emergency raw storage export failed:", exportError);
+      setStatus(exportError.message || "Emergency export failed.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleBackupFile(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setIsBusy(true);
+    setStatus("Checking backup file...");
+    try {
+      const preview = await parseBackupFile(file);
+      const restoredAt = new Date().toISOString();
+      const restoredData = prepareRestoredAppData(preview.data, preview.filename, restoredAt, preview.meta);
+      onRestoreBackup(restoredData);
+      setStatus("Backup restored locally.");
+    } catch (restoreError) {
+      console.error("Recovery restore failed:", restoreError);
+      setStatus(restoreError.message || "Could not restore that backup file.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  function confirmStartFresh() {
+    const phrase = prompt("Only start fresh if you are sure there is no local data to recover. Type START FRESH to continue.");
+    if (phrase === "START FRESH") onStartFresh();
+  }
+
+  return (
+    <main className={`storage-recovery-page ${phoneMode ? "phone-mode" : ""}`.trim()}>
+      <section className="card storage-recovery-card">
+        <div className="recovery-top-row">
+          <div>
+            <p className="eyebrow">Storage recovery</p>
+            <h1>Saved data was not loaded</h1>
+          </div>
+          <PhoneModeToggle phoneMode={phoneMode} onToggle={onTogglePhoneMode} />
+        </div>
+
+        <p className="muted-text">
+          The app did not replace your saved data with defaults. This screen appears when browser storage could not be read safely.
+        </p>
+
+        <div className="backup-warning-box danger-box">
+          <strong>Local data is being protected</strong>
+          <span>Do not reset the app unless you have a backup or you are sure this browser has no budget data to recover.</span>
+        </div>
+
+        <div className="backup-warning-box">
+          <strong>Recovery options</strong>
+          <span>Export raw browser storage first, then restore a JSON backup. Cloud backup restore is available after you get back into the app and sign in.</span>
+        </div>
+
+        {error?.message && (
+          <div className="warning-row orange">
+            <strong>Storage error</strong>
+            <small>{error.message}</small>
+          </div>
+        )}
+
+        <div className="backup-actions-row">
+          <button type="button" className="secondary-button" onClick={exportRawBackup} disabled={isBusy}>
+            Export raw storage
+          </button>
+          <label className="secondary-button recovery-file-button">
+            Restore JSON backup
+            <input type="file" accept="application/json,.json" onChange={handleBackupFile} disabled={isBusy} />
+          </label>
+          <button type="button" className="primary-button" onClick={() => window.location.reload()} disabled={isBusy}>
+            Retry loading data
+          </button>
+        </div>
+
+        <div className="row-actions">
+          <button type="button" className="text-button danger-text" onClick={confirmStartFresh} disabled={isBusy}>
+            Start fresh only if no data needs recovery
+          </button>
+        </div>
+
+        {status && <p className="cloud-status-message">{status}</p>}
+      </section>
+    </main>
+  );
+}
+
 function App() {
   const [appData, setAppData] = useState(null);
   const [appLoadStatus, setAppLoadStatus] = useState("Loading saved data...");
+  const [storageRecoveryError, setStorageRecoveryError] = useState(null);
   const [activePage, setActivePage] = useState("dashboard");
   const [selectedMonth, setSelectedMonth] = useState(getMonthKey(new Date()));
   const [selectedDashboardAccountId, setSelectedDashboardAccountId] = useState("all");
@@ -118,14 +246,22 @@ function App() {
       try {
         const savedData = await loadAppDataAsync();
         if (!cancelled) {
+          setStorageRecoveryError(null);
           setAppData(savedData || getInitialAppData());
           setAppLoadStatus("");
         }
       } catch (error) {
         console.error("Failed to load saved app data:", error);
         if (!cancelled) {
-          setAppData(getInitialAppData());
-          setAppLoadStatus("Storage load failed. Started with example data so you can recover from backup in Settings.");
+          if (error?.code === STORAGE_LOAD_FAILURE_CODE) {
+            setStorageRecoveryError(error);
+            setAppData(null);
+            setAppLoadStatus("Saved data could not be loaded safely.");
+          } else {
+            setStorageRecoveryError(error);
+            setAppData(null);
+            setAppLoadStatus("Storage load failed. Recovery options are available.");
+          }
         }
       }
     }
@@ -681,9 +817,29 @@ function App() {
 
   const CurrentPage = pages[activePage] || DashboardPage;
 
+  if (storageRecoveryError) {
+    return (
+      <StorageRecoveryScreen
+        error={storageRecoveryError}
+        phoneMode={phoneMode}
+        onTogglePhoneMode={() => setPhoneMode(prev => !prev)}
+        onRestoreBackup={(restoredData) => {
+          setStorageRecoveryError(null);
+          setAppData(restoredData);
+          setAppLoadStatus("");
+        }}
+        onStartFresh={() => {
+          setStorageRecoveryError(null);
+          setAppData(getInitialAppData());
+          setAppLoadStatus("");
+        }}
+      />
+    );
+  }
+
   if (!appData) {
     return (
-      <main className="loading-page">
+      <main className={`loading-page ${phoneMode ? "phone-mode" : ""}`.trim()}>
         <section className="card loading-card">
           <p className="eyebrow">GH Budgeting</p>
           <h1>Loading your budget data</h1>
@@ -706,6 +862,8 @@ function App() {
         onAuthChanged={refreshCloudAuthState}
         onOpenLocalMode={hasUsableLocalBudgetData(appData) ? openLocalAccessMode : null}
         isOnline={isOnline}
+        phoneMode={phoneMode}
+        onTogglePhoneMode={() => setPhoneMode(prev => !prev)}
       />
     );
   }
@@ -746,6 +904,8 @@ function App() {
             settings: { ...profiledData.settings, hasStarted: true, useExampleData: true }
           };
         })}
+        phoneMode={phoneMode}
+        onTogglePhoneMode={() => setPhoneMode(prev => !prev)}
       />
     );
   }

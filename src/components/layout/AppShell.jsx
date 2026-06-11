@@ -44,20 +44,30 @@ function resolveDeviceShareUrl() {
   const currentUrl = new URL(window.location.href);
   const isLocalRuntime = isLocalAppHost(currentUrl.hostname);
   const isVercelDashboard = currentUrl.hostname === "vercel.com" || currentUrl.hostname.endsWith(".vercel.com");
+  const isVercelAppHost = currentUrl.hostname.endsWith(".vercel.app");
 
-  if (isLocalRuntime) {
+  if (configuredPublicUrl) {
     return {
       url: configuredPublicUrl,
-      isLocalRuntime: true,
-      needsDeployedUrl: !configuredPublicUrl
+      isLocalRuntime,
+      needsDeployedUrl: false,
+      usingConfiguredUrl: true
     };
   }
 
-  if (isVercelDashboard) {
+  if (isLocalRuntime) {
     return {
-      url: configuredPublicUrl,
+      url: "",
+      isLocalRuntime: true,
+      needsDeployedUrl: true
+    };
+  }
+
+  if (isVercelDashboard || isVercelAppHost) {
+    return {
+      url: "",
       isLocalRuntime: false,
-      needsDeployedUrl: !configuredPublicUrl
+      needsDeployedUrl: true
     };
   }
 
@@ -66,7 +76,8 @@ function resolveDeviceShareUrl() {
   return {
     url: `${currentUrl.origin}${currentUrl.pathname}`.replace(/\/$/, "") || currentUrl.origin,
     isLocalRuntime: false,
-    needsDeployedUrl: false
+    needsDeployedUrl: false,
+    usingConfiguredUrl: false
   };
 }
 
@@ -181,12 +192,17 @@ export default function AppShell({
                     </div>
                   ) : (
                     <div className="cloud-status-message compact-status warning-status">
-                      Open the public Vercel app URL before testing the phone QR code, or set VITE_PUBLIC_APP_URL to your deployed app link for local testing.
+                      Open the stable production app URL before testing the phone QR code, or set VITE_PUBLIC_APP_URL to the public production Vercel app link.
                     </div>
                   )}
                   {deviceShare.isLocalRuntime && shareUrl && (
                     <div className="cloud-status-message compact-status warning-status">
                       You are running locally, so this QR uses the configured public app URL. Test the full phone flow from the deployed Vercel app.
+                    </div>
+                  )}
+                  {!deviceShare.isLocalRuntime && deviceShare.usingConfiguredUrl && (
+                    <div className="cloud-status-message compact-status">
+                      This QR uses the configured stable production URL, so phones avoid preview deployments and Vercel dashboard links.
                     </div>
                   )}
                   <input className="device-share-link" value={shareUrl} readOnly aria-label="App link" />
