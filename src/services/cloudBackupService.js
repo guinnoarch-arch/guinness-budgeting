@@ -573,6 +573,14 @@ begin
 end;
 $$;
 
+drop function if exists public.gh_claim_admin();
+drop function if exists public.gh_set_admin_claim_mode(boolean);
+drop function if exists public.gh_admin_audit_recent(integer);
+drop function if exists public.gh_admin_list_users();
+drop function if exists public.gh_admin_set_user_role(uuid, text);
+drop function if exists public.gh_admin_set_user_blocked(uuid, boolean);
+drop function if exists public.gh_get_admin_access_state();
+
 create or replace function public.gh_get_admin_access_state()
 returns table(
   current_user_id uuid,
@@ -690,6 +698,10 @@ security definer
 set search_path = public
 as $$
 begin
+  if auth.uid() is null then
+    raise exception 'Not authorised';
+  end if;
+
   if not public.gh_is_admin(auth.uid()) then
     raise exception 'Not authorised';
   end if;
@@ -723,6 +735,10 @@ security definer
 set search_path = public
 as $$
 begin
+  if auth.uid() is null then
+    raise exception 'Not authorised';
+  end if;
+
   if not public.gh_is_admin(auth.uid()) then
     raise exception 'Not authorised';
   end if;
@@ -747,6 +763,7 @@ returns table(
   blocked_by uuid,
   created_at timestamptz,
   updated_at timestamptz,
+  last_activity timestamptz,
   last_backup_at timestamptz,
   active_status text
 )
@@ -755,6 +772,10 @@ security definer
 set search_path = public
 as $$
 begin
+  if auth.uid() is null then
+    raise exception 'Not authorised';
+  end if;
+
   if not public.gh_is_admin(auth.uid()) then
     raise exception 'Not authorised';
   end if;
@@ -771,6 +792,7 @@ begin
       p.blocked_by,
       p.created_at,
       p.updated_at,
+      coalesce(max(b.created_at), p.updated_at, p.created_at) as last_activity,
       max(b.created_at) as last_backup_at,
       case
         when max(b.created_at) >= now() - interval '30 days' then 'active'
@@ -804,6 +826,10 @@ declare
   target_current_role text;
   admin_count integer;
 begin
+  if auth.uid() is null then
+    raise exception 'Not authorised';
+  end if;
+
   if not public.gh_is_admin(auth.uid()) then
     raise exception 'Not authorised';
   end if;
@@ -867,6 +893,10 @@ declare
   target_current_blocked boolean;
   admin_count integer;
 begin
+  if auth.uid() is null then
+    raise exception 'Not authorised';
+  end if;
+
   if not public.gh_is_admin(auth.uid()) then
     raise exception 'Not authorised';
   end if;
@@ -923,6 +953,7 @@ revoke all on function public.gh_admin_set_user_role(uuid, text) from public;
 revoke all on function public.gh_admin_set_user_blocked(uuid, boolean) from public;
 
 grant execute on function public.gh_get_admin_access_state() to authenticated;
+grant execute on function public.gh_is_blocked(uuid) to authenticated;
 grant execute on function public.gh_claim_admin() to authenticated;
 grant execute on function public.gh_set_admin_claim_mode(boolean) to authenticated;
 grant execute on function public.gh_admin_audit_recent(integer) to authenticated;

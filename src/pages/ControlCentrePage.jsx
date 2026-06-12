@@ -62,6 +62,10 @@ function StatusBadge({ children, tone = "" }) {
   return <span className={`pill admin-status-badge ${tone}`.trim()}>{children}</span>;
 }
 
+function isMissingAdminSqlError(message = "") {
+  return /admin sql setup has not been run yet|gh_admin_list_users|schema cache|function .*not found|could not find the function/i.test(String(message || ""));
+}
+
 function getPublicUrlCheck() {
   const configured = String(import.meta.env.VITE_PUBLIC_APP_URL || import.meta.env.VITE_APP_PUBLIC_URL || "").trim();
   if (!configured) {
@@ -94,6 +98,7 @@ export default function ControlCentrePage({ appData, actions }) {
   const [userSearch, setUserSearch] = useState("");
   const [userFilter, setUserFilter] = useState("all");
   const [userStatus, setUserStatus] = useState("");
+  const [userListLoaded, setUserListLoaded] = useState(false);
   const storageHealth = useMemo(() => getStorageHealth(appData), [appData]);
   const backupReminder = getBackupReminder(settings);
   const publicUrlCheck = getPublicUrlCheck();
@@ -125,11 +130,16 @@ export default function ControlCentrePage({ appData, actions }) {
   async function refreshUsers() {
     if (!adminStatus.isAdmin) return;
     setUserStatus("");
+    setUserListLoaded(false);
     try {
       const rows = await listAdminUsers(settings);
       setUsers(rows);
+      setUserListLoaded(true);
     } catch (error) {
-      setUserStatus(error.message || "Could not load users.");
+      setUsers([]);
+      setUserStatus(isMissingAdminSqlError(error.message)
+        ? "Admin SQL setup has not been run yet. Run the latest Supabase SQL setup, wait 30-60 seconds for the schema cache, then refresh."
+        : error.message || "Could not load users.");
     }
   }
 
@@ -217,9 +227,18 @@ export default function ControlCentrePage({ appData, actions }) {
       if (!adminStatus.isAdmin) return;
       await Promise.all([
         listAdminUsers(settings).then(rows => {
-          if (!cancelled) setUsers(rows);
+          if (!cancelled) {
+            setUsers(rows);
+            setUserListLoaded(true);
+          }
         }).catch(error => {
-          if (!cancelled) setUserStatus(error.message || "Could not load users.");
+          if (!cancelled) {
+            setUsers([]);
+            setUserListLoaded(false);
+            setUserStatus(isMissingAdminSqlError(error.message)
+              ? "Admin SQL setup has not been run yet. Run the latest Supabase SQL setup, wait 30-60 seconds for the schema cache, then refresh."
+              : error.message || "Could not load users.");
+          }
         }),
         listAdminAuditLog(settings, 30).then(rows => {
           if (!cancelled) setAuditLog(rows);
@@ -246,6 +265,8 @@ export default function ControlCentrePage({ appData, actions }) {
   });
 
   const blockedCount = users.filter(user => user.blocked).length;
+  const adminUserCount = users.filter(user => user.is_admin).length;
+  const userStatValue = (value) => userListLoaded ? value : "Setup needed";
 
   if (!adminStatus.isAdmin) {
     return (
@@ -318,9 +339,9 @@ export default function ControlCentrePage({ appData, actions }) {
             <p>Manage safe account access metadata only. Financial records are not shown here.</p>
           </div>
           <div className="control-stat-grid admin-users-mini-stats">
-            <ControlStat label="Total users" value={users.length} />
-            <ControlStat label="Admins" value={users.filter(user => user.is_admin).length || adminStatus.adminCount || 0} />
-            <ControlStat label="Blocked" value={blockedCount} />
+            <ControlStat label="Total users" value={userStatValue(users.length)} />
+            <ControlStat label="Admins" value={userStatValue(adminUserCount)} />
+            <ControlStat label="Blocked" value={userStatValue(blockedCount)} />
           </div>
         </div>
 
@@ -351,7 +372,11 @@ export default function ControlCentrePage({ appData, actions }) {
           <button type="button" className="secondary-button small" onClick={refreshUsers}>Refresh</button>
         </div>
 
-        {userStatus && <p className="cloud-status-message compact-status">{userStatus}</p>}
+        {userStatus && (
+          <p className={`cloud-status-message compact-status ${isMissingAdminSqlError(userStatus) ? "warning-status" : ""}`.trim()}>
+            {userStatus}
+          </p>
+        )}
 
         <div className="admin-users-table-wrap">
           <table className="admin-users-table">
@@ -388,6 +413,7 @@ export default function ControlCentrePage({ appData, actions }) {
                     <td data-label="Activity">
                       <small>Created {formatDateTime(user.created_at)}</small>
                       <small>Updated {formatDateTime(user.updated_at)}</small>
+                      <small>Last activity {formatDateTime(user.last_activity || user.last_backup_at || user.updated_at)}</small>
                       <small>Last backup {formatDateTime(user.last_backup_at)}</small>
                     </td>
                     <td data-label="Actions">
@@ -417,7 +443,8 @@ export default function ControlCentrePage({ appData, actions }) {
               })}
             </tbody>
           </table>
-          {filteredUsers.length === 0 && <p className="muted-text">No users match this filter.</p>}
+          {userListLoaded && filteredUsers.length === 0 && <p className="muted-text">No users match this filter.</p>}
+          {!userListLoaded && <p className="muted-text">User list is unavailable until the admin SQL setup has been run.</p>}
         </div>
       </div>
 

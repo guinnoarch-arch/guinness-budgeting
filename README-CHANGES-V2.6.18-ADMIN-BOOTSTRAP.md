@@ -1,6 +1,6 @@
-# V2.6.18/V2.6.19 Admin Bootstrap And User Management
+# V2.6.18/V2.6.20 Admin Bootstrap And User Management
 
-V2.6.19 extends the Admin Control Centre with safe user/account summaries, admin promotion/demotion, account blocking/unblocking and blocked-user route guards.
+V2.6.20 extends the Admin Control Centre with safe user/account summaries, admin promotion/demotion, account blocking/unblocking, blocked-user route guards, a standalone Supabase SQL setup file and clearer missing-RPC handling.
 
 ## Files Changed
 
@@ -11,6 +11,7 @@ V2.6.19 extends the Admin Control Centre with safe user/account summaries, admin
 - `src/services/cloudBackupService.js`
 - `src/services/storageService.js`
 - `src/styles/global.css`
+- `supabase-admin-control-centre.sql`
 - `README.md`
 - `public/service-worker.js`
 - `package.json`
@@ -41,6 +42,12 @@ Run the latest SQL from:
 Settings -> Cloud backup -> Show Supabase SQL setup
 ```
 
+You can also paste the repository file below into the Supabase SQL Editor:
+
+```text
+supabase-admin-control-centre.sql
+```
+
 The SQL adds:
 
 - `public.profiles.role`
@@ -60,6 +67,8 @@ The SQL adds:
 It also revokes direct profile updates from changing `role`; admin role changes go through the RPCs.
 
 After running SQL, wait 30-60 seconds and refresh the app if Supabase says a new function was not found. That usually means the PostgREST schema cache has not refreshed yet.
+
+If `public.gh_admin_list_users()` is missing, the Admin Control Centre now shows `Admin SQL setup has not been run yet` and suppresses the Users / Accounts totals until a valid safe user list is returned.
 
 ## First Admin Flow
 
@@ -107,6 +116,7 @@ The app prevents removing or blocking the last admin. Self-block is guarded and 
 - blocked status
 - created/updated timestamps
 - last cloud backup timestamp
+- last activity timestamp
 - active/inactive status inferred from recent backup activity
 
 It does not return transactions, balances, budgets, bills, savings goals or backup contents.
