@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.17 - phone dashboard chart labels and summary toggle containment fixes.
+V2.6.18 - Supabase-backed Admin Control Centre access and first-admin bootstrap.
 
 ## What Is Included
 
@@ -70,13 +70,25 @@ The QR code is generated as a standard SVG from the resolved production URL. If 
 
 ## Admin Control Centre
 
-The Control Centre is only shown to signed-in admin users. Admin status is read from Supabase user metadata (`admin: true`, `role: admin`, `role: owner` or `role: super_admin`) or from a non-secret frontend allowlist:
+The Admin Control Centre route is:
 
 ```text
-VITE_ADMIN_EMAILS=first@example.com,second@example.com
+/admin
 ```
 
-Use `VITE_ADMIN_EMAILS` only as a UI allowlist. It is bundled into frontend code and must not be treated as a backend security boundary. Cross-user admin stats or actions should be added later through a secure Supabase RPC or server route with Row Level Security, never by putting a service-role key in the browser.
+You can also open it from `Settings -> Profile` after your Supabase profile has admin access.
+
+Admin access is stored in Supabase, not in a frontend-only allowlist:
+
+```text
+public.profiles.role = 'admin'
+```
+
+The browser still uses only the Supabase anon/publishable key. Do not add service-role keys to frontend code or Vercel client environment variables.
+
+For first setup, run the current SQL shown in `Settings -> Cloud backup -> Show Supabase SQL setup`. It adds `profiles.role`, admin claim mode, server-side RPC route guards and an admin audit log. When no admin exists, a signed-in user will see `Become admin` in `Settings -> Profile`. A successful claim marks that user's Supabase profile as admin and automatically turns admin-claim mode off.
+
+Existing admins can temporarily enable `Allow another user to become admin` inside `/admin`. Only enable it while intentionally inviting another trusted user. Non-admin users who open `/admin` directly are shown `Not authorised` and a button back to Settings.
 
 The bank-linking feature flag defaults to off and does not enable any live bank integration.
 

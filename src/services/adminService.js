@@ -1,4 +1,13 @@
+import {
+  getStoredCloudSessionSummary,
+  isCloudBackupConfigured,
+  supabaseRestFetch
+} from "./cloudBackupService.js";
+
 export const STABLE_PRODUCTION_APP_URL = "https://guinness-budgeting.vercel.app";
+export const ADMIN_ROUTE_PATH = "/admin";
+export const ADMIN_ROLE_FIELD = "public.profiles.role";
+export const ADMIN_ROLE_VALUE = "admin";
 
 export const DEFAULT_FEATURE_FLAGS = {
   bankLinkingBeta: false,
@@ -60,12 +69,20 @@ export const FEATURE_FLAG_DETAILS = {
   }
 };
 
-function splitEmails(value) {
-  return String(value || "")
-    .split(",")
-    .map(item => item.trim().toLowerCase())
-    .filter(Boolean);
-}
+export const DEFAULT_ADMIN_ACCESS_STATE = {
+  loaded: false,
+  signedIn: false,
+  isAdmin: false,
+  role: "user",
+  email: "",
+  adminExists: false,
+  adminCount: 0,
+  profileCount: 0,
+  adminClaimEnabled: false,
+  canClaimAdmin: false,
+  error: "",
+  reason: "Admin state has not loaded yet."
+};
 
 export function normaliseFeatureFlags(value = {}) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -83,49 +100,102 @@ export function getFeatureFlags(settings = {}) {
   return normaliseFeatureFlags(settings?.featureFlags);
 }
 
-function hasAdminRole(user = {}) {
-  const candidates = [
-    user.role,
-    user.app_metadata?.role,
-    user.user_metadata?.role,
-    user.app_metadata?.user_role,
-    user.user_metadata?.user_role
-  ].map(value => String(value || "").toLowerCase());
-
-  return Boolean(
-    user.app_metadata?.admin ||
-    user.user_metadata?.admin ||
-    user.is_admin ||
-    candidates.some(value => ["admin", "owner", "super_admin"].includes(value))
-  );
-}
-
-export function getAdminStatus(cloudAuthSummary = {}, settings = {}) {
-  const user = cloudAuthSummary?.user || {};
-  const email = String(user.email || cloudAuthSummary?.email || "").trim().toLowerCase();
-  const allowedEmails = splitEmails(import.meta.env.VITE_ADMIN_EMAILS);
+export function normaliseAdminAccessState(value = {}, cloudAuthSummary = getStoredCloudSessionSummary()) {
   const signedIn = Boolean(cloudAuthSummary?.signedIn);
-  const metadataAdmin = signedIn && hasAdminRole(user);
-  const allowlistAdmin = signedIn && email && allowedEmails.includes(email);
-  const localAdminEmails = splitEmails(settings?.admin?.localAdminEmails);
-  const localAdmin = signedIn && email && localAdminEmails.includes(email);
-  const isAdmin = Boolean(metadataAdmin || allowlistAdmin || localAdmin);
+  const role = String(value.role || value.current_role || "user").toLowerCase();
+  const isAdmin = Boolean(value.isAdmin ?? value.is_admin ?? role === ADMIN_ROLE_VALUE);
+  const adminExists = Boolean(value.adminExists ?? value.admin_exists ?? Number(value.admin_count || 0) > 0);
+  const adminClaimEnabled = Boolean(value.adminClaimEnabled ?? value.admin_claim_enabled);
+  const canClaimAdmin = signedIn && !isAdmin && (!adminExists || adminClaimEnabled);
 
   return {
-    isAdmin,
+    ...DEFAULT_ADMIN_ACCESS_STATE,
+    ...value,
+    loaded: Boolean(value.loaded),
     signedIn,
-    email,
-    reason: metadataAdmin
-      ? "Supabase user metadata marks this account as admin."
-      : allowlistAdmin
-        ? "This account is listed in VITE_ADMIN_EMAILS."
-        : localAdmin
-          ? "This account is listed in local admin settings."
-          : signedIn
-            ? "Signed in, but no admin role or allowlist entry was found."
-            : "Sign in with an admin account to open the Control Centre.",
-    requiresSecureAdminRpc: true
+    isAdmin,
+    role,
+    email: String(value.email || value.current_email || cloudAuthSummary?.user?.email || "").trim().toLowerCase(),
+    adminExists,
+    adminCount: Number(value.adminCount ?? value.admin_count ?? 0),
+    profileCount: Number(value.profileCount ?? value.profile_count ?? 0),
+    adminClaimEnabled,
+    canClaimAdmin,
+    error: value.error || "",
+    reason: value.reason || (isAdmin
+      ? `Admin role confirmed from ${ADMIN_ROLE_FIELD}.`
+      : signedIn
+        ? "Signed in, but this Supabase profile is not admin."
+        : "Sign in before opening the Admin Control Centre.")
   };
+}
+
+export function getAdminStatus(adminAccessState = DEFAULT_ADMIN_ACCESS_STATE, cloudAuthSummary = getStoredCloudSessionSummary()) {
+  return normaliseAdminAccessState(adminAccessState, cloudAuthSummary);
+}
+
+function normaliseRpcRow(body) {
+  if (Array.isArray(body)) return body[0] || {};
+  return body || {};
+}
+
+export async function fetchAdminAccessState(settings = {}, cloudAuthSummary = getStoredCloudSessionSummary()) {
+  if (!cloudAuthSummary?.signedIn) {
+    return normaliseAdminAccessState({
+      loaded: true,
+      reason: "Sign in before opening the Admin Control Centre."
+    }, cloudAuthSummary);
+  }
+
+  if (!isCloudBackupConfigured(settings)) {
+    return normaliseAdminAccessState({
+      loaded: true,
+      error: "Supabase is not configured for this build.",
+      reason: "Supabase is not configured, so admin role cannot be checked."
+    }, cloudAuthSummary);
+  }
+
+  try {
+    const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_get_admin_access_state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    }));
+    return normaliseAdminAccessState({ ...row, loaded: true }, cloudAuthSummary);
+  } catch (error) {
+    return normaliseAdminAccessState({
+      loaded: true,
+      error: error.message || "Admin access check failed.",
+      reason: "Admin access could not be checked. Run the updated Supabase SQL setup."
+    }, cloudAuthSummary);
+  }
+}
+
+export async function claimAdminRole(settings = {}) {
+  const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_claim_admin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  }));
+  return normaliseAdminAccessState({ ...row, loaded: true }, getStoredCloudSessionSummary(settings));
+}
+
+export async function setAdminClaimMode(settings = {}, enabled) {
+  const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_set_admin_claim_mode", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled: Boolean(enabled) })
+  }));
+  return normaliseAdminAccessState({ ...row, loaded: true }, getStoredCloudSessionSummary(settings));
+}
+
+export async function listAdminAuditLog(settings = {}, limit = 30) {
+  const rows = await supabaseRestFetch(settings, "rpc/gh_admin_audit_recent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ row_limit: Number(limit) || 30 })
+  });
+  return Array.isArray(rows) ? rows : [];
 }
 
 export function createAdminAuditEntry(action, details = {}, actor = {}) {

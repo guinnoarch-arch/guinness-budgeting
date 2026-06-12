@@ -4731,6 +4731,33 @@ button[disabled] {
   background: rgba(245, 158, 11, 0.08);
 }
 
+.admin-profile-entry {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--soft);
+}
+
+.admin-profile-entry h4 {
+  margin: 0;
+}
+
+.admin-profile-actions {
+  align-items: center;
+}
+
+.compact-admin-meta {
+  margin-top: 0.75rem;
+}
+
+.control-back-button {
+  justify-self: start;
+  margin: 0 0 0.75rem;
+}
+
 @media (max-width: 780px) {
   .control-centre-grid,
   .control-stat-grid {

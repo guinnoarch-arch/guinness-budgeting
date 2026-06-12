@@ -47,6 +47,7 @@ import {
   signInWithEmailOrUsername,
   signUpWithEmail
 } from "../services/authService.js";
+import { ADMIN_ROLE_FIELD, ADMIN_ROUTE_PATH, claimAdminRole } from "../services/adminService.js";
 
 function formatDateTime(value) {
   if (!value) return "Never";
@@ -279,6 +280,7 @@ export default function SettingsPage({ appData, actions }) {
   const [cloudRestorePreview, setCloudRestorePreview] = useState(null);
   const [cloudRestorePhrase, setCloudRestorePhrase] = useState("");
   const [showCloudSql, setShowCloudSql] = useState(false);
+  const [adminProfileStatus, setAdminProfileStatus] = useState("");
 
   const currentCounts = getBackupCounts(appData);
   const settings = appData.settings || {};
@@ -292,6 +294,7 @@ export default function SettingsPage({ appData, actions }) {
   const comparisonWarnings = restorePreview
     ? buildRestoreComparisonWarnings(appData, restorePreview)
     : [];
+  const adminStatus = actions.adminStatus || {};
 
   useEffect(() => {
     let cancelled = false;
@@ -359,6 +362,33 @@ export default function SettingsPage({ appData, actions }) {
     }));
     setCloudSession(getStoredCloudSessionSummary(settings));
   }, [settings.cloudBackup?.cloudUserEmail, settings.cloudBackup?.cloudUsername, profile.email, profile.username]);
+
+  useEffect(() => {
+    if (actions.preferredSettingsSection) {
+      setActiveSettingsSection(actions.preferredSettingsSection);
+    }
+  }, [actions.preferredSettingsSection]);
+
+  async function becomeAdmin() {
+    if (!cloudSession?.signedIn) {
+      setAdminProfileStatus("Sign in before becoming admin.");
+      return;
+    }
+
+    if (!adminStatus.canClaimAdmin) {
+      setAdminProfileStatus("Admin claim is not currently allowed.");
+      return;
+    }
+
+    setAdminProfileStatus("Claiming admin access...");
+    try {
+      await claimAdminRole(settings);
+      await actions.refreshAdminAccess?.();
+      setAdminProfileStatus("This account is now admin. Admin claim mode has been turned off.");
+    } catch (error) {
+      setAdminProfileStatus(error.message || "Could not claim admin access.");
+    }
+  }
 
   async function requestPersistentStorage() {
     setPersistentStorageStatus("Requesting persistent browser storage...");
@@ -1263,6 +1293,46 @@ export default function SettingsPage({ appData, actions }) {
           <p><span>Cloud user ID</span><strong>{profile.cloudUserId || "Not connected"}</strong></p>
           <p><span>Login type</span><strong>{profile.localOnly === false ? "Cloud-ready profile" : "Local username only"}</strong></p>
           <p><span>Profile updated</span><strong>{formatDateTime(profile.updatedAt)}</strong></p>
+        </div>
+
+        <div className="admin-profile-entry">
+          <div>
+            <p className="eyebrow">Admin access</p>
+            <h4>Admin Control Centre</h4>
+            <p className="muted-text">
+              Admin status is checked from Supabase using <strong>{ADMIN_ROLE_FIELD} = 'admin'</strong>. No service-role key is used in the browser.
+            </p>
+            <div className="profile-meta-grid compact-admin-meta">
+              <p><span>Signed in</span><strong>{cloudSession?.signedIn ? "Yes" : "No"}</strong></p>
+              <p><span>Current role</span><strong>{adminStatus.role || "user"}</strong></p>
+              <p><span>Admin exists</span><strong>{adminStatus.adminExists ? "Yes" : "No"}</strong></p>
+              <p><span>Admin claim mode</span><strong>{adminStatus.adminClaimEnabled ? "ON" : "OFF"}</strong></p>
+            </div>
+          </div>
+
+          <div className="row-actions admin-profile-actions">
+            {adminStatus.isAdmin && (
+              <button type="button" className="primary-button" onClick={() => actions.setActivePage?.("control")}>
+                Open Admin Control Centre
+              </button>
+            )}
+            {!adminStatus.isAdmin && adminStatus.canClaimAdmin && (
+              <button type="button" className="secondary-button" onClick={becomeAdmin}>
+                Become admin
+              </button>
+            )}
+            {!adminStatus.isAdmin && !adminStatus.canClaimAdmin && (
+              <span className="pill">Not admin</span>
+            )}
+          </div>
+
+          {adminStatus.error && (
+            <div className="cloud-status-message compact-status warning-status">
+              {adminStatus.error} Run the updated Supabase SQL setup if admin controls are not available yet.
+            </div>
+          )}
+          {adminProfileStatus && <p className="cloud-status-message compact-status">{adminProfileStatus}</p>}
+          <small className="muted-text">Direct route: {ADMIN_ROUTE_PATH}. Non-admin users are blocked by the Supabase-backed route guard.</small>
         </div>
 
         <div className="profile-session-actions">

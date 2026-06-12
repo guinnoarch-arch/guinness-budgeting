@@ -48,7 +48,7 @@ import {
   uploadSupabaseCloudBackup
 } from "./services/cloudBackupService.js";
 import { getDisplayUsernameFromSession } from "./services/authService.js";
-import { getAdminStatus, getFeatureFlags } from "./services/adminService.js";
+import { ADMIN_ROUTE_PATH, DEFAULT_ADMIN_ACCESS_STATE, fetchAdminAccessState, getAdminStatus, getFeatureFlags } from "./services/adminService.js";
 import { buildDataFingerprint } from "./services/cloudMergeService.js";
 import { clearLocalAccessSession, hasUsableLocalBudgetData, isLocalAccessSessionAllowed, storeLocalAccessSession } from "./services/localAccessService.js";
 
@@ -241,6 +241,8 @@ function App() {
   const [cloudConflict, setCloudConflict] = useState(null);
   const [localAccessUnlocked, setLocalAccessUnlocked] = useState(() => isLocalAccessSessionAllowed());
   const [phoneMode, setPhoneMode] = useState(readStoredPhoneMode);
+  const [preferredSettingsSection, setPreferredSettingsSection] = useState("");
+  const [adminAccessState, setAdminAccessState] = useState(DEFAULT_ADMIN_ACCESS_STATE);
 
   useEffect(() => {
     let cancelled = false;
@@ -292,8 +294,15 @@ function App() {
     const requestedPage = params.get("page");
     const requestedAction = params.get("action");
 
-    if (requestedPage && pages[requestedPage]) {
+    const path = window.location.pathname.replace(/\/+$/, "") || "/";
+    if (path === ADMIN_ROUTE_PATH || path === "/control-centre") {
+      setActivePage("control");
+    } else if (requestedPage && pages[requestedPage]) {
       setActivePage(requestedPage);
+    }
+
+    if (requestedPage === "settings" && params.get("settings") === "profile") {
+      setPreferredSettingsSection("profile");
     }
 
     if (requestedAction === "add-transaction") {
@@ -582,6 +591,37 @@ function App() {
     setCloudAuthSummary(getStoredCloudSessionSummary(appData?.settings));
   }
 
+  function navigateToPage(page, options = {}) {
+    setActivePage(page);
+    if (options.settingsSection) setPreferredSettingsSection(options.settingsSection);
+
+    try {
+      const nextPath = page === "control" ? ADMIN_ROUTE_PATH : "/";
+      const nextSearch = page === "dashboard"
+        ? ""
+        : page === "settings" && options.settingsSection
+          ? `?page=settings&settings=${encodeURIComponent(options.settingsSection)}`
+          : page === "control"
+            ? ""
+            : `?page=${encodeURIComponent(page)}`;
+      window.history.pushState({}, "", `${nextPath}${nextSearch}`);
+    } catch {
+      // URL updates are ergonomic only; keep in-app navigation working.
+    }
+  }
+
+  function openSettingsProfile() {
+    navigateToPage("settings", { settingsSection: "profile" });
+  }
+
+  async function refreshAdminAccess() {
+    const summary = getStoredCloudSessionSummary(appData?.settings);
+    setCloudAuthSummary(summary);
+    const nextState = await fetchAdminAccessState(appData?.settings || {}, summary);
+    setAdminAccessState(nextState);
+    return nextState;
+  }
+
   function openLocalAccessMode() {
     if (!hasUsableLocalBudgetData(appData)) {
       setCloudBackupStatus("No trusted local budget data found on this device yet. Sign in first.");
@@ -679,6 +719,26 @@ function App() {
       cancelled = true;
     };
   }, [appData?.settings?.cloudBackup?.linkedLocalDataAt, cloudAuthSummary?.signedIn]);
+
+  useEffect(() => {
+    if (!appData) return undefined;
+    let cancelled = false;
+
+    async function loadAdminAccess() {
+      const nextState = await fetchAdminAccessState(appData.settings, cloudAuthSummary);
+      if (!cancelled) setAdminAccessState(nextState);
+    }
+
+    loadAdminAccess();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    appData?.settings?.cloudBackup?.supabaseUrl,
+    appData?.settings?.cloudBackup?.supabaseAnonKey,
+    cloudAuthSummary?.signedIn,
+    cloudAuthSummary?.user?.id
+  ]);
 
   function clearCloudConflict() {
     setCloudConflict(null);
@@ -797,12 +857,15 @@ function App() {
     lockApp,
     logoutApp,
     openLocalAccessMode,
+    openSettingsProfile,
+    refreshAdminAccess,
     cloudAuthSummary,
     cloudBackupStatus,
     phoneMode,
     cloudUsername: getDisplayUsernameFromSession(cloudAuthSummary),
     featureFlags: getFeatureFlags(appData?.settings),
-    adminStatus: getAdminStatus(cloudAuthSummary, appData?.settings),
+    adminAccessState,
+    adminStatus: getAdminStatus(adminAccessState, cloudAuthSummary),
     pwaInstall: {
       installPrompt,
       installStatus,
@@ -813,12 +876,13 @@ function App() {
       waitingServiceWorker,
       hasUpdateAvailable: Boolean(waitingServiceWorker)
     },
-    setActivePage,
+    setActivePage: navigateToPage,
+    preferredSettingsSection,
     selectedMonth,
     setSelectedMonth,
     selectedDashboardAccountId,
     setSelectedDashboardAccountId
-  }), [appData, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode]);
+  }), [appData, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode, adminAccessState, preferredSettingsSection]);
 
   if (storageRecoveryError) {
     return (
@@ -912,7 +976,7 @@ function App() {
   }
 
   const featureFlags = getFeatureFlags(appData.settings);
-  const adminStatus = getAdminStatus(cloudAuthSummary, appData.settings);
+  const adminStatus = getAdminStatus(adminAccessState, cloudAuthSummary);
   const visibleActivePage = (
     (activePage === "import" && featureFlags.csvImport === false) ||
     (activePage === "loans" && featureFlags.loans === false)
@@ -922,7 +986,7 @@ function App() {
   return (
     <AppShell
       activePage={visibleActivePage}
-      setActivePage={setActivePage}
+      setActivePage={navigateToPage}
       appData={appData}
       actions={{ ...actions, featureFlags, adminStatus }}
       showTransactionModal={showTransactionModal}

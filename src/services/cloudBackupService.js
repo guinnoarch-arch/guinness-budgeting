@@ -306,7 +306,7 @@ async function getValidCloudSession(settings) {
   return loadStoredCloudSession();
 }
 
-async function supabaseRestFetch(settings, path, options = {}) {
+export async function supabaseRestFetch(settings, path, options = {}) {
   const config = getCloudConfigOrThrow(settings);
   const session = await getValidCloudSession(settings);
   const response = await fetchSupabaseEndpoint(`${config.url}/rest/v1/${path}`, {
@@ -447,9 +447,25 @@ create table if not exists public.profiles (
   email text,
   username text not null,
   username_normalized text not null unique,
+  role text not null default 'user' check (role in ('user', 'admin')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.profiles
+  add column if not exists role text not null default 'user';
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'profiles_role_check'
+      and conrelid = 'public.profiles'::regclass
+  ) then
+    alter table public.profiles
+      add constraint profiles_role_check check (role in ('user', 'admin'));
+  end if;
+end $$;
 
 alter table public.profiles enable row level security;
 
@@ -469,6 +485,238 @@ create policy "GH users can update own profile"
   on public.profiles for update
   using (auth.uid() = id)
   with check (auth.uid() = id);
+
+revoke update on public.profiles from anon, authenticated;
+grant update (email, username, username_normalized, updated_at) on public.profiles to authenticated;
+
+create table if not exists public.gh_admin_settings (
+  id boolean primary key default true check (id),
+  admin_claim_enabled boolean not null default false,
+  updated_by uuid references auth.users(id) on delete set null,
+  updated_at timestamptz not null default now()
+);
+
+insert into public.gh_admin_settings (id, admin_claim_enabled)
+values (true, false)
+on conflict (id) do nothing;
+
+alter table public.gh_admin_settings enable row level security;
+
+create table if not exists public.gh_admin_audit_log (
+  id uuid primary key default gen_random_uuid(),
+  actor_id uuid references auth.users(id) on delete set null,
+  actor_email text,
+  action text not null,
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+alter table public.gh_admin_audit_log enable row level security;
+
+create or replace function public.gh_is_admin(user_id uuid default auth.uid())
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = user_id
+      and p.role = 'admin'
+  );
+$$;
+
+create or replace function public.gh_log_admin_action(action_name text, action_details jsonb default '{}'::jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  actor_email_value text;
+begin
+  if auth.uid() is null then
+    raise exception 'Not authorised';
+  end if;
+
+  select email into actor_email_value
+  from public.profiles
+  where id = auth.uid();
+
+  insert into public.gh_admin_audit_log (actor_id, actor_email, action, details)
+  values (auth.uid(), actor_email_value, action_name, coalesce(action_details, '{}'::jsonb));
+end;
+$$;
+
+create or replace function public.gh_get_admin_access_state()
+returns table(
+  current_user_id uuid,
+  current_email text,
+  current_role text,
+  is_admin boolean,
+  admin_exists boolean,
+  admin_count integer,
+  profile_count integer,
+  admin_claim_enabled boolean
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    current_user.id as current_user_id,
+    p.email as current_email,
+    coalesce(p.role, 'user') as current_role,
+    coalesce(p.role = 'admin', false) as is_admin,
+    exists (select 1 from public.profiles admin_profile where admin_profile.role = 'admin') as admin_exists,
+    (select count(*)::integer from public.profiles admin_profile where admin_profile.role = 'admin') as admin_count,
+    case
+      when coalesce(p.role = 'admin', false) then (select count(*)::integer from public.profiles)
+      else 0
+    end as profile_count,
+    coalesce((select s.admin_claim_enabled from public.gh_admin_settings s where s.id = true), false) as admin_claim_enabled
+  from (select auth.uid() as id) current_user
+  left join public.profiles p on p.id = current_user.id
+  where current_user.id is not null;
+$$;
+
+create or replace function public.gh_claim_admin()
+returns table(
+  current_user_id uuid,
+  current_email text,
+  current_role text,
+  is_admin boolean,
+  admin_exists boolean,
+  admin_count integer,
+  profile_count integer,
+  admin_claim_enabled boolean
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  existing_admin_count integer;
+  claim_enabled boolean;
+begin
+  if auth.uid() is null then
+    raise exception 'Not authorised';
+  end if;
+
+  select count(*)::integer into existing_admin_count
+  from public.profiles
+  where role = 'admin';
+
+  select coalesce(admin_claim_enabled, false) into claim_enabled
+  from public.gh_admin_settings
+  where id = true;
+
+  if existing_admin_count > 0 and not coalesce(claim_enabled, false) then
+    raise exception 'Admin claim mode is off';
+  end if;
+
+  insert into public.profiles (id, email, username, username_normalized, role)
+  values (
+    auth.uid(),
+    coalesce(auth.jwt()->>'email', ''),
+    coalesce(split_part(auth.jwt()->>'email', '@', 1), 'admin'),
+    lower(coalesce(split_part(auth.jwt()->>'email', '@', 1), 'admin')),
+    'user'
+  )
+  on conflict (id) do nothing;
+
+  update public.profiles
+  set role = 'admin',
+      updated_at = now()
+  where id = auth.uid();
+
+  update public.gh_admin_settings
+  set admin_claim_enabled = false,
+      updated_by = auth.uid(),
+      updated_at = now()
+  where id = true;
+
+  perform public.gh_log_admin_action(
+    'admin_claimed',
+    jsonb_build_object('previous_admin_count', existing_admin_count, 'admin_claim_mode_turned_off', true)
+  );
+
+  return query select * from public.gh_get_admin_access_state();
+end;
+$$;
+
+create or replace function public.gh_set_admin_claim_mode(enabled boolean)
+returns table(
+  current_user_id uuid,
+  current_email text,
+  current_role text,
+  is_admin boolean,
+  admin_exists boolean,
+  admin_count integer,
+  profile_count integer,
+  admin_claim_enabled boolean
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.gh_is_admin(auth.uid()) then
+    raise exception 'Not authorised';
+  end if;
+
+  update public.gh_admin_settings
+  set admin_claim_enabled = coalesce(enabled, false),
+      updated_by = auth.uid(),
+      updated_at = now()
+  where id = true;
+
+  perform public.gh_log_admin_action(
+    'admin_claim_mode_changed',
+    jsonb_build_object('enabled', coalesce(enabled, false))
+  );
+
+  return query select * from public.gh_get_admin_access_state();
+end;
+$$;
+
+create or replace function public.gh_admin_audit_recent(row_limit integer default 30)
+returns table(
+  id uuid,
+  actor_id uuid,
+  actor_email text,
+  action text,
+  details jsonb,
+  created_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.gh_is_admin(auth.uid()) then
+    raise exception 'Not authorised';
+  end if;
+
+  return query
+    select a.id, a.actor_id, a.actor_email, a.action, a.details, a.created_at
+    from public.gh_admin_audit_log a
+    order by a.created_at desc
+    limit greatest(1, least(coalesce(row_limit, 30), 100));
+end;
+$$;
+
+revoke all on function public.gh_is_admin(uuid) from public;
+revoke all on function public.gh_log_admin_action(text, jsonb) from public;
+revoke all on function public.gh_get_admin_access_state() from public;
+revoke all on function public.gh_claim_admin() from public;
+revoke all on function public.gh_set_admin_claim_mode(boolean) from public;
+revoke all on function public.gh_admin_audit_recent(integer) from public;
+
+grant execute on function public.gh_get_admin_access_state() to authenticated;
+grant execute on function public.gh_claim_admin() to authenticated;
+grant execute on function public.gh_set_admin_claim_mode(boolean) to authenticated;
+grant execute on function public.gh_admin_audit_recent(integer) to authenticated;
 
 create or replace function public.gh_resolve_username_login(username_input text)
 returns table(email text)
