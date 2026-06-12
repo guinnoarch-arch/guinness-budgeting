@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   getStoredCloudSessionSummary,
   isCloudBackupConfigured,
@@ -36,14 +36,14 @@ function cloudConfigFromData(appData, form) {
   };
 }
 
-export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onAuthChanged, onOpenLocalMode, isOnline = true, phoneMode = false, onTogglePhoneMode }) {
+export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onAuthChanged, phoneMode = false, onTogglePhoneMode }) {
   const settings = appData?.settings || {};
   const cloud = settings.cloudBackup || {};
   const [mode, setMode] = useState("sign-in");
   const [form, setForm] = useState(() => ({
-    email: cloud.cloudUserEmail || appData?.profile?.email || "",
-    loginIdentifier: cloud.cloudUserEmail || "",
-    username: cloud.cloudUsername || appData?.profile?.username || "",
+    email: "",
+    loginIdentifier: "",
+    username: "",
     password: "",
     confirmPassword: ""
   }));
@@ -63,15 +63,6 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
   const passwordIssue = mode === "create"
     ? validatePassword(form.password, form.confirmPassword)
     : validateSignInPassword(form.password);
-
-  useEffect(() => {
-    setForm(prev => ({
-      ...prev,
-      email: cloud.cloudUserEmail || appData?.profile?.email || prev.email || "",
-      loginIdentifier: prev.loginIdentifier || cloud.cloudUserEmail || appData?.profile?.email || "",
-      username: cloud.cloudUsername || appData?.profile?.username || prev.username || ""
-    }));
-  }, [cloud.cloudUserEmail, cloud.cloudUsername, appData?.profile?.email, appData?.profile?.username]);
 
   async function saveCloudSettings(patch = {}) {
     const baseCloud = cloudConfigFromData(appData, form);
@@ -184,29 +175,14 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
           <div>
             <p className="eyebrow">Guinness & Holley Budgeting</p>
             <h1>Sign in to open your budget</h1>
-            <p className="muted-text">Sign in for cloud backup, or open this device in local-only mode if Supabase is unavailable.</p>
+            <p className="muted-text">Sign in to open your private local budget and cloud backup tools.</p>
           </div>
-        </div>
-
-        <div className="backup-warning-box">
-          <strong>Local-first with cloud backup</strong>
-          <span>Your working data still saves on this device first. Supabase is used for sign-in and cloud backup, not as the only copy of your data.</span>
         </div>
 
         {!configured && (
           <div className="backup-warning-box danger-box">
             <strong>Cloud login is not configured for this build.</strong>
             <span>Ask the app owner to enable cloud login for this deployment.</span>
-          </div>
-        )}
-
-        {onOpenLocalMode && (
-          <div className="backup-warning-box local-access-box">
-            <strong>{isOnline ? "Need to open without Supabase?" : "You are offline"}</strong>
-            <span>Open the local copy saved on this device. Cloud backup, restore and device switching will stay paused until you sign in again.</span>
-            <button type="button" className="secondary-button small" onClick={onOpenLocalMode} disabled={isBusy}>
-              Open local-only mode
-            </button>
           </div>
         )}
 

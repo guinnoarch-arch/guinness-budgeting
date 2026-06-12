@@ -3991,10 +3991,14 @@ button[disabled] {
 /* V2.6.1 cloud login gate */
 .login-gate-page {
   min-height: 100vh;
+  height: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 32px 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
   background:
     radial-gradient(circle at top left, rgba(var(--primary-rgb), 0.14), transparent 34rem),
     var(--app-bg, #f6f8f7);
@@ -4004,6 +4008,7 @@ button[disabled] {
   width: min(980px, 100%);
   display: grid;
   gap: 18px;
+  margin: auto 0;
 }
 
 .login-gate-brand {
@@ -4200,6 +4205,9 @@ button[disabled] {
 .storage-recovery-page.phone-mode {
   padding: 10px;
   align-items: start;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .login-gate-page.phone-mode .login-gate-card,
@@ -4209,6 +4217,7 @@ button[disabled] {
   padding: 14px;
   border-radius: 14px;
   gap: 12px;
+  margin: 0 auto;
 }
 
 .login-gate-page.phone-mode .login-gate-brand {
@@ -4236,6 +4245,12 @@ button[disabled] {
   gap: 10px;
 }
 
+.login-gate-page.phone-mode .cloud-action-row,
+.welcome-screen.phone-mode .welcome-actions {
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
 .login-gate-page.phone-mode button,
 .welcome-screen.phone-mode button,
 .storage-recovery-page.phone-mode button,
@@ -4260,7 +4275,42 @@ button[disabled] {
   flex-wrap: wrap;
 }
 
-/* V2.6.11: manual phone-friendly compact mode */
+@media (max-width: 520px) {
+  .login-gate-page,
+  .welcome-screen,
+  .storage-recovery-page {
+    padding: 10px;
+  }
+
+  .login-gate-card,
+  .welcome-card,
+  .storage-recovery-card {
+    border-radius: 14px;
+    padding: 14px;
+    margin: 0 auto;
+  }
+
+  .login-gate-brand {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .login-gate-brand .brand-icon.large,
+  .welcome-card .brand-icon.large {
+    width: 48px;
+    height: 48px;
+    border-radius: 16px;
+  }
+
+  .login-gate-page h1,
+  .welcome-screen h1,
+  .storage-recovery-page h1 {
+    font-size: 1.22rem;
+    line-height: 1.2;
+  }
+}
+
+/* V2.6.12: manual phone-friendly compact mode */
 .app-shell.phone-mode {
   max-width: 760px;
   padding: 10px;

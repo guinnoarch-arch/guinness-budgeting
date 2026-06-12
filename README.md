@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.11 - update-safe storage recovery, auth compact view and stable production QR patch.
+V2.6.12 - PWA update flow, cleaner auth screen and phone sign-in scroll patch.
 
 ## What Is Included
 
@@ -68,7 +68,7 @@ Then open the preview URL shown in the terminal. In Chrome or Edge, the browser 
 Settings -> Install app and offline mode
 ```
 
-Installed PWA updates use the normal service-worker flow. After deploying to Vercel, open the installed app, wait for the **Update available** banner, export a backup if prompted, then click **Update app**. The manifest keeps a stable `name`, `short_name`, `start_url`, `scope`, `id` and icon set so the browser should treat it as the same installed app.
+Installed PWA updates use the normal service-worker flow. After deploying to Vercel, open the installed app, wait for the **Update available** banner, export a backup if prompted, then click **Update app**. The app also checks for updates when it opens, comes back online, and returns to the foreground. The manifest keeps a stable `name`, `short_name`, `start_url`, `scope`, `id` and icon set so the browser should treat it as the same installed app.
 
 ## Backup And Restore
 

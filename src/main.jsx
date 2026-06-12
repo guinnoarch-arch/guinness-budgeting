@@ -860,8 +860,6 @@ function App() {
         actions={actions}
         cloudAuthSummary={cloudAuthSummary}
         onAuthChanged={refreshCloudAuthState}
-        onOpenLocalMode={hasUsableLocalBudgetData(appData) ? openLocalAccessMode : null}
-        isOnline={isOnline}
         phoneMode={phoneMode}
         onTogglePhoneMode={() => setPhoneMode(prev => !prev)}
       />

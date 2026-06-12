@@ -1,4 +1,4 @@
-const CACHE_NAME = "guinness-holley-budgeting-v2.6.11-static";
+const CACHE_NAME = "guinness-holley-budgeting-v2.6.12-static";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -12,8 +12,7 @@ const APP_SHELL = [
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => Promise.allSettled(APP_SHELL.map((url) => cache.add(url))))
-      .then(() => self.skipWaiting())
+      .then((cache) => Promise.allSettled(APP_SHELL.map((url) => cache.add(new Request(url, { cache: "reload" })))))
   );
 });
 
@@ -45,7 +44,7 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: "no-store" })
         .then((response) => {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put("/index.html", copy));
