@@ -4440,7 +4440,6 @@ button[disabled] {
 .app-shell.phone-mode .summary-grid,
 .app-shell.phone-mode .summary-grid.summary-grid-two,
 .app-shell.phone-mode .summary-grid.summary-grid-three,
-.app-shell.phone-mode .summary-grid.summary-grid-five,
 .app-shell.phone-mode .budget-grid,
 .app-shell.phone-mode .list-grid,
 .app-shell.phone-mode .filters-card,
@@ -4466,6 +4465,55 @@ button[disabled] {
 .app-shell.phone-mode .budget-detail-grid,
 .app-shell.phone-mode .loan-link-split-grid {
   grid-template-columns: 1fr;
+}
+
+.app-shell.phone-mode .dashboard-summary-grid,
+.app-shell.phone-mode .dashboard-summary-grid.summary-grid-two,
+.app-shell.phone-mode .dashboard-summary-grid.summary-grid-five {
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.app-shell.phone-mode .dashboard-summary-grid .summary-card {
+  min-width: 0;
+  padding: 9px;
+  border-radius: 12px;
+}
+
+.app-shell.phone-mode .dashboard-summary-grid .summary-card .eyebrow {
+  margin-bottom: 3px;
+  font-size: 0.62rem;
+  line-height: 1.1;
+}
+
+.app-shell.phone-mode .dashboard-summary-grid .summary-card h3 {
+  font-size: 0.98rem;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.app-shell.phone-mode .dashboard-summary-grid .summary-card .muted-text,
+.app-shell.phone-mode .dashboard-summary-grid .summary-card .positive-text,
+.app-shell.phone-mode .dashboard-summary-grid .summary-card .negative-text {
+  font-size: 0.72rem;
+  line-height: 1.15;
+}
+
+.app-shell.phone-mode .dashboard-summary-grid .summary-change-full {
+  display: none;
+}
+
+.app-shell.phone-mode .dashboard-summary-grid .summary-inline-toggle {
+  margin-top: 5px;
+  font-size: 0.68rem;
+}
+
+@media (max-width: 380px) {
+  .app-shell.phone-mode .dashboard-summary-grid,
+  .app-shell.phone-mode .dashboard-summary-grid.summary-grid-two,
+  .app-shell.phone-mode .dashboard-summary-grid.summary-grid-five {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .app-shell.phone-mode .transaction-table,

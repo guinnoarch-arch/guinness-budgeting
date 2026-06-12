@@ -14,7 +14,7 @@ import { calculateMonthSummary } from "../utils/calculations.js";
 function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpendingInCharts, onIncludeExcludedSpendingChange }) {
   if (isSavingsView) {
     return (
-      <div className="summary-grid summary-grid-two">
+      <div className="summary-grid summary-grid-two dashboard-summary-grid">
         <SummaryCard label="Saved" value={summary.accountMoneyIn} change={summary.accountMoneyInChange} tone="positive" />
         <SummaryCard label="Spent" value={summary.accountMoneyOut} change={summary.accountMoneyOutChange} tone="negative" />
       </div>
@@ -22,7 +22,7 @@ function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpending
   }
 
   return (
-    <div className="summary-grid summary-grid-five">
+    <div className="summary-grid summary-grid-five dashboard-summary-grid">
       <SummaryCard label="Income" value={summary.income} change={summary.incomeChange} tone="positive" />
       <SummaryCard label="Spent" value={summary.expenses} change={summary.expenseChange} tone="negative" />
       <SummaryCard label="Saved" value={summary.savingsTransfers} change={summary.savingsChange} tone="positive" />

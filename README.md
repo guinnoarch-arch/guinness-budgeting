@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.14 - production phone QR fallback patch.
+V2.6.15 - QR trigger icon and compact phone dashboard summary patch.
 
 ## What Is Included
 

@@ -64,6 +64,20 @@ function LaptopIcon() {
   );
 }
 
+function QrCodeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 4h6v6H4V4Z" />
+      <path d="M14 4h6v6h-6V4Z" />
+      <path d="M4 14h6v6H4v-6Z" />
+      <path d="M14 14h2v2h-2v-2Z" />
+      <path d="M18 14h2v2h-2v-2Z" />
+      <path d="M14 18h2v2h-2v-2Z" />
+      <path d="M18 18h2v2h-2v-2Z" />
+    </svg>
+  );
+}
+
 function normalisePublicAppUrl(value) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -242,12 +256,12 @@ export default function AppShell({
 
             <div className="device-share-wrapper">
               <HeaderIconButton
-                label="Open on phone"
-                title="Open this app on another device"
+                label="Open QR code to open app on phone"
+                title="Open QR code to open app on phone"
                 active={showDeviceShare}
                 onClick={() => setShowDeviceShare(prev => !prev)}
               >
-                <PhoneIcon />
+                <QrCodeIcon />
               </HeaderIconButton>
               {showDeviceShare && (
                 <div className="device-share-panel" role="dialog" aria-label="Open app on another device">
