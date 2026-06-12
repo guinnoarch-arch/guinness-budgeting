@@ -18,6 +18,7 @@ import LoansPage from "./pages/LoansPage.jsx";
 import ReportsPage from "./pages/ReportsPage.jsx";
 import ImportPage from "./pages/ImportPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
+import ControlCentrePage from "./pages/ControlCentrePage.jsx";
 
 import { getInitialAppData } from "./data/exampleData.js";
 import {
@@ -47,6 +48,7 @@ import {
   uploadSupabaseCloudBackup
 } from "./services/cloudBackupService.js";
 import { getDisplayUsernameFromSession } from "./services/authService.js";
+import { getAdminStatus, getFeatureFlags } from "./services/adminService.js";
 import { buildDataFingerprint } from "./services/cloudMergeService.js";
 import { clearLocalAccessSession, hasUsableLocalBudgetData, isLocalAccessSessionAllowed, storeLocalAccessSession } from "./services/localAccessService.js";
 
@@ -99,6 +101,7 @@ const pages = {
   loans: LoansPage,
   reports: ReportsPage,
   import: ImportPage,
+  control: ControlCentrePage,
   settings: SettingsPage
 };
 
@@ -798,6 +801,8 @@ function App() {
     cloudBackupStatus,
     phoneMode,
     cloudUsername: getDisplayUsernameFromSession(cloudAuthSummary),
+    featureFlags: getFeatureFlags(appData?.settings),
+    adminStatus: getAdminStatus(cloudAuthSummary, appData?.settings),
     pwaInstall: {
       installPrompt,
       installStatus,
@@ -814,8 +819,6 @@ function App() {
     selectedDashboardAccountId,
     setSelectedDashboardAccountId
   }), [appData, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode]);
-
-  const CurrentPage = pages[activePage] || DashboardPage;
 
   if (storageRecoveryError) {
     return (
@@ -908,12 +911,20 @@ function App() {
     );
   }
 
+  const featureFlags = getFeatureFlags(appData.settings);
+  const adminStatus = getAdminStatus(cloudAuthSummary, appData.settings);
+  const visibleActivePage = (
+    (activePage === "import" && featureFlags.csvImport === false) ||
+    (activePage === "loans" && featureFlags.loans === false)
+  ) ? "dashboard" : activePage;
+  const CurrentPage = pages[visibleActivePage] || DashboardPage;
+
   return (
     <AppShell
-      activePage={activePage}
+      activePage={visibleActivePage}
       setActivePage={setActivePage}
       appData={appData}
-      actions={actions}
+      actions={{ ...actions, featureFlags, adminStatus }}
       showTransactionModal={showTransactionModal}
       editingTransaction={editingTransaction}
       quickBackupStatus={quickBackupStatus}

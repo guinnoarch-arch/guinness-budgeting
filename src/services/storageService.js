@@ -1,4 +1,5 @@
 import { defaultCategories } from "../data/defaultCategories.js";
+import { normaliseFeatureFlags } from "./adminService.js";
 import { exportReceiptBackupRecords } from "./receiptStorageService.js";
 import {
   addStorageLog,
@@ -19,8 +20,8 @@ const STORAGE_META_KEY = "guinness-budgeting-storage-meta-v2";
 const LEGACY_MIGRATION_SNAPSHOT_KEY = "guinness-budgeting-v2-5-localstorage-migration-snapshot";
 const CORRUPT_SNAPSHOT_PREFIX = "guinness-budgeting-corrupt-snapshot";
 
-export const APP_VERSION = "2.6.15";
-export const DATA_SCHEMA_VERSION = "2.6.15";
+export const APP_VERSION = "2.6.16";
+export const DATA_SCHEMA_VERSION = "2.6.16";
 export const BACKUP_FORMAT_VERSION = "1.9";
 
 export const STORAGE_LOAD_FAILURE_CODE = "GH_STORAGE_LOAD_FAILED";
@@ -856,6 +857,9 @@ export function normaliseAppData(data) {
     persistentStorageRequestedAt: baseSettings.persistentStorageRequestedAt || null,
     persistentStorageGranted: Boolean(baseSettings.persistentStorageGranted),
     cloudBackup: normaliseCloudBackupConfig(baseSettings.cloudBackup),
+    featureFlags: normaliseFeatureFlags(baseSettings.featureFlags),
+    adminAuditLog: Array.isArray(baseSettings.adminAuditLog) ? baseSettings.adminAuditLog.slice(0, 50) : [],
+    admin: baseSettings.admin && typeof baseSettings.admin === "object" && !Array.isArray(baseSettings.admin) ? baseSettings.admin : {},
     deletedDefaultCategoryIds: Array.isArray(baseSettings.deletedDefaultCategoryIds) ? baseSettings.deletedDefaultCategoryIds : [],
     dataVersion: DATA_SCHEMA_VERSION,
     appVersion: APP_VERSION

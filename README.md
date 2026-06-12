@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.15 - QR trigger icon and compact phone dashboard summary patch.
+V2.6.16 - reliable phone QR rendering, guarded Control Centre and admin feature flags.
 
 ## What Is Included
 
@@ -19,6 +19,7 @@ V2.6.15 - QR trigger icon and compact phone dashboard summary patch.
 - Open-on-phone QR panel for the public deployed app URL
 - Manual compact Phone view mode plus responsive small-screen CSS
 - Storage recovery screen if browser storage cannot be read safely
+- Admin-only Control Centre for safe status checks, feature flags and a local audit log
 
 ## Local-First Storage
 
@@ -58,6 +59,26 @@ VITE_PUBLIC_APP_URL=https://guinness-budgeting.vercel.app
 ```
 
 The phone QR panel prefers this value. If it is missing, the app treats `https://guinness-budgeting.vercel.app` as the stable production URL and otherwise falls back safely to the current browser origin. Localhost, private-network URLs, Vercel preview URLs and the Vercel dashboard show a warning and use the stable production link instead of leaving the QR/link blank.
+
+For Vercel, set this in **Project Settings -> Environment Variables** for the Production environment:
+
+```text
+VITE_PUBLIC_APP_URL=https://guinness-budgeting.vercel.app
+```
+
+The QR code is generated as a standard SVG from the resolved production URL. If you test from a Vercel preview deployment, the QR deliberately encodes the stable production URL rather than the preview URL.
+
+## Admin Control Centre
+
+The Control Centre is only shown to signed-in admin users. Admin status is read from Supabase user metadata (`admin: true`, `role: admin`, `role: owner` or `role: super_admin`) or from a non-secret frontend allowlist:
+
+```text
+VITE_ADMIN_EMAILS=first@example.com,second@example.com
+```
+
+Use `VITE_ADMIN_EMAILS` only as a UI allowlist. It is bundled into frontend code and must not be treated as a backend security boundary. Cross-user admin stats or actions should be added later through a secure Supabase RPC or server route with Row Level Security, never by putting a service-role key in the browser.
+
+The bank-linking feature flag defaults to off and does not enable any live bank integration.
 
 ## Production Build And PWA Test
 

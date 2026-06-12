@@ -3,6 +3,7 @@ import TopNav from "./TopNav.jsx";
 import TransactionModal from "../transactions/TransactionModal.jsx";
 import InlineQrCode from "../common/InlineQrCode.jsx";
 import { getBackupReminder } from "../../services/storageService.js";
+import { STABLE_PRODUCTION_APP_URL } from "../../services/adminService.js";
 import { buildAppNotifications } from "../../utils/notifications.js";
 
 function HeaderIconButton({ label, title, active = false, onClick, children }) {
@@ -78,6 +79,16 @@ function QrCodeIcon() {
   );
 }
 
+function ControlCentreIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 3 5 6v5.5c0 4.2 2.8 7.9 7 9.5 4.2-1.6 7-5.3 7-9.5V6l-7-3Z" />
+      <path d="M9 12h6" />
+      <path d="M12 9v6" />
+    </svg>
+  );
+}
+
 function normalisePublicAppUrl(value) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -94,7 +105,6 @@ function isLocalAppHost(hostname = "") {
   return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname);
 }
 
-const STABLE_PRODUCTION_APP_URL = "https://guinness-budgeting.vercel.app";
 const STABLE_PRODUCTION_HOSTS = new Set(["guinness-budgeting.vercel.app"]);
 
 function isPrivateAppHost(hostname = "") {
@@ -183,8 +193,10 @@ export default function AppShell({
   const hasUnbackedChanges = Boolean(settings.hasUnbackedChanges);
   const lastDataChangedTime = settings.lastDataChangedAt ? new Date(settings.lastDataChangedAt).getTime() : 0;
   const backupBannerDismissedTime = settings.backupBannerDismissedAt ? new Date(settings.backupBannerDismissedAt).getTime() : 0;
+  const featureFlags = actions.featureFlags || {};
+  const adminStatus = actions.adminStatus || {};
   const isBackupBannerDismissedForCurrentChange = hasUnbackedChanges && backupBannerDismissedTime >= lastDataChangedTime;
-  const showUnbackedBanner = hasUnbackedChanges && !isBackupBannerDismissedForCurrentChange;
+  const showUnbackedBanner = featureFlags.backupReminders !== false && hasUnbackedChanges && !isBackupBannerDismissedForCurrentChange;
   const backupButtonLevel = backupReminder.level || "ok";
   const backupButtonCanFlash = settings.backupButtonFlashEnabled !== false;
   const backupButtonShouldFlash = backupButtonCanFlash && backupButtonLevel === "danger";
@@ -254,6 +266,7 @@ export default function AppShell({
               {actions.phoneMode ? <LaptopIcon /> : <PhoneIcon />}
             </HeaderIconButton>
 
+            {featureFlags.qrPhoneAccess !== false && (
             <div className="device-share-wrapper">
               <HeaderIconButton
                 label="Open QR code to open app on phone"
@@ -272,7 +285,7 @@ export default function AppShell({
                   <p className="muted">Scan this QR code on your phone, then sign in and restore the latest cloud backup if this device has newer data.</p>
                   {shareUrl ? (
                     <div className="device-qr-card">
-                      <InlineQrCode value={shareUrl} size={220} />
+                      <InlineQrCode value={shareUrl} size={280} />
                     </div>
                   ) : (
                     <div className="cloud-status-message compact-status warning-status">
@@ -302,6 +315,7 @@ export default function AppShell({
                 </div>
               )}
             </div>
+            )}
 
             <HeaderIconButton
               label="Reports"
@@ -318,20 +332,33 @@ export default function AppShell({
               </svg>
             </HeaderIconButton>
 
-            <HeaderIconButton
-              label="Import and export"
-              title="Import / export data"
-              active={activePage === "import"}
-              onClick={() => setActivePage("import")}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M12 3v11" />
-                <path d="m8 10 4 4 4-4" />
-                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-                <path d="M5 7h3" />
-                <path d="M16 7h3" />
-              </svg>
-            </HeaderIconButton>
+            {featureFlags.csvImport !== false && (
+              <HeaderIconButton
+                label="Import and export"
+                title="Import / export data"
+                active={activePage === "import"}
+                onClick={() => setActivePage("import")}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M12 3v11" />
+                  <path d="m8 10 4 4 4-4" />
+                  <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+                  <path d="M5 7h3" />
+                  <path d="M16 7h3" />
+                </svg>
+              </HeaderIconButton>
+            )}
+
+            {adminStatus.isAdmin && (
+              <HeaderIconButton
+                label="Control Centre"
+                title="Control Centre"
+                active={activePage === "control"}
+                onClick={() => setActivePage("control")}
+              >
+                <ControlCentreIcon />
+              </HeaderIconButton>
+            )}
 
             <div className="notification-wrapper">
               <button
@@ -422,9 +449,20 @@ export default function AppShell({
           accounts={appData.accounts || []}
           selectedDashboardAccountId={actions.selectedDashboardAccountId || "all"}
           setSelectedDashboardAccountId={actions.setSelectedDashboardAccountId}
+          featureFlags={featureFlags}
         />
 
         <div className="below-tabs-banner-stack">
+          {featureFlags.maintenanceMode && (
+            <div className="install-app-banner maintenance-banner" role="status" aria-live="polite">
+              <div>
+                <strong>Maintenance notice</strong>
+                <span>Admin maintenance mode is enabled. Avoid large imports until it is turned off.</span>
+              </div>
+              {adminStatus.isAdmin && <button className="text-button" onClick={() => setActivePage("control")}>Control Centre</button>}
+            </div>
+          )}
+
           {showUpdateBanner && (
             <div className="app-update-banner" role="status" aria-live="polite">
               <div>

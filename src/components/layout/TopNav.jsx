@@ -15,15 +15,17 @@ export default function TopNav({
   setActivePage,
   accounts = [],
   selectedDashboardAccountId = "all",
-  setSelectedDashboardAccountId
+  setSelectedDashboardAccountId,
+  featureFlags = {}
 }) {
   const activeAccounts = (accounts || []).filter(account => account.isActive !== false);
   const selectedAccountExists = activeAccounts.some(account => account.id === selectedDashboardAccountId);
   const safeSelectedAccountId = selectedAccountExists ? selectedDashboardAccountId : "all";
+  const visibleNavItems = navItems.filter(([key]) => key !== "loans" || featureFlags.loans !== false);
 
   return (
     <nav className="top-nav">
-      {navItems.map(([key, label]) => (
+      {visibleNavItems.map(([key, label]) => (
         <Fragment key={key}>
           <button
             className={`nav-item ${activePage === key ? "active" : ""}`}
