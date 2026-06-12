@@ -1,6 +1,6 @@
 {
   "name": "guinness-holley-budgeting",
-  "version": "2.6.16",
+  "version": "2.6.17",
   "private": true,
   "type": "module",
   "description": "Local React budgeting app for personal/student/household budgeting with CSV import.",

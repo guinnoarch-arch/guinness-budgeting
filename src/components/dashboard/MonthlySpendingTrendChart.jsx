@@ -1,4 +1,5 @@
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import useIsSmallScreen from "../../hooks/useIsSmallScreen.js";
 import { formatMoney } from "../../utils/money.js";
 
 const MONTH_LINE_COLOURS = {
@@ -8,6 +9,7 @@ const MONTH_LINE_COLOURS = {
 };
 
 export default function MonthlySpendingTrendChart({ comparison }) {
+  const isSmallScreen = useIsSmallScreen();
   const chartData = comparison?.data || [];
   const labels = comparison?.labels || {
     current: "This month",
@@ -27,12 +29,17 @@ export default function MonthlySpendingTrendChart({ comparison }) {
       </div>
 
       <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={chartData} margin={{ top: 10, right: 24, left: 6, bottom: 8 }}>
+        <LineChart data={chartData} margin={{ top: 10, right: 24, left: 6, bottom: isSmallScreen ? 28 : 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <XAxis
             dataKey="day"
             tick={{ fill: "#4b5563" }}
-            label={{ value: "Day of month", position: "insideBottom", offset: -4, fill: "#4b5563" }}
+            interval={isSmallScreen ? 4 : undefined}
+            angle={isSmallScreen ? -40 : 0}
+            textAnchor={isSmallScreen ? "end" : "middle"}
+            height={isSmallScreen ? 56 : undefined}
+            tickMargin={isSmallScreen ? 8 : undefined}
+            label={isSmallScreen ? undefined : { value: "Day of month", position: "insideBottom", offset: -4, fill: "#4b5563" }}
           />
           <YAxis tick={{ fill: "#4b5563" }} tickFormatter={(value) => formatMoney(value, false)} />
           <Tooltip

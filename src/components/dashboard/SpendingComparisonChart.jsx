@@ -1,7 +1,10 @@
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import useIsSmallScreen from "../../hooks/useIsSmallScreen.js";
+import { smallMonthXAxisProps } from "../../utils/chartLabels.js";
 import { formatMoney } from "../../utils/money.js";
 
 export default function SpendingComparisonChart({ summary }) {
+  const isSmallScreen = useIsSmallScreen();
   const data = summary.spendingTrend || [
     { name: "2 months ago", spending: summary.twoMonthsAgoExpenses || 0 },
     { name: "Last month", spending: summary.previousExpenses || 0 },
@@ -18,9 +21,14 @@ export default function SpendingComparisonChart({ summary }) {
         </div>
       </div>
       <ResponsiveContainer width="100%" height={240}>
-        <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+        <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: isSmallScreen ? 28 : 0 }}>
           <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="name" interval={0} minTickGap={4} />
+          <XAxis
+            dataKey="name"
+            interval={0}
+            minTickGap={4}
+            {...(isSmallScreen ? smallMonthXAxisProps() : {})}
+          />
           <YAxis tickFormatter={(value) => formatMoney(value, false)} />
           <Tooltip formatter={(value) => formatMoney(value)} />
           <Line type="monotone" dataKey="spending" name={metricName} stroke="#0f766e" strokeWidth={3} />

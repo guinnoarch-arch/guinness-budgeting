@@ -1,4 +1,4 @@
-const CACHE_NAME = "guinness-holley-budgeting-v2.6.16-static";
+const CACHE_NAME = "guinness-holley-budgeting-v2.6.17-static";
 const APP_SHELL = [
   "/",
   "/index.html",

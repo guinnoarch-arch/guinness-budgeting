@@ -19,6 +19,8 @@ import { buildMonthlyReportData } from "../utils/reporting.js";
 import { calculateLoanSummary } from "../utils/loanCalculations.js";
 import { getLoanPaymentTotalsForMonth } from "../utils/loanLinking.js";
 import { formatMoney } from "../utils/money.js";
+import useIsSmallScreen from "../hooks/useIsSmallScreen.js";
+import { smallMonthXAxisProps } from "../utils/chartLabels.js";
 import MonthSelector from "../components/dashboard/MonthSelector.jsx";
 
 function ReportCard({ label, value, detail, tone = "" }) {
@@ -51,6 +53,7 @@ function MoneyTooltip({ active, payload, label }) {
 }
 
 export default function ReportsPage({ appData, actions }) {
+  const isSmallScreen = useIsSmallScreen();
   const report = buildMonthlyReportData(appData, actions.selectedMonth);
   const { summary, categoryRows, plannedVsActual, importImpact } = report;
   const loanSummary = calculateLoanSummary(appData);
@@ -108,9 +111,9 @@ export default function ReportsPage({ appData, actions }) {
             </div>
           </div>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={incomeExpenseChart} margin={{ top: 10, right: 18, left: 0, bottom: 8 }}>
+            <BarChart data={incomeExpenseChart} margin={{ top: 10, right: 18, left: 0, bottom: isSmallScreen ? 34 : 8 }}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
+              <XAxis dataKey="name" {...(isSmallScreen ? smallMonthXAxisProps() : {})} />
               <YAxis tickFormatter={(value) => formatMoney(value, false)} />
               <Tooltip content={<MoneyTooltip />} />
               <Legend />
@@ -129,9 +132,9 @@ export default function ReportsPage({ appData, actions }) {
             </div>
           </div>
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={report.accountBalanceTrend} margin={{ top: 10, right: 18, left: 0, bottom: 8 }}>
+            <AreaChart data={report.accountBalanceTrend} margin={{ top: 10, right: 18, left: 0, bottom: isSmallScreen ? 34 : 8 }}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
+              <XAxis dataKey="name" {...(isSmallScreen ? smallMonthXAxisProps() : {})} />
               <YAxis tickFormatter={(value) => formatMoney(value, false)} />
               <Tooltip content={<MoneyTooltip />} />
               <Legend />

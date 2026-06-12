@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.16 - reliable phone QR rendering, guarded Control Centre and admin feature flags.
+V2.6.17 - phone dashboard chart labels and summary toggle containment fixes.
 
 ## What Is Included
 
