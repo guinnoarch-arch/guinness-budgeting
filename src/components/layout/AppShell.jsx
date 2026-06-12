@@ -80,6 +80,21 @@ function isLocalAppHost(hostname = "") {
   return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname);
 }
 
+const STABLE_PRODUCTION_APP_URL = "https://guinness-budgeting.vercel.app";
+const STABLE_PRODUCTION_HOSTS = new Set(["guinness-budgeting.vercel.app"]);
+
+function isPrivateAppHost(hostname = "") {
+  const clean = String(hostname || "").toLowerCase();
+  return (
+    isLocalAppHost(clean) ||
+    clean.endsWith(".local") ||
+    clean.endsWith(".localhost") ||
+    /^10\./.test(clean) ||
+    /^192\.168\./.test(clean) ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(clean)
+  );
+}
+
 function resolveDeviceShareUrl() {
   if (typeof window === "undefined") {
     return { url: "", isLocalRuntime: false, needsDeployedUrl: false };
@@ -90,6 +105,9 @@ function resolveDeviceShareUrl() {
   const isLocalRuntime = isLocalAppHost(currentUrl.hostname);
   const isVercelDashboard = currentUrl.hostname === "vercel.com" || currentUrl.hostname.endsWith(".vercel.com");
   const isVercelAppHost = currentUrl.hostname.endsWith(".vercel.app");
+  const isStableProductionHost = STABLE_PRODUCTION_HOSTS.has(currentUrl.hostname);
+  const isVercelPreviewHost = isVercelAppHost && !isStableProductionHost;
+  const isPrivateRuntime = isPrivateAppHost(currentUrl.hostname);
 
   if (configuredPublicUrl) {
     return {
@@ -100,19 +118,23 @@ function resolveDeviceShareUrl() {
     };
   }
 
-  if (isLocalRuntime) {
+  if (isStableProductionHost && currentUrl.protocol === "https:") {
     return {
-      url: "",
-      isLocalRuntime: true,
-      needsDeployedUrl: true
+      url: currentUrl.origin,
+      isLocalRuntime: false,
+      needsDeployedUrl: false,
+      usingConfiguredUrl: false
     };
   }
 
-  if (isVercelDashboard || isVercelAppHost) {
+  if (isLocalRuntime || isVercelDashboard || isVercelPreviewHost || isPrivateRuntime) {
     return {
-      url: "",
-      isLocalRuntime: false,
-      needsDeployedUrl: true
+      url: STABLE_PRODUCTION_APP_URL,
+      isLocalRuntime,
+      needsDeployedUrl: true,
+      usingProductionFallback: true,
+      isPreviewRuntime: isVercelPreviewHost || isVercelDashboard,
+      isPrivateRuntime
     };
   }
 
@@ -240,12 +262,16 @@ export default function AppShell({
                     </div>
                   ) : (
                     <div className="cloud-status-message compact-status warning-status">
-                      Open the stable production app URL before testing the phone QR code, or set VITE_PUBLIC_APP_URL to the public production Vercel app link.
+                      A valid app link could not be found. Set VITE_PUBLIC_APP_URL to the public production Vercel app link.
                     </div>
                   )}
-                  {deviceShare.isLocalRuntime && shareUrl && (
+                  {deviceShare.needsDeployedUrl && shareUrl && (
                     <div className="cloud-status-message compact-status warning-status">
-                      You are running locally, so this QR uses the configured public app URL. Test the full phone flow from the deployed Vercel app.
+                      {deviceShare.isPreviewRuntime
+                        ? "This looks like a Vercel preview/dashboard URL, so the QR uses the stable production app link."
+                        : deviceShare.isLocalRuntime || deviceShare.isPrivateRuntime
+                          ? "You are running locally or on a private URL, so the QR uses the stable production app link."
+                          : "Test the phone QR from the stable production app URL."}
                     </div>
                   )}
                   {!deviceShare.isLocalRuntime && deviceShare.usingConfiguredUrl && (

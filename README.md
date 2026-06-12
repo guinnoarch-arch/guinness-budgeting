@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.13 - phone header cleanup, compact Settings descriptions and PWA update polish.
+V2.6.14 - production phone QR fallback patch.
 
 ## What Is Included
 
@@ -51,7 +51,13 @@ npm run dev
 http://localhost:5173
 ```
 
-Set `VITE_PUBLIC_APP_URL` in `.env` and in Vercel project environment variables to the stable public production app URL. The phone QR panel uses this value on localhost and Vercel-hosted pages so phones do not open localhost, a Vercel preview deployment, or the Vercel dashboard.
+Set `VITE_PUBLIC_APP_URL` in `.env` and in Vercel Production environment variables to the stable public production app URL:
+
+```text
+VITE_PUBLIC_APP_URL=https://guinness-budgeting.vercel.app
+```
+
+The phone QR panel prefers this value. If it is missing, the app treats `https://guinness-budgeting.vercel.app` as the stable production URL and otherwise falls back safely to the current browser origin. Localhost, private-network URLs, Vercel preview URLs and the Vercel dashboard show a warning and use the stable production link instead of leaving the QR/link blank.
 
 ## Production Build And PWA Test
 
