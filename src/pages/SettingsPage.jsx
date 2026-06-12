@@ -1264,6 +1264,13 @@ export default function SettingsPage({ appData, actions }) {
           <p><span>Login type</span><strong>{profile.localOnly === false ? "Cloud-ready profile" : "Local username only"}</strong></p>
           <p><span>Profile updated</span><strong>{formatDateTime(profile.updatedAt)}</strong></p>
         </div>
+
+        <div className="profile-session-actions">
+          <button type="button" className="secondary-button" onClick={actions.logoutApp}>
+            Logout
+          </button>
+          <small className="muted-text">Backs up if needed, then signs out of this browser session.</small>
+        </div>
       </section>
 
       <section className={sectionClass("appearance", "appearance-settings-card")}>

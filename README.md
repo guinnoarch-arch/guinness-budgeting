@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.12 - PWA update flow, cleaner auth screen and phone sign-in scroll patch.
+V2.6.13 - phone header cleanup, compact Settings descriptions and PWA update polish.
 
 ## What Is Included
 

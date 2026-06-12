@@ -114,6 +114,17 @@ button {
   font-size: 0.9rem;
 }
 
+.brand-subtitle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.brand-subtitle .connection-pill {
+  display: none;
+}
+
 .brand-icon {
   width: 46px;
   height: 46px;
@@ -2789,6 +2800,10 @@ th {
   display: none;
 }
 
+.settings-accordion-card:not(.is-open) .settings-accordion-heading .muted-text {
+  display: none;
+}
+
 .settings-accordion-card.is-open {
   display: grid;
   gap: 16px;
@@ -2801,6 +2816,13 @@ th {
 
 .settings-accordion-card.is-open > :last-child {
   margin-bottom: 20px;
+}
+
+.profile-session-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .settings-accordion-heading {
@@ -4310,7 +4332,7 @@ button[disabled] {
   }
 }
 
-/* V2.6.12: manual phone-friendly compact mode */
+/* V2.6.13: manual phone-friendly compact mode */
 .app-shell.phone-mode {
   max-width: 760px;
   padding: 10px;
@@ -4341,8 +4363,19 @@ button[disabled] {
   font-size: 0.78rem;
 }
 
+.app-shell.phone-mode .brand-subtitle .connection-pill {
+  display: inline-flex;
+  padding: 3px 7px;
+  font-size: 0.68rem;
+}
+
 .app-shell.phone-mode .header-actions {
   gap: 6px;
+}
+
+.app-shell.phone-mode .header-connection-pill,
+.app-shell.phone-mode .header-logout-button {
+  display: none;
 }
 
 .app-shell.phone-mode button,

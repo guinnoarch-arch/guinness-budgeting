@@ -19,6 +19,51 @@ function HeaderIconButton({ label, title, active = false, onClick, children }) {
   );
 }
 
+function MoonIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M20.5 14.2A8.2 8.2 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7Z" />
+    </svg>
+  );
+}
+
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2" />
+      <path d="M12 20v2" />
+      <path d="m4.93 4.93 1.41 1.41" />
+      <path d="m17.66 17.66 1.41 1.41" />
+      <path d="M2 12h2" />
+      <path d="M20 12h2" />
+      <path d="m6.34 17.66-1.41 1.41" />
+      <path d="m19.07 4.93-1.41 1.41" />
+    </svg>
+  );
+}
+
+function PhoneIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="7" y="2.5" width="10" height="19" rx="2.2" />
+      <path d="M10 5h4" />
+      <path d="M11 18.5h2" />
+    </svg>
+  );
+}
+
+function LaptopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="5" y="4" width="14" height="10" rx="1.5" />
+      <path d="M3 18h18" />
+      <path d="m7 14-2 4" />
+      <path d="m17 14 2 4" />
+    </svg>
+  );
+}
+
 function normalisePublicAppUrl(value) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -115,7 +160,10 @@ export default function AppShell({
   ].filter(Boolean).join(" ");
   const themeMode = settings.themeMode || (settings.darkModeEnabled ? "dark" : "light");
   const themeLabel = themeMode === "dark" ? "Light mode" : "Dark mode";
+  const connectionLabel = pwaInstall?.isLocalAccessMode ? "Local mode" : pwaInstall?.isOnline ? "Online" : "Offline";
+  const connectionClass = pwaInstall?.isLocalAccessMode ? "connection-pill local-mode" : pwaInstall?.isOnline ? "connection-pill online" : "connection-pill offline";
   const profileName = appData.profile?.displayName || appData.profile?.username || "Local user";
+  const showHeaderBackupButton = !actions.phoneMode || backupButtonLevel === "danger";
   const showInstallBanner = Boolean(
     pwaInstall?.installPrompt
     && !pwaInstall?.isInstalled
@@ -145,26 +193,30 @@ export default function AppShell({
             <div className="brand-icon"><img src="/icons/gb-icon-192.png" alt="" /></div>
             <div>
               <h1>Guinness & Holley Budgeting</h1>
-              <p>Welcome back, {profileName}</p>
+              <p className="brand-subtitle">
+                <span>Welcome back, {profileName}</span>
+                <span className={connectionClass}>{connectionLabel}</span>
+              </p>
             </div>
           </div>
 
           <div className="header-actions">
-            <span className={pwaInstall?.isLocalAccessMode ? "connection-pill local-mode" : pwaInstall?.isOnline ? "connection-pill online" : "connection-pill offline"}>
-              {pwaInstall?.isLocalAccessMode ? "Local mode" : pwaInstall?.isOnline ? "Online" : "Offline"}
-            </span>
-            <button className="secondary-button theme-toggle-button" onClick={actions.toggleTheme}>
-              {themeLabel}
-            </button>
-            <button
-              type="button"
-              className={`secondary-button phone-mode-toggle ${actions.phoneMode ? "active" : ""}`}
-              onClick={actions.togglePhoneMode}
-              aria-pressed={actions.phoneMode}
-              title={actions.phoneMode ? "Return to desktop layout" : "Use compact phone-friendly layout"}
+            <span className={`${connectionClass} header-connection-pill`}>{connectionLabel}</span>
+            <HeaderIconButton
+              label={themeLabel}
+              title={themeLabel}
+              onClick={actions.toggleTheme}
             >
-              {actions.phoneMode ? "Desktop view" : "Phone view"}
-            </button>
+              {themeMode === "dark" ? <SunIcon /> : <MoonIcon />}
+            </HeaderIconButton>
+            <HeaderIconButton
+              label={actions.phoneMode ? "Desktop view" : "Phone view"}
+              title={actions.phoneMode ? "Return to desktop layout" : "Use compact phone-friendly layout"}
+              active={actions.phoneMode}
+              onClick={actions.togglePhoneMode}
+            >
+              {actions.phoneMode ? <LaptopIcon /> : <PhoneIcon />}
+            </HeaderIconButton>
 
             <div className="device-share-wrapper">
               <HeaderIconButton
@@ -173,11 +225,7 @@ export default function AppShell({
                 active={showDeviceShare}
                 onClick={() => setShowDeviceShare(prev => !prev)}
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <rect x="7" y="2.5" width="10" height="19" rx="2.2" />
-                  <path d="M10 5h4" />
-                  <path d="M11 18.5h2" />
-                </svg>
+                <PhoneIcon />
               </HeaderIconButton>
               {showDeviceShare && (
                 <div className="device-share-panel" role="dialog" aria-label="Open app on another device">
@@ -303,10 +351,12 @@ export default function AppShell({
               </svg>
             </HeaderIconButton>
 
-            <button className={backupButtonClassName} onClick={actions.backupNow} title={backupReminder.message}>
-              Backup Now
-            </button>
-            <button className="secondary-button" onClick={actions.logoutApp} title="Back up if needed, then sign out">
+            {showHeaderBackupButton && (
+              <button className={backupButtonClassName} onClick={actions.backupNow} title={backupReminder.message}>
+                Backup Now
+              </button>
+            )}
+            <button className="secondary-button header-logout-button" onClick={actions.logoutApp} title="Back up if needed, then sign out">
               Logout
             </button>
             <button className="primary-button" onClick={actions.openAddTransaction}>
