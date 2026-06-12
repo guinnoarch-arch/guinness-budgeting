@@ -75,11 +75,13 @@ export const DEFAULT_ADMIN_ACCESS_STATE = {
   isAdmin: false,
   role: "user",
   email: "",
+  currentUserId: "",
   adminExists: false,
   adminCount: 0,
   profileCount: 0,
   adminClaimEnabled: false,
   canClaimAdmin: false,
+  isBlocked: false,
   error: "",
   reason: "Admin state has not loaded yet."
 };
@@ -106,7 +108,8 @@ export function normaliseAdminAccessState(value = {}, cloudAuthSummary = getStor
   const isAdmin = Boolean(value.isAdmin ?? value.is_admin ?? role === ADMIN_ROLE_VALUE);
   const adminExists = Boolean(value.adminExists ?? value.admin_exists ?? Number(value.admin_count || 0) > 0);
   const adminClaimEnabled = Boolean(value.adminClaimEnabled ?? value.admin_claim_enabled);
-  const canClaimAdmin = signedIn && !isAdmin && (!adminExists || adminClaimEnabled);
+  const isBlocked = Boolean(value.isBlocked ?? value.is_blocked ?? value.blocked);
+  const canClaimAdmin = signedIn && !isBlocked && !isAdmin && (!adminExists || adminClaimEnabled);
 
   return {
     ...DEFAULT_ADMIN_ACCESS_STATE,
@@ -116,13 +119,17 @@ export function normaliseAdminAccessState(value = {}, cloudAuthSummary = getStor
     isAdmin,
     role,
     email: String(value.email || value.current_email || cloudAuthSummary?.user?.email || "").trim().toLowerCase(),
+    currentUserId: String(value.currentUserId || value.current_user_id || cloudAuthSummary?.user?.id || ""),
     adminExists,
     adminCount: Number(value.adminCount ?? value.admin_count ?? 0),
     profileCount: Number(value.profileCount ?? value.profile_count ?? 0),
     adminClaimEnabled,
     canClaimAdmin,
+    isBlocked,
     error: value.error || "",
-    reason: value.reason || (isAdmin
+    reason: value.reason || (isBlocked
+      ? "Your account has been blocked. Contact the app admin."
+      : isAdmin
       ? `Admin role confirmed from ${ADMIN_ROLE_FIELD}.`
       : signedIn
         ? "Signed in, but this Supabase profile is not admin."
@@ -196,6 +203,39 @@ export async function listAdminAuditLog(settings = {}, limit = 30) {
     body: JSON.stringify({ row_limit: Number(limit) || 30 })
   });
   return Array.isArray(rows) ? rows : [];
+}
+
+export async function listAdminUsers(settings = {}) {
+  const rows = await supabaseRestFetch(settings, "rpc/gh_admin_list_users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  });
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function setAdminUserRole(settings = {}, targetUserId, newRole) {
+  const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_admin_set_user_role", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      target_user_id: targetUserId,
+      new_role: newRole
+    })
+  }));
+  return row;
+}
+
+export async function setAdminUserBlocked(settings = {}, targetUserId, blocked) {
+  const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_admin_set_user_blocked", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      target_user_id: targetUserId,
+      target_blocked: Boolean(blocked)
+    })
+  }));
+  return row;
 }
 
 export function createAdminAuditEntry(action, details = {}, actor = {}) {

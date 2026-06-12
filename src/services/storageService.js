@@ -20,8 +20,8 @@ const STORAGE_META_KEY = "guinness-budgeting-storage-meta-v2";
 const LEGACY_MIGRATION_SNAPSHOT_KEY = "guinness-budgeting-v2-5-localstorage-migration-snapshot";
 const CORRUPT_SNAPSHOT_PREFIX = "guinness-budgeting-corrupt-snapshot";
 
-export const APP_VERSION = "2.6.18";
-export const DATA_SCHEMA_VERSION = "2.6.18";
+export const APP_VERSION = "2.6.19";
+export const DATA_SCHEMA_VERSION = "2.6.19";
 export const BACKUP_FORMAT_VERSION = "1.9";
 
 export const STORAGE_LOAD_FAILURE_CODE = "GH_STORAGE_LOAD_FAILED";

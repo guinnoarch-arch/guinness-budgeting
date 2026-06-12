@@ -448,12 +448,24 @@ create table if not exists public.profiles (
   username text not null,
   username_normalized text not null unique,
   role text not null default 'user' check (role in ('user', 'admin')),
+  blocked boolean not null default false,
+  blocked_at timestamptz,
+  blocked_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 alter table public.profiles
   add column if not exists role text not null default 'user';
+
+alter table public.profiles
+  add column if not exists blocked boolean not null default false;
+
+alter table public.profiles
+  add column if not exists blocked_at timestamptz;
+
+alter table public.profiles
+  add column if not exists blocked_by uuid references auth.users(id) on delete set null;
 
 do $$
 begin
@@ -526,6 +538,19 @@ as $$
   );
 $$;
 
+create or replace function public.gh_is_blocked(user_id uuid default auth.uid())
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = user_id
+      and p.blocked = true
+  );
+$$;
+
 create or replace function public.gh_log_admin_action(action_name text, action_details jsonb default '{}'::jsonb)
 returns void
 language plpgsql
@@ -557,7 +582,8 @@ returns table(
   admin_exists boolean,
   admin_count integer,
   profile_count integer,
-  admin_claim_enabled boolean
+  admin_claim_enabled boolean,
+  is_blocked boolean
 )
 language sql
 security definer
@@ -574,7 +600,8 @@ as $$
       when coalesce(p.role = 'admin', false) then (select count(*)::integer from public.profiles)
       else 0
     end as profile_count,
-    coalesce((select s.admin_claim_enabled from public.gh_admin_settings s where s.id = true), false) as admin_claim_enabled
+    coalesce((select s.admin_claim_enabled from public.gh_admin_settings s where s.id = true), false) as admin_claim_enabled,
+    coalesce(p.blocked, false) as is_blocked
   from (select auth.uid() as id) current_user
   left join public.profiles p on p.id = current_user.id
   where current_user.id is not null;
@@ -589,7 +616,8 @@ returns table(
   admin_exists boolean,
   admin_count integer,
   profile_count integer,
-  admin_claim_enabled boolean
+  admin_claim_enabled boolean,
+  is_blocked boolean
 )
 language plpgsql
 security definer
@@ -654,7 +682,8 @@ returns table(
   admin_exists boolean,
   admin_count integer,
   profile_count integer,
-  admin_claim_enabled boolean
+  admin_claim_enabled boolean,
+  is_blocked boolean
 )
 language plpgsql
 security definer
@@ -706,17 +735,200 @@ begin
 end;
 $$;
 
+create or replace function public.gh_admin_list_users()
+returns table(
+  id uuid,
+  username text,
+  email text,
+  role text,
+  is_admin boolean,
+  blocked boolean,
+  blocked_at timestamptz,
+  blocked_by uuid,
+  created_at timestamptz,
+  updated_at timestamptz,
+  last_backup_at timestamptz,
+  active_status text
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.gh_is_admin(auth.uid()) then
+    raise exception 'Not authorised';
+  end if;
+
+  return query
+    select
+      p.id,
+      p.username,
+      p.email,
+      p.role,
+      p.role = 'admin' as is_admin,
+      coalesce(p.blocked, false) as blocked,
+      p.blocked_at,
+      p.blocked_by,
+      p.created_at,
+      p.updated_at,
+      max(b.created_at) as last_backup_at,
+      case
+        when max(b.created_at) >= now() - interval '30 days' then 'active'
+        else 'inactive'
+      end as active_status
+    from public.profiles p
+    left join public.gh_cloud_backups b on b.user_id = p.id
+    group by p.id, p.username, p.email, p.role, p.blocked, p.blocked_at, p.blocked_by, p.created_at, p.updated_at
+    order by p.created_at desc;
+end;
+$$;
+
+create or replace function public.gh_admin_set_user_role(target_user_id uuid, new_role text)
+returns table(
+  id uuid,
+  username text,
+  email text,
+  role text,
+  is_admin boolean,
+  blocked boolean,
+  blocked_at timestamptz,
+  blocked_by uuid,
+  created_at timestamptz,
+  updated_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_current_role text;
+  admin_count integer;
+begin
+  if not public.gh_is_admin(auth.uid()) then
+    raise exception 'Not authorised';
+  end if;
+
+  if target_user_id is null or new_role not in ('user', 'admin') then
+    raise exception 'Invalid admin action';
+  end if;
+
+  select role into target_current_role
+  from public.profiles
+  where profiles.id = target_user_id;
+
+  if target_current_role is null then
+    raise exception 'User not found';
+  end if;
+
+  select count(*)::integer into admin_count
+  from public.profiles
+  where role = 'admin';
+
+  if target_current_role = 'admin' and new_role = 'user' and admin_count <= 1 then
+    raise exception 'Cannot remove the last admin.';
+  end if;
+
+  update public.profiles
+  set role = new_role,
+      updated_at = now()
+  where profiles.id = target_user_id;
+
+  perform public.gh_log_admin_action(
+    case when new_role = 'admin' then 'user_promoted_to_admin' else 'user_demoted_to_user' end,
+    jsonb_build_object('target_user_id', target_user_id, 'previous_role', target_current_role, 'new_role', new_role)
+  );
+
+  return query
+    select p.id, p.username, p.email, p.role, p.role = 'admin', p.blocked, p.blocked_at, p.blocked_by, p.created_at, p.updated_at
+    from public.profiles p
+    where p.id = target_user_id;
+end;
+$$;
+
+create or replace function public.gh_admin_set_user_blocked(target_user_id uuid, target_blocked boolean)
+returns table(
+  id uuid,
+  username text,
+  email text,
+  role text,
+  is_admin boolean,
+  blocked boolean,
+  blocked_at timestamptz,
+  blocked_by uuid,
+  created_at timestamptz,
+  updated_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_current_role text;
+  target_current_blocked boolean;
+  admin_count integer;
+begin
+  if not public.gh_is_admin(auth.uid()) then
+    raise exception 'Not authorised';
+  end if;
+
+  if target_user_id is null then
+    raise exception 'Invalid admin action';
+  end if;
+
+  select role, coalesce(profiles.blocked, false)
+    into target_current_role, target_current_blocked
+  from public.profiles
+  where profiles.id = target_user_id;
+
+  if target_current_role is null then
+    raise exception 'User not found';
+  end if;
+
+  select count(*)::integer into admin_count
+  from public.profiles
+  where role = 'admin' and coalesce(profiles.blocked, false) = false;
+
+  if target_current_role = 'admin' and target_blocked = true and admin_count <= 1 then
+    raise exception 'Cannot block the last admin.';
+  end if;
+
+  update public.profiles
+  set blocked = coalesce(target_blocked, false),
+      blocked_at = case when coalesce(target_blocked, false) then now() else null end,
+      blocked_by = case when coalesce(target_blocked, false) then auth.uid() else null end,
+      updated_at = now()
+  where profiles.id = target_user_id;
+
+  perform public.gh_log_admin_action(
+    case when coalesce(target_blocked, false) then 'user_blocked' else 'user_unblocked' end,
+    jsonb_build_object('target_user_id', target_user_id, 'previous_blocked', target_current_blocked, 'blocked', coalesce(target_blocked, false))
+  );
+
+  return query
+    select p.id, p.username, p.email, p.role, p.role = 'admin', p.blocked, p.blocked_at, p.blocked_by, p.created_at, p.updated_at
+    from public.profiles p
+    where p.id = target_user_id;
+end;
+$$;
+
 revoke all on function public.gh_is_admin(uuid) from public;
+revoke all on function public.gh_is_blocked(uuid) from public;
 revoke all on function public.gh_log_admin_action(text, jsonb) from public;
 revoke all on function public.gh_get_admin_access_state() from public;
 revoke all on function public.gh_claim_admin() from public;
 revoke all on function public.gh_set_admin_claim_mode(boolean) from public;
 revoke all on function public.gh_admin_audit_recent(integer) from public;
+revoke all on function public.gh_admin_list_users() from public;
+revoke all on function public.gh_admin_set_user_role(uuid, text) from public;
+revoke all on function public.gh_admin_set_user_blocked(uuid, boolean) from public;
 
 grant execute on function public.gh_get_admin_access_state() to authenticated;
 grant execute on function public.gh_claim_admin() to authenticated;
 grant execute on function public.gh_set_admin_claim_mode(boolean) to authenticated;
 grant execute on function public.gh_admin_audit_recent(integer) to authenticated;
+grant execute on function public.gh_admin_list_users() to authenticated;
+grant execute on function public.gh_admin_set_user_role(uuid, text) to authenticated;
+grant execute on function public.gh_admin_set_user_blocked(uuid, boolean) to authenticated;
 
 create or replace function public.gh_resolve_username_login(username_input text)
 returns table(email text)
@@ -783,20 +995,20 @@ drop policy if exists "GH users can delete own backups" on public.gh_cloud_backu
 
 create policy "GH users can read own backups"
   on public.gh_cloud_backups for select
-  using (auth.uid() = user_id);
+  using (auth.uid() = user_id and not public.gh_is_blocked(auth.uid()));
 
 create policy "GH users can insert own backups"
   on public.gh_cloud_backups for insert
-  with check (auth.uid() = user_id);
+  with check (auth.uid() = user_id and not public.gh_is_blocked(auth.uid()));
 
 create policy "GH users can update own backups"
   on public.gh_cloud_backups for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  using (auth.uid() = user_id and not public.gh_is_blocked(auth.uid()))
+  with check (auth.uid() = user_id and not public.gh_is_blocked(auth.uid()));
 
 create policy "GH users can delete own backups"
   on public.gh_cloud_backups for delete
-  using (auth.uid() = user_id);
+  using (auth.uid() = user_id and not public.gh_is_blocked(auth.uid()));
 
 create index if not exists gh_cloud_backups_user_created_idx
   on public.gh_cloud_backups (user_id, created_at desc);`;

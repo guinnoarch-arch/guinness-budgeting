@@ -11,7 +11,10 @@ import {
   getAdminStatus,
   getFeatureFlags,
   listAdminAuditLog,
+  listAdminUsers,
   setAdminClaimMode,
+  setAdminUserBlocked,
+  setAdminUserRole,
   setFeatureFlag
 } from "../services/adminService.js";
 import { isCloudBackupConfigured } from "../services/cloudBackupService.js";
@@ -55,6 +58,10 @@ function SecurityCheck({ label, ok, detail }) {
   );
 }
 
+function StatusBadge({ children, tone = "" }) {
+  return <span className={`pill admin-status-badge ${tone}`.trim()}>{children}</span>;
+}
+
 function getPublicUrlCheck() {
   const configured = String(import.meta.env.VITE_PUBLIC_APP_URL || import.meta.env.VITE_APP_PUBLIC_URL || "").trim();
   if (!configured) {
@@ -83,6 +90,10 @@ export default function ControlCentrePage({ appData, actions }) {
   const [accessStatus, setAccessStatus] = useState("");
   const [auditLog, setAuditLog] = useState([]);
   const [auditStatus, setAuditStatus] = useState("");
+  const [users, setUsers] = useState([]);
+  const [userSearch, setUserSearch] = useState("");
+  const [userFilter, setUserFilter] = useState("all");
+  const [userStatus, setUserStatus] = useState("");
   const storageHealth = useMemo(() => getStorageHealth(appData), [appData]);
   const backupReminder = getBackupReminder(settings);
   const publicUrlCheck = getPublicUrlCheck();
@@ -111,25 +122,130 @@ export default function ControlCentrePage({ appData, actions }) {
     }
   }
 
+  async function refreshUsers() {
+    if (!adminStatus.isAdmin) return;
+    setUserStatus("");
+    try {
+      const rows = await listAdminUsers(settings);
+      setUsers(rows);
+    } catch (error) {
+      setUserStatus(error.message || "Could not load users.");
+    }
+  }
+
+  async function refreshAuditLog() {
+    if (!adminStatus.isAdmin) return;
+    setAuditStatus("");
+    try {
+      const rows = await listAdminAuditLog(settings, 30);
+      setAuditLog(rows);
+    } catch (error) {
+      setAuditStatus(error.message || "Could not load admin audit log.");
+    }
+  }
+
+  async function promoteUser(user) {
+    if (!confirm("Are you sure you want to make this user an admin?")) return;
+    setUserStatus("Promoting user...");
+    try {
+      await setAdminUserRole(settings, user.id, "admin");
+      setUserStatus(`${user.username || user.email || "User"} is now admin.`);
+      await Promise.all([refreshUsers(), refreshAuditLog(), actions.refreshAdminAccess?.()]);
+    } catch (error) {
+      setUserStatus(error.message || "Could not promote user.");
+    }
+  }
+
+  async function demoteUser(user) {
+    if (user.is_admin && adminStatus.adminCount <= 1) {
+      setUserStatus("Cannot remove the last admin.");
+      return;
+    }
+    if (!confirm("Are you sure you want to demote this admin to user?")) return;
+    setUserStatus("Demoting user...");
+    try {
+      await setAdminUserRole(settings, user.id, "user");
+      setUserStatus(`${user.username || user.email || "User"} is now a user.`);
+      await Promise.all([refreshUsers(), refreshAuditLog(), actions.refreshAdminAccess?.()]);
+    } catch (error) {
+      setUserStatus(error.message || "Could not demote user.");
+    }
+  }
+
+  async function blockUser(user) {
+    if (user.is_admin && adminStatus.adminCount <= 1) {
+      setUserStatus("Cannot block the last admin.");
+      return;
+    }
+    if (user.id === adminStatus.currentUserId && user.is_admin) {
+      const allowSelfBlock = users.some(item => item.id !== user.id && item.is_admin && !item.blocked);
+      if (!allowSelfBlock) {
+        setUserStatus("Cannot block the last admin.");
+        return;
+      }
+      if (!confirm("You are about to block your own admin account. Another active admin will need to unblock you. Continue?")) return;
+    } else if (!confirm("Block this user account? This does not delete data, but it stops access and cloud sync.")) {
+      return;
+    }
+
+    setUserStatus("Blocking user...");
+    try {
+      await setAdminUserBlocked(settings, user.id, true);
+      setUserStatus(`${user.username || user.email || "User"} has been blocked.`);
+      await Promise.all([refreshUsers(), refreshAuditLog(), actions.refreshAdminAccess?.()]);
+    } catch (error) {
+      setUserStatus(error.message || "Could not block user.");
+    }
+  }
+
+  async function unblockUser(user) {
+    if (!confirm("Unblock this user account?")) return;
+    setUserStatus("Unblocking user...");
+    try {
+      await setAdminUserBlocked(settings, user.id, false);
+      setUserStatus(`${user.username || user.email || "User"} has been unblocked.`);
+      await Promise.all([refreshUsers(), refreshAuditLog(), actions.refreshAdminAccess?.()]);
+    } catch (error) {
+      setUserStatus(error.message || "Could not unblock user.");
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
-    async function loadAuditLog() {
+    async function loadAdminLists() {
       if (!adminStatus.isAdmin) return;
-      setAuditStatus("");
-      try {
-        const rows = await listAdminAuditLog(settings, 30);
-        if (!cancelled) setAuditLog(rows);
-      } catch (error) {
-        if (!cancelled) setAuditStatus(error.message || "Could not load admin audit log.");
-      }
+      await Promise.all([
+        listAdminUsers(settings).then(rows => {
+          if (!cancelled) setUsers(rows);
+        }).catch(error => {
+          if (!cancelled) setUserStatus(error.message || "Could not load users.");
+        }),
+        listAdminAuditLog(settings, 30).then(rows => {
+          if (!cancelled) setAuditLog(rows);
+        }).catch(error => {
+          if (!cancelled) setAuditStatus(error.message || "Could not load admin audit log.");
+        })
+      ]);
     }
 
-    loadAuditLog();
+    loadAdminLists();
     return () => {
       cancelled = true;
     };
   }, [adminStatus.isAdmin, adminStatus.adminClaimEnabled, settings.cloudBackup?.supabaseUrl, settings.cloudBackup?.supabaseAnonKey]);
+
+  const filteredUsers = users.filter(user => {
+    const query = userSearch.trim().toLowerCase();
+    const matchesSearch = !query || [user.username, user.email].some(value => String(value || "").toLowerCase().includes(query));
+    const matchesFilter = userFilter === "all"
+      || (userFilter === "admins" && user.is_admin)
+      || (userFilter === "users" && !user.is_admin)
+      || (userFilter === "blocked" && user.blocked);
+    return matchesSearch && matchesFilter;
+  });
+
+  const blockedCount = users.filter(user => user.blocked).length;
 
   if (!adminStatus.isAdmin) {
     return (
@@ -192,6 +308,116 @@ export default function ControlCentrePage({ appData, actions }) {
             <ControlStat label="Local accounts" value={storageHealth.counts.accounts} />
             <ControlStat label="Local imports" value={storageHealth.counts.importBatches} />
           </div>
+        </div>
+      </div>
+
+      <div className="card control-panel users-admin-panel">
+        <div className="panel-heading admin-users-heading">
+          <div>
+            <h3>Users / Accounts</h3>
+            <p>Manage safe account access metadata only. Financial records are not shown here.</p>
+          </div>
+          <div className="control-stat-grid admin-users-mini-stats">
+            <ControlStat label="Total users" value={users.length} />
+            <ControlStat label="Admins" value={users.filter(user => user.is_admin).length || adminStatus.adminCount || 0} />
+            <ControlStat label="Blocked" value={blockedCount} />
+          </div>
+        </div>
+
+        <div className="admin-user-tools">
+          <input
+            value={userSearch}
+            onChange={event => setUserSearch(event.target.value)}
+            placeholder="Search username or email"
+            aria-label="Search users"
+          />
+          <div className="segmented-control admin-filter-tabs" role="group" aria-label="User filter">
+            {[
+              ["all", "All"],
+              ["admins", "Admins"],
+              ["users", "Users"],
+              ["blocked", "Blocked"]
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={userFilter === key ? "active" : ""}
+                onClick={() => setUserFilter(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="secondary-button small" onClick={refreshUsers}>Refresh</button>
+        </div>
+
+        {userStatus && <p className="cloud-status-message compact-status">{userStatus}</p>}
+
+        <div className="admin-users-table-wrap">
+          <table className="admin-users-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Activity</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredUsers.map(user => {
+                const isOnlyAdmin = user.is_admin && (adminStatus.adminCount <= 1 || users.filter(item => item.is_admin && !item.blocked).length <= 1);
+                const isSelf = user.id === adminStatus.currentUserId;
+                return (
+                  <tr key={user.id}>
+                    <td data-label="User">
+                      <strong>{user.username || "Unnamed user"}</strong>
+                      <small>{user.email || "Email not available"}</small>
+                      <small>{user.id}</small>
+                    </td>
+                    <td data-label="Role">
+                      <StatusBadge tone={user.is_admin ? "storage-ok" : ""}>{user.is_admin ? "Admin" : "User"}</StatusBadge>
+                    </td>
+                    <td data-label="Status">
+                      <div className="admin-badge-stack">
+                        {user.blocked && <StatusBadge tone="expense">Blocked</StatusBadge>}
+                        {!user.blocked && <StatusBadge tone="storage-ok">Unblocked</StatusBadge>}
+                        {user.active_status && <StatusBadge>{user.active_status === "active" ? "Active" : "Inactive"}</StatusBadge>}
+                      </div>
+                    </td>
+                    <td data-label="Activity">
+                      <small>Created {formatDateTime(user.created_at)}</small>
+                      <small>Updated {formatDateTime(user.updated_at)}</small>
+                      <small>Last backup {formatDateTime(user.last_backup_at)}</small>
+                    </td>
+                    <td data-label="Actions">
+                      <div className="admin-user-actions">
+                        {!user.is_admin ? (
+                          <button type="button" className="secondary-button small" onClick={() => promoteUser(user)}>
+                            Promote to admin
+                          </button>
+                        ) : (
+                          <button type="button" className="secondary-button small" onClick={() => demoteUser(user)} disabled={isOnlyAdmin}>
+                            Demote to user
+                          </button>
+                        )}
+                        {user.blocked ? (
+                          <button type="button" className="secondary-button small" onClick={() => unblockUser(user)}>
+                            Unblock
+                          </button>
+                        ) : (
+                          <button type="button" className="danger-button small" onClick={() => blockUser(user)} disabled={isOnlyAdmin || (isSelf && isOnlyAdmin)}>
+                            Block
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {filteredUsers.length === 0 && <p className="muted-text">No users match this filter.</p>}
         </div>
       </div>
 

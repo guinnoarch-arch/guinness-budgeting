@@ -220,6 +220,23 @@ function StorageRecoveryScreen({ error, phoneMode, onTogglePhoneMode, onRestoreB
   );
 }
 
+function BlockedAccountScreen({ phoneMode, onLogout }) {
+  return (
+    <main className={`blocked-account-page ${phoneMode ? "phone-mode" : ""}`.trim()}>
+      <section className="card blocked-account-card">
+        <p className="eyebrow">Account blocked</p>
+        <h1>Your account has been blocked. Contact the app admin.</h1>
+        <p className="muted-text">
+          Blocking is access control only. This app has not deleted local browser data, backups, or budget records.
+        </p>
+        <button type="button" className="primary-button" onClick={onLogout}>
+          Logout
+        </button>
+      </section>
+    </main>
+  );
+}
+
 function App() {
   const [appData, setAppData] = useState(null);
   const [appLoadStatus, setAppLoadStatus] = useState("Loading saved data...");
@@ -495,6 +512,10 @@ function App() {
 
   async function cloudBackupNow({ backupType = "manual", requireConfirm = true } = {}) {
     if (!appData) return null;
+    if (adminAccessState.loaded && adminAccessState.isBlocked) {
+      setCloudBackupStatus("Your account has been blocked. Contact the app admin.");
+      return null;
+    }
     const settings = appData.settings || {};
     if (!isCloudBackupConfigured(settings)) {
       setCloudBackupStatus("Cloud backup unavailable");
@@ -649,6 +670,7 @@ function App() {
 
   useEffect(() => {
     if (!appData) return undefined;
+    if (adminAccessState.loaded && adminAccessState.isBlocked) return undefined;
     const cloud = appData.settings?.cloudBackup || {};
     if (!cloud.enabled || !cloud.linkedLocalDataAt || !cloud.cloudBackupNeeded) return undefined;
     if (!isCloudBackupConfigured(appData.settings) || !isCloudSessionAllowed(appData.settings, cloudAuthSummary)) return undefined;
@@ -663,11 +685,14 @@ function App() {
     appData?.settings?.cloudBackup?.cloudBackupNeeded,
     appData?.settings?.lastDataChangedAt,
     cloudAuthSummary?.signedIn,
-    cloudAuthSummary?.isExpired
+    cloudAuthSummary?.isExpired,
+    adminAccessState?.loaded,
+    adminAccessState?.isBlocked
   ]);
 
   useEffect(() => {
     if (!appData) return undefined;
+    if (adminAccessState.loaded && adminAccessState.isBlocked) return undefined;
     const cloud = appData.settings?.cloudBackup || {};
     if (!cloud.linkedLocalDataAt || !isCloudBackupConfigured(appData.settings) || !isCloudSessionAllowed(appData.settings, cloudAuthSummary)) return undefined;
     if (cloud.lastCloudConflictAt && !cloud.cloudConflict) return undefined;
@@ -718,7 +743,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [appData?.settings?.cloudBackup?.linkedLocalDataAt, cloudAuthSummary?.signedIn]);
+  }, [appData?.settings?.cloudBackup?.linkedLocalDataAt, cloudAuthSummary?.signedIn, adminAccessState?.loaded, adminAccessState?.isBlocked]);
 
   useEffect(() => {
     if (!appData) return undefined;
@@ -919,6 +944,7 @@ function App() {
   const loginGateRequired = isCloudLoginGateRequired(appData.settings);
   const cloudSessionAllowed = isCloudSessionAllowed(appData.settings, cloudAuthSummary);
   const localAccessAllowed = localAccessUnlocked && hasUsableLocalBudgetData(appData);
+  const signedInBlocked = cloudSessionAllowed && adminAccessState.loaded && adminAccessState.isBlocked;
 
   if (loginGateRequired && !cloudSessionAllowed && !localAccessAllowed) {
     return (
@@ -931,6 +957,22 @@ function App() {
         onTogglePhoneMode={() => setPhoneMode(prev => !prev)}
       />
     );
+  }
+
+  if (cloudSessionAllowed && !adminAccessState.loaded) {
+    return (
+      <main className={`loading-page ${phoneMode ? "phone-mode" : ""}`.trim()}>
+        <section className="card loading-card">
+          <p className="eyebrow">GH Budgeting</p>
+          <h1>Checking account access</h1>
+          <p className="muted-text">Confirming your Supabase profile access before opening budget data.</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (signedInBlocked) {
+    return <BlockedAccountScreen phoneMode={phoneMode} onLogout={logoutApp} />;
   }
 
   if (cloudConflict?.cloudData) {

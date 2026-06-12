@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.18 - Supabase-backed Admin Control Centre access and first-admin bootstrap.
+V2.6.19 - Admin Control Centre user management and blocked-account access control.
 
 ## What Is Included
 
@@ -86,9 +86,11 @@ public.profiles.role = 'admin'
 
 The browser still uses only the Supabase anon/publishable key. Do not add service-role keys to frontend code or Vercel client environment variables.
 
-For first setup, run the current SQL shown in `Settings -> Cloud backup -> Show Supabase SQL setup`. It adds `profiles.role`, admin claim mode, server-side RPC route guards and an admin audit log. When no admin exists, a signed-in user will see `Become admin` in `Settings -> Profile`. A successful claim marks that user's Supabase profile as admin and automatically turns admin-claim mode off.
+For first setup, run the current SQL shown in `Settings -> Cloud backup -> Show Supabase SQL setup`. It adds `profiles.role`, `profiles.blocked`, admin claim mode, server-side RPC route guards, safe admin user-management RPCs and an admin audit log. When no admin exists, a signed-in user will see `Become admin` in `Settings -> Profile`. A successful claim marks that user's Supabase profile as admin and automatically turns admin-claim mode off.
 
-Existing admins can temporarily enable `Allow another user to become admin` inside `/admin`. Only enable it while intentionally inviting another trusted user. Non-admin users who open `/admin` directly are shown `Not authorised` and a button back to Settings.
+Existing admins can temporarily enable `Allow another user to become admin` inside `/admin`, but normal admin promotion/demotion now happens in `/admin -> Users / Accounts`. Admins can promote, demote, block and unblock accounts through Supabase RPCs. Blocked users see `Your account has been blocked. Contact the app admin.` and cannot open the private budgeting area or cloud backup/restore paths while blocked. Non-admin users who open `/admin` directly are shown `Not authorised` and a button back to Settings.
+
+After running updated SQL in Supabase, wait 30-60 seconds and refresh the app if Supabase says a new RPC function was not found. This is usually the PostgREST schema cache catching up.
 
 The bank-linking feature flag defaults to off and does not enable any live bank integration.
 
