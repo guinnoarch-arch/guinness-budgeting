@@ -407,14 +407,12 @@ export default function ControlCentrePage({ appData, actions }) {
                       <div className="admin-badge-stack">
                         {user.blocked && <StatusBadge tone="expense">Blocked</StatusBadge>}
                         {!user.blocked && <StatusBadge tone="storage-ok">Unblocked</StatusBadge>}
-                        {user.active_status && <StatusBadge>{user.active_status === "active" ? "Active" : "Inactive"}</StatusBadge>}
                       </div>
                     </td>
                     <td data-label="Activity">
                       <small>Created {formatDateTime(user.created_at)}</small>
                       <small>Updated {formatDateTime(user.updated_at)}</small>
-                      <small>Last activity {formatDateTime(user.last_activity || user.last_backup_at || user.updated_at)}</small>
-                      <small>Last backup {formatDateTime(user.last_backup_at)}</small>
+                      <small>Last activity {formatDateTime(user.last_activity_at || user.updated_at)}</small>
                     </td>
                     <td data-label="Actions">
                       <div className="admin-user-actions">

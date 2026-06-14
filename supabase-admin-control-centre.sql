@@ -16,6 +16,7 @@ create table if not exists public.profiles (
   blocked_at timestamptz,
   blocked_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
+  last_activity_at timestamptz,
   updated_at timestamptz not null default now()
 );
 
@@ -23,7 +24,9 @@ alter table public.profiles
   add column if not exists role text not null default 'user',
   add column if not exists blocked boolean not null default false,
   add column if not exists blocked_at timestamptz,
-  add column if not exists blocked_by uuid references auth.users(id) on delete set null;
+  add column if not exists blocked_by uuid references auth.users(id) on delete set null,
+  add column if not exists last_activity_at timestamptz,
+  add column if not exists updated_at timestamptz not null default now();
 
 do $$
 begin
@@ -40,7 +43,9 @@ end $$;
 
 update public.profiles
 set role = coalesce(nullif(role, ''), 'user'),
-    blocked = coalesce(blocked, false);
+    blocked = coalesce(blocked, false),
+    updated_at = coalesce(updated_at, now()),
+    last_activity_at = coalesce(last_activity_at, updated_at, created_at, now());
 
 alter table public.profiles enable row level security;
 
@@ -64,7 +69,7 @@ create policy "GH users can update own profile"
 revoke update on public.profiles from anon, authenticated;
 grant select on public.profiles to authenticated;
 grant insert on public.profiles to authenticated;
-grant update (email, username, username_normalized, updated_at) on public.profiles to authenticated;
+grant update (email, username, username_normalized, updated_at, last_activity_at) on public.profiles to authenticated;
 
 create table if not exists public.gh_admin_settings (
   id boolean primary key default true,
@@ -304,7 +309,7 @@ begin
 end;
 $$;
 
-create or replace function public.gh_admin_audit_recent(row_limit integer default 30)
+create or replace function public.gh_admin_audit_recent(limit_count integer default 30)
 returns table(
   id uuid,
   actor_id uuid,
@@ -330,7 +335,7 @@ begin
     select a.id, a.actor_id, a.actor_email, a.action, a.details, a.created_at
     from public.gh_admin_audit_log a
     order by a.created_at desc
-    limit greatest(1, least(coalesce(row_limit, 30), 100));
+    limit greatest(1, least(coalesce(limit_count, 30), 100));
 end;
 $$;
 
@@ -340,15 +345,11 @@ returns table(
   username text,
   email text,
   role text,
-  is_admin boolean,
   blocked boolean,
-  blocked_at timestamptz,
-  blocked_by uuid,
   created_at timestamptz,
   updated_at timestamptz,
-  last_activity timestamptz,
-  last_backup_at timestamptz,
-  active_status text
+  last_activity_at timestamptz,
+  is_admin boolean
 )
 language plpgsql
 security definer
@@ -369,21 +370,14 @@ begin
       p.username,
       p.email,
       p.role,
-      p.role = 'admin' as is_admin,
       coalesce(p.blocked, false) as blocked,
-      p.blocked_at,
-      p.blocked_by,
       p.created_at,
       p.updated_at,
-      coalesce(max(b.created_at), p.updated_at, p.created_at) as last_activity,
-      max(b.created_at) as last_backup_at,
-      case
-        when max(b.created_at) >= now() - interval '30 days' then 'active'
-        else 'inactive'
-      end as active_status
+      coalesce(p.last_activity_at, max(b.created_at), p.updated_at, p.created_at) as last_activity_at,
+      p.role = 'admin' as is_admin
     from public.profiles p
     left join public.gh_cloud_backups b on b.user_id = p.id
-    group by p.id, p.username, p.email, p.role, p.blocked, p.blocked_at, p.blocked_by, p.created_at, p.updated_at
+    group by p.id, p.username, p.email, p.role, p.blocked, p.created_at, p.updated_at, p.last_activity_at
     order by p.created_at desc;
 end;
 $$;

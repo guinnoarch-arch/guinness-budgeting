@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.21 - Supabase admin SQL syntax and ambiguity fixes for Admin Control Centre setup.
+V2.6.22 - Supabase admin SQL setup source aligned with Admin Control Centre user management.
 
 ## What Is Included
 
@@ -91,6 +91,22 @@ For first setup, run the current SQL shown in `Settings -> Cloud backup -> Show 
 Existing admins can temporarily enable `Allow another user to become admin` inside `/admin`, but normal admin promotion/demotion now happens in `/admin -> Users / Accounts`. Admins can promote, demote, block and unblock accounts through Supabase RPCs. Blocked users see `Your account has been blocked. Contact the app admin.` and cannot open the private budgeting area or cloud backup/restore paths while blocked. Non-admin users who open `/admin` directly are shown `Not authorised` and a button back to Settings.
 
 The Admin Control Centre users table depends on the no-argument RPC `public.gh_admin_list_users()`. If the app says `Admin SQL setup has not been run yet`, run `supabase-admin-control-centre.sql`, wait 30-60 seconds for the PostgREST schema cache, then refresh the app. Until that RPC succeeds, the UI intentionally hides user totals rather than showing misleading counts.
+
+Admin SQL setup steps:
+
+1. Open the Supabase SQL Editor.
+2. Paste and run the latest SQL from `Settings -> Cloud backup -> Show Supabase SQL setup`, or run `supabase-admin-control-centre.sql`.
+3. Wait 30-60 seconds for the PostgREST schema cache.
+4. Refresh the app.
+5. Open `Admin Control Centre -> Users / Accounts`.
+
+Troubleshooting:
+
+- `function not found`: wait 30-60 seconds after running SQL, then refresh.
+- `schema cache`: Supabase has not refreshed the new RPC definitions yet.
+- `Not authorised`: the signed-in profile must have `public.profiles.role = 'admin'`.
+- No admin exists: sign in and use `Settings -> Profile -> Become admin` if admin claim mode is allowed.
+- Blocked account: ask an existing admin to unblock the profile from `Users / Accounts`.
 
 The bank-linking feature flag defaults to off and does not enable any live bank integration.
 

@@ -1,6 +1,6 @@
-# V2.6.18/V2.6.21 Admin Bootstrap And User Management
+# V2.6.18/V2.6.22 Admin Bootstrap And User Management
 
-V2.6.21 extends the Admin Control Centre with safe user/account summaries, admin promotion/demotion, account blocking/unblocking, blocked-user route guards, a standalone Supabase SQL setup file and safer rerunnable SQL for Supabase.
+V2.6.22 extends the Admin Control Centre with safe user/account summaries, admin promotion/demotion, account blocking/unblocking, blocked-user route guards, a standalone Supabase SQL setup file and safer rerunnable SQL for Supabase.
 
 ## Files Changed
 
@@ -59,7 +59,7 @@ The SQL adds:
 - `public.gh_get_admin_access_state()`
 - `public.gh_claim_admin()`
 - `public.gh_set_admin_claim_mode(boolean)`
-- `public.gh_admin_audit_recent(integer)`
+- `public.gh_admin_audit_recent(limit_count integer)`
 - `public.gh_admin_list_users()`
 - `public.gh_admin_set_user_role(uuid, text)`
 - `public.gh_admin_set_user_blocked(uuid, boolean)`
@@ -71,6 +71,8 @@ After running SQL, wait 30-60 seconds and refresh the app if Supabase says a new
 If `public.gh_admin_list_users()` is missing, the Admin Control Centre now shows `Admin SQL setup has not been run yet` and suppresses the Users / Accounts totals until a valid safe user list is returned.
 
 V2.6.21 quotes the `gh_get_admin_access_state()` output column `"current_role"` and qualifies admin-claim and profile role references so the SQL can be pasted into Supabase without syntax or ambiguity errors.
+
+V2.6.22 adds `public.profiles.last_activity_at`, aligns the frontend audit-log RPC payload with `limit_count`, and keeps `public.gh_admin_list_users()` limited to safe profile summary fields.
 
 ## First Admin Flow
 
@@ -117,9 +119,8 @@ The app prevents removing or blocking the last admin. Self-block is guarded and 
 - role
 - blocked status
 - created/updated timestamps
-- last cloud backup timestamp
 - last activity timestamp
-- active/inactive status inferred from recent backup activity
+- admin status
 
 It does not return transactions, balances, budgets, bills, savings goals or backup contents.
 
@@ -143,3 +144,7 @@ It does not return transactions, balances, budgets, bills, savings goals or back
 - Confirm the blocked user sees the blocked-account page and cannot access budgeting routes.
 - Unblock the test user and confirm access returns.
 - Confirm the audit log records promote, demote, block, unblock and claim-mode actions.
+- If Supabase returns `function not found` or `schema cache`, wait 30-60 seconds after running SQL and refresh.
+- If Supabase returns `Not authorised`, confirm the signed-in row has `public.profiles.role = 'admin'`.
+- If no admin exists, sign in and use `Settings -> Profile -> Become admin` while admin claim mode is allowed.
+- If a blocked account cannot enter the app, unblock it from `Admin Control Centre -> Users / Accounts`.

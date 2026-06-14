@@ -291,7 +291,8 @@ export async function upsertSupabaseProfile(settings, { id, email, username }) {
       email: profileEmail,
       username: profileUsername,
       username_normalized: usernameNormalised,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      last_activity_at: new Date().toISOString()
     })
   });
 
@@ -452,6 +453,7 @@ create table if not exists public.profiles (
   blocked_at timestamptz,
   blocked_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
+  last_activity_at timestamptz,
   updated_at timestamptz not null default now()
 );
 
@@ -466,6 +468,18 @@ alter table public.profiles
 
 alter table public.profiles
   add column if not exists blocked_by uuid references auth.users(id) on delete set null;
+
+alter table public.profiles
+  add column if not exists last_activity_at timestamptz;
+
+alter table public.profiles
+  add column if not exists updated_at timestamptz not null default now();
+
+update public.profiles
+set role = coalesce(nullif(role, ''), 'user'),
+    blocked = coalesce(blocked, false),
+    updated_at = coalesce(updated_at, now()),
+    last_activity_at = coalesce(last_activity_at, updated_at, created_at, now());
 
 do $$
 begin
@@ -499,7 +513,9 @@ create policy "GH users can update own profile"
   with check (auth.uid() = id);
 
 revoke update on public.profiles from anon, authenticated;
-grant update (email, username, username_normalized, updated_at) on public.profiles to authenticated;
+grant select on public.profiles to authenticated;
+grant insert on public.profiles to authenticated;
+grant update (email, username, username_normalized, updated_at, last_activity_at) on public.profiles to authenticated;
 
 create table if not exists public.gh_admin_settings (
   id boolean primary key default true check (id),
@@ -721,7 +737,7 @@ begin
 end;
 $$;
 
-create or replace function public.gh_admin_audit_recent(row_limit integer default 30)
+create or replace function public.gh_admin_audit_recent(limit_count integer default 30)
 returns table(
   id uuid,
   actor_id uuid,
@@ -747,7 +763,7 @@ begin
     select a.id, a.actor_id, a.actor_email, a.action, a.details, a.created_at
     from public.gh_admin_audit_log a
     order by a.created_at desc
-    limit greatest(1, least(coalesce(row_limit, 30), 100));
+    limit greatest(1, least(coalesce(limit_count, 30), 100));
 end;
 $$;
 
@@ -757,15 +773,11 @@ returns table(
   username text,
   email text,
   role text,
-  is_admin boolean,
   blocked boolean,
-  blocked_at timestamptz,
-  blocked_by uuid,
   created_at timestamptz,
   updated_at timestamptz,
-  last_activity timestamptz,
-  last_backup_at timestamptz,
-  active_status text
+  last_activity_at timestamptz,
+  is_admin boolean
 )
 language plpgsql
 security definer
@@ -786,21 +798,14 @@ begin
       p.username,
       p.email,
       p.role,
-      p.role = 'admin' as is_admin,
       coalesce(p.blocked, false) as blocked,
-      p.blocked_at,
-      p.blocked_by,
       p.created_at,
       p.updated_at,
-      coalesce(max(b.created_at), p.updated_at, p.created_at) as last_activity,
-      max(b.created_at) as last_backup_at,
-      case
-        when max(b.created_at) >= now() - interval '30 days' then 'active'
-        else 'inactive'
-      end as active_status
+      coalesce(p.last_activity_at, max(b.created_at), p.updated_at, p.created_at) as last_activity_at,
+      p.role = 'admin' as is_admin
     from public.profiles p
     left join public.gh_cloud_backups b on b.user_id = p.id
-    group by p.id, p.username, p.email, p.role, p.blocked, p.blocked_at, p.blocked_by, p.created_at, p.updated_at
+    group by p.id, p.username, p.email, p.role, p.blocked, p.created_at, p.updated_at, p.last_activity_at
     order by p.created_at desc;
 end;
 $$;
@@ -989,8 +994,8 @@ begin
   profile_username := coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1));
   profile_username_normalized := lower(regexp_replace(profile_username, '\\s+', '', 'g'));
 
-  insert into public.profiles (id, email, username, username_normalized)
-  values (new.id, new.email, profile_username, profile_username_normalized);
+  insert into public.profiles (id, email, username, username_normalized, last_activity_at)
+  values (new.id, new.email, profile_username, profile_username_normalized, now());
 
   return new;
 end;

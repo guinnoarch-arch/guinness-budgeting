@@ -200,7 +200,7 @@ export async function listAdminAuditLog(settings = {}, limit = 30) {
   const rows = await supabaseRestFetch(settings, "rpc/gh_admin_audit_recent", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ row_limit: Number(limit) || 30 })
+    body: JSON.stringify({ limit_count: Number(limit) || 30 })
   });
   return Array.isArray(rows) ? rows : [];
 }
