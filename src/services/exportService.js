@@ -2,6 +2,7 @@ import { downloadUrl } from "./storageService.js";
 import { formatMonthLabel } from "../utils/dates.js";
 import { buildMonthlyReportData } from "../utils/reporting.js";
 import { calculateLoanSummary } from "../utils/loanCalculations.js";
+import { calculateHousesSummary } from "../utils/houseTracking.js";
 import { getLinkedLoanId, getLoanById, getLoanPaymentTotalsForMonth } from "../utils/loanLinking.js";
 import { formatMoney } from "../utils/money.js";
 
@@ -15,13 +16,14 @@ function escapeHtml(value) {
 }
 
 export function exportTransactionsCsv(data) {
-  const headers = ["Date", "Type", "Title", "Category", "Account", "From Account", "To Account", "Amount", "Excluded From Budget", "Linked Loan", "Loan Interest", "Loan Principal", "Loan Overpayment", "Receipt", "Note"];
+  const headers = ["Date", "Type", "Title", "Category", "Account", "From Account", "To Account", "Amount", "Excluded From Budget", "Linked Loan", "Linked House", "House Contribution Type", "House Paid By", "Loan Interest", "Loan Principal", "Loan Overpayment", "Receipt", "Note"];
   const rows = data.transactions.map(txn => {
     const category = data.categories.find(cat => cat.id === txn.categoryId)?.name || "";
     const account = data.accounts.find(acc => acc.id === txn.accountId)?.name || "";
     const from = data.accounts.find(acc => acc.id === txn.fromAccountId)?.name || "";
     const to = data.accounts.find(acc => acc.id === txn.toAccountId)?.name || "";
     const linkedLoan = getLoanById(data, getLinkedLoanId(txn));
+    const linkedHouse = (data.houses || []).find(house => house.id === txn.linkedHouseId);
 
     return [
       txn.date,
@@ -34,6 +36,9 @@ export function exportTransactionsCsv(data) {
       txn.amount,
       txn.excludeFromBudget ? "Yes" : "No",
       linkedLoan?.name || "",
+      linkedHouse?.name || "",
+      txn.houseContributionType || "",
+      txn.housePersonName || "",
       txn.loanInterestAmount ?? "",
       txn.loanPrincipalAmount ?? "",
       txn.loanOverpaymentAmount ?? "",
@@ -56,6 +61,7 @@ export function exportMonthlyReportHtml(data, monthKey) {
   const report = buildMonthlyReportData(data, monthKey);
   const { summary, categoryRows, plannedVsActual, importImpact } = report;
   const loanSummary = calculateLoanSummary(data);
+  const housesSummary = calculateHousesSummary(data);
   const loanMonthTotals = getLoanPaymentTotalsForMonth(data, monthKey);
 
   const html = `
@@ -151,6 +157,23 @@ export function exportMonthlyReportHtml(data, monthKey) {
               }).join("")}</tbody>
             </table>
           `}
+        </div>
+
+        <div class="section">
+          <h2>House summary</h2>
+          <div class="grid">
+            <div class="card"><span>Total house value</span><strong>${formatMoney(housesSummary.totalHouseValue)}</strong></div>
+            <div class="card"><span>Total mortgage balance</span><strong>${formatMoney(housesSummary.totalMortgageBalance)}</strong></div>
+            <div class="card"><span>Estimated equity</span><strong>${formatMoney(housesSummary.totalEquity)}</strong></div>
+            <div class="card"><span>Total contributed</span><strong>${formatMoney(housesSummary.totalContributed)}</strong></div>
+          </div>
+          ${housesSummary.activeHouses.length === 0 ? "<p class='muted'>No houses are being tracked yet.</p>" : `
+            <table>
+              <thead><tr><th>House</th><th>Value</th><th>Mortgage</th><th>Equity estimate</th><th>Contributed</th></tr></thead>
+              <tbody>${housesSummary.summaries.filter(item => item.house.status !== "archived" && !item.house.archived).map(item => `<tr><td>${escapeHtml(item.house.name)}</td><td>${formatMoney(item.summary.propertyValue)}</td><td>${formatMoney(item.summary.mortgageBalance)}</td><td>${formatMoney(item.summary.estimatedEquity)}</td><td>${formatMoney(item.summary.totalContributed)}</td></tr>`).join("")}</tbody>
+            </table>
+          `}
+          <p class="muted">Contribution split is a tracking estimate only, not legal ownership.</p>
         </div>
 
         <div class="section">

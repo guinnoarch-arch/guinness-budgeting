@@ -1,4 +1,5 @@
 import { createId } from "../utils/ids.js";
+import { removeHouseContributionForTransaction, syncHouseContributionForTransaction } from "../utils/houseTracking.js";
 import { removeLoanEventsForTransaction, syncLoanEventsForTransaction } from "../utils/loanLinking.js";
 
 export function upsertTransaction(data, formValues, existingId = null) {
@@ -10,6 +11,7 @@ export function upsertTransaction(data, formValues, existingId = null) {
     : null;
   const transactionId = existingId || formValues.id || createId("txn");
   const linkedLoanId = formValues.type === "expense" ? formValues.linkedLoanId || null : null;
+  const linkedHouseId = formValues.type === "expense" ? formValues.linkedHouseId || null : null;
 
   const transaction = {
     ...(existingTransaction || {}),
@@ -25,6 +27,12 @@ export function upsertTransaction(data, formValues, existingId = null) {
     toAccountId: formValues.type === "transfer" ? formValues.toAccountId : null,
     linkedSavingsGoalId: formValues.type === "transfer" ? formValues.linkedSavingsGoalId || null : null,
     linkedLoanId,
+    linkedHouseId,
+    linkedHouseContributionId: formValues.linkedHouseContributionId || existingTransaction?.linkedHouseContributionId || null,
+    houseContributionType: linkedHouseId ? formValues.houseContributionType || "mortgagePayment" : null,
+    housePersonId: linkedHouseId ? formValues.housePersonId || null : null,
+    housePersonName: linkedHouseId ? formValues.housePersonName || formValues.housePaidBy || "" : "",
+    houseContributionNotes: linkedHouseId ? formValues.houseContributionNotes || "" : "",
     loanInterestAmount: linkedLoanId ? nullableNumber(formValues.loanInterestAmount) : null,
     loanPrincipalAmount: linkedLoanId ? nullableNumber(formValues.loanPrincipalAmount) : null,
     isLoanOverpayment: linkedLoanId ? Boolean(formValues.isLoanOverpayment) : false,
@@ -73,14 +81,14 @@ export function upsertTransaction(data, formValues, existingId = null) {
   }
 
   const withTransaction = { ...data, transactions, recurringItems };
-  return syncLoanEventsForTransaction(withTransaction, transaction);
+  return syncHouseContributionForTransaction(syncLoanEventsForTransaction(withTransaction, transaction), transaction);
 }
 
 export function deleteTransaction(data, transactionId) {
-  return removeLoanEventsForTransaction({
+  return removeHouseContributionForTransaction(removeLoanEventsForTransaction({
     ...data,
     transactions: data.transactions.filter(transaction => transaction.id !== transactionId)
-  }, transactionId);
+  }, transactionId), transactionId);
 }
 
 function nullableNumber(value) {

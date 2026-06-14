@@ -8,6 +8,14 @@ import {
 } from "../utils/loanCalculations.js";
 import { createId } from "../utils/ids.js";
 import { addMonthsToIsoDate, formatIsoDateLocal, parseIsoDateLocal, todayIsoDate } from "../utils/dates.js";
+import {
+  HOUSE_CONTRIBUTION_TYPES,
+  HOUSE_OWNERSHIP_MODES,
+  HOUSE_SOURCE_TYPES,
+  calculateHouseSummary,
+  calculateHousesSummary,
+  normaliseHouseRecord
+} from "../utils/houseTracking.js";
 import { formatMoney } from "../utils/money.js";
 import {
   getLoanTimelineEvents,
@@ -17,6 +25,43 @@ import {
 import "../styles/loans.css";
 
 const today = () => todayIsoDate();
+
+const blankHouseForm = {
+  name: "",
+  addressLabel: "",
+  purchasePrice: "",
+  purchaseDate: "",
+  propertyValue: "",
+  notes: "",
+  ownershipMode: "contributionTracking",
+  mortgageOriginalAmount: "",
+  mortgageCurrentBalance: "",
+  mortgageStartDate: "",
+  mortgageTermYears: "",
+  mortgageInterestRate: "",
+  mortgageRateType: "fixed",
+  mortgageFixedEndDate: "",
+  mortgageMonthlyPayment: "",
+  linkedAccountId: ""
+};
+
+const blankContributionForm = {
+  personId: "",
+  personName: "",
+  amount: "",
+  date: today(),
+  type: "deposit",
+  sourceType: "external",
+  linkedTransactionId: "",
+  notes: ""
+};
+
+const blankPersonForm = {
+  name: "",
+  email: "",
+  label: "",
+  ownershipPercentage: ""
+};
 
 const blankLoanForm = {
   type: "studentLoan",
@@ -57,11 +102,298 @@ export default function LoansPage({ appData, actions }) {
   const [balanceUpdateLoan, setBalanceUpdateLoan] = useState(null);
   const [balanceUpdate, setBalanceUpdate] = useState({ balance: "", date: today(), note: "" });
   const [selectedLoanId, setSelectedLoanId] = useState(null);
+  const [selectedHouseId, setSelectedHouseId] = useState(null);
+  const [showHouseModal, setShowHouseModal] = useState(false);
+  const [editingHouse, setEditingHouse] = useState(null);
+  const [houseForm, setHouseForm] = useState(blankHouseForm);
+  const [contributionHouse, setContributionHouse] = useState(null);
+  const [editingContribution, setEditingContribution] = useState(null);
+  const [contributionForm, setContributionForm] = useState(blankContributionForm);
+  const [personHouse, setPersonHouse] = useState(null);
+  const [personForm, setPersonForm] = useState(blankPersonForm);
 
   const summary = useMemo(() => calculateLoanSummary(appData), [appData]);
+  const houseSummary = useMemo(() => calculateHousesSummary(appData), [appData]);
   const loanEvents = Array.isArray(appData.loanEvents) ? appData.loanEvents : [];
   const activeLoans = summary.loans;
   const selectedLoan = activeLoans.find(loan => loan.id === selectedLoanId) || null;
+  const selectedHouse = houseSummary.houses.find(house => house.id === selectedHouseId) || houseSummary.activeHouses[0] || null;
+
+  function updateHouseForm(field, value) {
+    setHouseForm(prev => ({ ...prev, [field]: value }));
+  }
+
+  function openAddHouseModal() {
+    setEditingHouse(null);
+    setHouseForm({ ...blankHouseForm, name: "House" });
+    setShowHouseModal(true);
+  }
+
+  function openEditHouseModal(house) {
+    setEditingHouse(house);
+    setHouseForm({
+      ...blankHouseForm,
+      name: house.name || "",
+      addressLabel: house.addressLabel || "",
+      purchasePrice: String(house.purchasePrice ?? ""),
+      purchaseDate: house.purchaseDate || "",
+      propertyValue: String(house.propertyValue ?? ""),
+      notes: house.notes || "",
+      ownershipMode: house.ownershipMode || "contributionTracking",
+      mortgageOriginalAmount: String(house.mortgage?.originalAmount ?? ""),
+      mortgageCurrentBalance: String(house.mortgage?.currentBalance ?? ""),
+      mortgageStartDate: house.mortgage?.startDate || "",
+      mortgageTermYears: String(house.mortgage?.termYears ?? ""),
+      mortgageInterestRate: String(house.mortgage?.interestRate ?? ""),
+      mortgageRateType: house.mortgage?.rateType || "fixed",
+      mortgageFixedEndDate: house.mortgage?.fixedEndDate || "",
+      mortgageMonthlyPayment: String(house.mortgage?.monthlyPayment ?? ""),
+      linkedAccountId: house.mortgage?.linkedAccountId || ""
+    });
+    setShowHouseModal(true);
+  }
+
+  function closeHouseModal() {
+    setShowHouseModal(false);
+    setEditingHouse(null);
+    setHouseForm(blankHouseForm);
+  }
+
+  function submitHouse(event) {
+    event.preventDefault();
+    const name = houseForm.name.trim();
+    if (!name) return alert("Enter a house name.");
+    const now = new Date().toISOString();
+    const housePayload = normaliseHouseRecord({
+      ...(editingHouse || {}),
+      id: editingHouse?.id || createId("house"),
+      name,
+      addressLabel: houseForm.addressLabel.trim(),
+      purchasePrice: Number(houseForm.purchasePrice || 0),
+      purchaseDate: houseForm.purchaseDate || null,
+      propertyValue: Number(houseForm.propertyValue || 0),
+      notes: houseForm.notes.trim(),
+      ownershipMode: houseForm.ownershipMode,
+      status: editingHouse?.status || "active",
+      archived: editingHouse?.archived || false,
+      mortgage: {
+        originalAmount: Number(houseForm.mortgageOriginalAmount || 0),
+        currentBalance: Number(houseForm.mortgageCurrentBalance || 0),
+        startDate: houseForm.mortgageStartDate || null,
+        termYears: Number(houseForm.mortgageTermYears || 0),
+        interestRate: Number(houseForm.mortgageInterestRate || 0),
+        rateType: houseForm.mortgageRateType,
+        fixedEndDate: houseForm.mortgageFixedEndDate || null,
+        monthlyPayment: Number(houseForm.mortgageMonthlyPayment || 0),
+        linkedAccountId: houseForm.linkedAccountId || null
+      },
+      createdAt: editingHouse?.createdAt || now,
+      updatedAt: now
+    });
+
+    actions.updateAppData(prev => ({
+      ...prev,
+      houses: editingHouse
+        ? (prev.houses || []).map(house => house.id === editingHouse.id ? housePayload : house)
+        : [housePayload, ...(prev.houses || [])]
+    }), { reason: editingHouse ? "House updated" : "House added" });
+    setSelectedHouseId(housePayload.id);
+    closeHouseModal();
+  }
+
+  function archiveHouse(house) {
+    if (!window.confirm(`Archive ${house.name}? Contributions stay in history and linked transactions are not deleted.`)) return;
+    const now = new Date().toISOString();
+    actions.updateAppData(prev => ({
+      ...prev,
+      houses: (prev.houses || []).map(item => item.id === house.id
+        ? { ...item, status: "archived", archived: true, archivedAt: now, updatedAt: now }
+        : item
+      )
+    }), { reason: "House archived" });
+  }
+
+  function restoreHouse(house) {
+    const now = new Date().toISOString();
+    actions.updateAppData(prev => ({
+      ...prev,
+      houses: (prev.houses || []).map(item => item.id === house.id
+        ? { ...item, status: "active", archived: false, archivedAt: null, updatedAt: now }
+        : item
+      )
+    }), { reason: "House restored" });
+    setSelectedHouseId(house.id);
+  }
+
+  function openContributionModal(house, contribution = null) {
+    setContributionHouse(house);
+    setEditingContribution(contribution);
+    setContributionForm(contribution ? {
+      personId: contribution.personId || "",
+      personName: contribution.personName || "",
+      amount: String(contribution.amount ?? ""),
+      date: contribution.date || today(),
+      type: contribution.type || "deposit",
+      sourceType: contribution.sourceType || "external",
+      linkedTransactionId: contribution.linkedTransactionId || "",
+      notes: contribution.notes || ""
+    } : { ...blankContributionForm, date: today() });
+  }
+
+  function updateContributionForm(field, value) {
+    setContributionForm(prev => {
+      const next = { ...prev, [field]: value };
+      if (field === "personId") {
+        const person = (appData.housePeople || []).find(item => item.id === value);
+        next.personName = person?.name || "";
+      }
+      return next;
+    });
+  }
+
+  function submitContribution(event) {
+    event.preventDefault();
+    if (!contributionHouse) return;
+    const amount = Number(contributionForm.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) return alert("Enter a contribution amount above zero.");
+    const now = new Date().toISOString();
+    const person = (appData.housePeople || []).find(item => item.id === contributionForm.personId);
+    const contributionId = editingContribution?.id || createId("house_contribution");
+    const contribution = {
+      ...(editingContribution || {}),
+      id: contributionId,
+      houseId: contributionHouse.id,
+      personId: contributionForm.personId || null,
+      personName: person?.name || contributionForm.personName.trim() || "Unassigned",
+      amount,
+      date: contributionForm.date || today(),
+      type: contributionForm.type,
+      sourceType: contributionForm.sourceType,
+      linkedTransactionId: contributionForm.sourceType === "linkedTransaction" ? contributionForm.linkedTransactionId || null : null,
+      notes: contributionForm.notes.trim(),
+      createdBy: null,
+      createdAt: editingContribution?.createdAt || now,
+      updatedAt: now
+    };
+
+    if (contribution.sourceType === "linkedTransaction" && !contribution.linkedTransactionId) {
+      return alert("Choose the transaction this contribution links to.");
+    }
+
+    actions.updateAppData(prev => ({
+      ...prev,
+      transactions: (prev.transactions || []).map(transaction => {
+        const shouldClearPrevious = editingContribution?.linkedTransactionId
+          && editingContribution.linkedTransactionId !== contribution.linkedTransactionId
+          && transaction.id === editingContribution.linkedTransactionId;
+        if (shouldClearPrevious) {
+          return {
+            ...transaction,
+            linkedHouseId: null,
+            linkedHouseContributionId: null,
+            houseContributionType: null,
+            housePersonId: null,
+            housePersonName: "",
+            houseContributionNotes: "",
+            updatedAt: now
+          };
+        }
+        if (contribution.linkedTransactionId && transaction.id === contribution.linkedTransactionId) {
+          return {
+            ...transaction,
+            linkedHouseId: contributionHouse.id,
+            linkedHouseContributionId: contributionId,
+            houseContributionType: contribution.type,
+            housePersonId: contribution.personId,
+            housePersonName: contribution.personName,
+            houseContributionNotes: contribution.notes,
+            updatedAt: now
+          };
+        }
+        return transaction;
+      }),
+      houseContributions: [
+        ...(prev.houseContributions || []).filter(item => (
+          item.id !== contributionId
+          && (!contribution.linkedTransactionId || item.linkedTransactionId !== contribution.linkedTransactionId)
+        )),
+        contribution
+      ]
+    }), { reason: editingContribution ? "House contribution updated" : "House contribution added" });
+    setContributionHouse(null);
+    setEditingContribution(null);
+    setContributionForm(blankContributionForm);
+  }
+
+  function deleteContribution(contribution) {
+    const message = contribution.linkedTransactionId
+      ? "Delete this house contribution? The linked transaction will stay in the app, but its house link will be cleared."
+      : "Delete this house contribution? This does not affect account balances.";
+    if (!window.confirm(message)) return;
+    actions.updateAppData(prev => ({
+      ...prev,
+      transactions: contribution.linkedTransactionId
+        ? (prev.transactions || []).map(transaction => transaction.id === contribution.linkedTransactionId
+          ? {
+              ...transaction,
+              linkedHouseId: null,
+              linkedHouseContributionId: null,
+              houseContributionType: null,
+              housePersonId: null,
+              housePersonName: "",
+              houseContributionNotes: "",
+              updatedAt: new Date().toISOString()
+            }
+          : transaction
+        )
+        : prev.transactions,
+      houseContributions: (prev.houseContributions || []).filter(item => item.id !== contribution.id)
+    }), { reason: "House contribution deleted" });
+  }
+
+  function openPersonModal(house) {
+    setPersonHouse(house);
+    setPersonForm(blankPersonForm);
+  }
+
+  function updatePersonForm(field, value) {
+    setPersonForm(prev => ({ ...prev, [field]: value }));
+  }
+
+  function submitPerson(event) {
+    event.preventDefault();
+    if (!personHouse) return;
+    const name = personForm.name.trim();
+    if (!name) return alert("Enter a person name.");
+    const now = new Date().toISOString();
+    const personId = createId("house_person");
+    const percentage = Number(personForm.ownershipPercentage || 0);
+    const person = {
+      id: personId,
+      houseId: personHouse.id,
+      name,
+      email: personForm.email.trim() || null,
+      label: personForm.label.trim(),
+      createdAt: now,
+      updatedAt: now
+    };
+    const split = percentage > 0 ? [{
+      id: createId("house_split"),
+      houseId: personHouse.id,
+      personId,
+      percentage,
+      createdAt: now,
+      updatedAt: now
+    }] : [];
+
+    actions.updateAppData(prev => ({
+      ...prev,
+      housePeople: [person, ...(prev.housePeople || [])],
+      houseOwnershipSplits: [...split, ...(prev.houseOwnershipSplits || [])]
+    }), { reason: "House person added" });
+    setPersonHouse(null);
+    setPersonForm(blankPersonForm);
+  }
 
   function updateLoanForm(field, value) {
     setLoanForm(prev => ({ ...prev, [field]: value }));
@@ -273,10 +605,26 @@ export default function LoansPage({ appData, actions }) {
           <p className="muted">Open a tile only when you want the details. The default view keeps the debt information calm and simple.</p>
         </div>
         <div className="row-actions">
+          <button type="button" className="primary-button" onClick={openAddHouseModal}>+ House</button>
           <button type="button" className="secondary-button" onClick={() => openAddLoanModal("studentLoan")}>+ Student loan</button>
           <button type="button" className="primary-button" onClick={() => openAddLoanModal("mortgage")}>+ Mortgage</button>
         </div>
       </div>
+
+      <HouseSection
+        appData={appData}
+        houseSummary={houseSummary}
+        selectedHouse={selectedHouse}
+        setSelectedHouseId={setSelectedHouseId}
+        onAddHouse={openAddHouseModal}
+        onEditHouse={openEditHouseModal}
+        onArchiveHouse={archiveHouse}
+        onRestoreHouse={restoreHouse}
+        onAddContribution={openContributionModal}
+        onEditContribution={openContributionModal}
+        onDeleteContribution={deleteContribution}
+        onAddPerson={openPersonModal}
+      />
 
       {activeLoans.length === 0 ? (
         <section className="card empty-state-card">
@@ -370,6 +718,39 @@ export default function LoansPage({ appData, actions }) {
         />
       )}
 
+      {showHouseModal && (
+        <HouseModal
+          houseForm={houseForm}
+          editingHouse={editingHouse}
+          accounts={appData.accounts || []}
+          updateHouseForm={updateHouseForm}
+          closeHouseModal={closeHouseModal}
+          submitHouse={submitHouse}
+        />
+      )}
+
+      {contributionHouse && (
+        <HouseContributionModal
+          house={contributionHouse}
+          appData={appData}
+          contributionForm={contributionForm}
+          updateContributionForm={updateContributionForm}
+          submitContribution={submitContribution}
+          editingContribution={editingContribution}
+          closeContributionModal={() => { setContributionHouse(null); setEditingContribution(null); }}
+        />
+      )}
+
+      {personHouse && (
+        <HousePersonModal
+          house={personHouse}
+          personForm={personForm}
+          updatePersonForm={updatePersonForm}
+          submitPerson={submitPerson}
+          closePersonModal={() => setPersonHouse(null)}
+        />
+      )}
+
       {balanceUpdateLoan && (
         <div className="modal-backdrop">
           <form className="modal-card" onSubmit={submitBalanceUpdate}>
@@ -416,6 +797,427 @@ export default function LoansPage({ appData, actions }) {
       )}
     </div>
   );
+}
+
+function HouseSection({
+  appData,
+  houseSummary,
+  selectedHouse,
+  setSelectedHouseId,
+  onAddHouse,
+  onEditHouse,
+  onArchiveHouse,
+  onRestoreHouse,
+  onAddContribution,
+  onEditContribution,
+  onDeleteContribution,
+  onAddPerson
+}) {
+  const archivedHouses = houseSummary.houses.filter(house => house.status === "archived" || house.archived);
+  const selectedSummary = selectedHouse ? calculateHouseSummary(appData, selectedHouse) : null;
+
+  return (
+    <section className="card house-section">
+      <div className="section-header compact-header">
+        <div>
+          <p className="eyebrow">House</p>
+          <h3>House, mortgage and contributions</h3>
+          <p className="muted">Track the property, mortgage, deposits, house costs, external contributions and linked app-account payments.</p>
+        </div>
+        <button type="button" className="primary-button" onClick={onAddHouse}>Add house</button>
+      </div>
+
+      <div className="loan-detail-grid">
+        <div className="sub-card loan-detail-card">
+          <small>Total house value</small>
+          <strong>{formatMoney(houseSummary.totalHouseValue)}</strong>
+        </div>
+        <div className="sub-card loan-detail-card">
+          <small>Total mortgage balance</small>
+          <strong>{formatMoney(houseSummary.totalMortgageBalance)}</strong>
+        </div>
+        <div className="sub-card loan-detail-card positive-card-soft">
+          <small>Estimated equity</small>
+          <strong>{formatMoney(houseSummary.totalEquity)}</strong>
+        </div>
+        <div className="sub-card loan-detail-card">
+          <small>Total contributed</small>
+          <strong>{formatMoney(houseSummary.totalContributed)}</strong>
+        </div>
+      </div>
+
+      {houseSummary.houses.length === 0 ? (
+        <div className="loan-closed-state-card sub-card">
+          <h4>No houses yet</h4>
+          <p className="muted">Add a house to track property value, mortgage details and who paid what. Existing mortgage loans are kept and are migrated into house records when possible.</p>
+        </div>
+      ) : (
+        <div className="house-layout-grid">
+          <div className="house-list-panel">
+            <h4>Houses</h4>
+            <div className="loan-tile-grid">
+              {houseSummary.activeHouses.map(house => {
+                const summary = calculateHouseSummary(appData, house);
+                return (
+                  <button
+                    type="button"
+                    key={house.id}
+                    className={`loan-summary-tile ${selectedHouse?.id === house.id ? "selected" : ""}`}
+                    onClick={() => setSelectedHouseId(house.id)}
+                  >
+                    <span className="loan-summary-type">{house.archived ? "Archived house" : "House"}</span>
+                    <strong>{house.name}</strong>
+                    <span className="loan-summary-amount">{formatMoney(summary.estimatedEquity, false)}</span>
+                    <small>{formatMoney(summary.mortgageBalance, false)} mortgage · {summary.people.length} people</small>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {selectedHouse && selectedSummary && (
+            <HouseDetailPanel
+              house={selectedHouse}
+              summary={selectedSummary}
+              appData={appData}
+              onEdit={() => onEditHouse(selectedHouse)}
+              onArchive={() => onArchiveHouse(selectedHouse)}
+              onAddContribution={() => onAddContribution(selectedHouse)}
+              onEditContribution={(contribution) => onEditContribution(selectedHouse, contribution)}
+              onDeleteContribution={onDeleteContribution}
+              onAddPerson={() => onAddPerson(selectedHouse)}
+            />
+          )}
+        </div>
+      )}
+
+      <details className="loan-extra-details-card">
+        <summary>Archived houses</summary>
+        {archivedHouses.length === 0 ? (
+          <p className="muted-text">No archived houses yet.</p>
+        ) : (
+          <div className="archive-list">
+            {archivedHouses.map(house => (
+              <div key={house.id} className="archive-row">
+                <div>
+                  <strong>{house.name}</strong>
+                  <small>Archived {house.archivedAt ? house.archivedAt.slice(0, 10) : ""}</small>
+                </div>
+                <div className="row-actions archive-row-actions">
+                  <button type="button" className="secondary-button" onClick={() => onRestoreHouse(house)}>Restore</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </details>
+    </section>
+  );
+}
+
+function HouseDetailPanel({ house, summary, appData, onEdit, onArchive, onAddContribution, onEditContribution, onDeleteContribution, onAddPerson }) {
+  const linkedAccount = (appData.accounts || []).find(account => account.id === house.mortgage?.linkedAccountId);
+  const linkedTransactions = (appData.transactions || []).filter(transaction => transaction.linkedHouseId === house.id);
+  const splitLabel = house.ownershipMode === "manualOwnership"
+    ? "Manual ownership split"
+    : house.ownershipMode === "contributionEstimate"
+      ? "Contribution-based estimate"
+      : "Contribution tracking only";
+
+  return (
+    <div className="house-detail-panel">
+      <div className="section-header compact-header">
+        <div>
+          <h3>{house.name}</h3>
+          <p className="muted">{house.addressLabel || "No address label"} · {splitLabel}</p>
+        </div>
+        <div className="row-actions">
+          <button type="button" className="secondary-button" onClick={onAddContribution}>Add contribution</button>
+          <button type="button" className="secondary-button" onClick={onAddPerson}>Add person</button>
+          <button type="button" className="secondary-button" onClick={onEdit}>Edit house</button>
+          <button type="button" className="danger-button" onClick={onArchive}>Archive</button>
+        </div>
+      </div>
+
+      <div className="house-tab-grid">
+        <section className="sub-card house-tab-card">
+          <h4>Overview</h4>
+          <div className="loan-detail-grid">
+            <InfoMetric label="Property value" value={formatMoney(summary.propertyValue)} />
+            <InfoMetric label="Mortgage balance" value={formatMoney(summary.mortgageBalance)} />
+            <InfoMetric label="Estimated equity" value={formatMoney(summary.estimatedEquity)} />
+            <InfoMetric label="Total contributed" value={formatMoney(summary.totalContributed)} />
+          </div>
+          <p className="muted-text">Contribution split is a tracking estimate only, not legal ownership.</p>
+          <ContributionSplitList summary={summary} />
+        </section>
+
+        <section className="sub-card house-tab-card">
+          <h4>Mortgage details</h4>
+          <div className="loan-detail-grid">
+            <InfoMetric label="Original mortgage" value={formatMoney(house.mortgage?.originalAmount || 0)} />
+            <InfoMetric label="Monthly repayment" value={formatMoney(house.mortgage?.monthlyPayment || 0)} />
+            <InfoMetric label="Rate" value={`${Number(house.mortgage?.interestRate || 0).toFixed(2)}% ${house.mortgage?.rateType || ""}`} />
+            <InfoMetric label="Term" value={`${Number(house.mortgage?.termYears || 0)} years`} />
+          </div>
+          <p className="muted-text">Linked account: {linkedAccount?.name || "None selected"}</p>
+        </section>
+
+        <section className="sub-card house-tab-card">
+          <h4>Contributions</h4>
+          <div className="loan-detail-grid">
+            <InfoMetric label="Deposits" value={formatMoney(summary.depositTotal)} />
+            <InfoMetric label="Mortgage payments" value={formatMoney(summary.mortgagePaymentTotal)} />
+            <InfoMetric label="Overpayments" value={formatMoney(summary.mortgageOverpaymentTotal)} />
+            <InfoMetric label="House costs" value={formatMoney(summary.houseCostTotal)} />
+            <InfoMetric label="External" value={formatMoney(summary.externalTotal)} />
+            <InfoMetric label="Linked app transactions" value={formatMoney(summary.linkedTotal)} />
+          </div>
+          <HouseContributionTable contributions={summary.contributions} people={summary.people} onEditContribution={onEditContribution} onDeleteContribution={onDeleteContribution} />
+        </section>
+
+        <section className="sub-card house-tab-card">
+          <h4>People / Splits</h4>
+          {summary.people.length === 0 ? (
+            <p className="muted-text">Add people to attribute deposits, mortgage payments and other house costs.</p>
+          ) : (
+            <div className="house-person-list">
+              {summary.people.map(person => {
+                const split = summary.splits.find(item => item.personId === person.id);
+                const total = summary.byPerson.find(item => item.personId === person.id)?.amount || 0;
+                return (
+                  <div key={person.id} className="house-person-row">
+                    <div>
+                      <strong>{person.name}</strong>
+                      <small>{person.email || person.label || "House person"}</small>
+                    </div>
+                    <div>
+                      <strong>{formatMoney(total)}</strong>
+                      {split && <small>{split.percentage}% manual ownership</small>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {house.ownershipMode === "manualOwnership" && (
+            <p className={summary.manualSplitValid ? "muted-text" : "danger-text"}>
+              Manual ownership total: {summary.manualTotalPercentage.toFixed(1)}%. {summary.manualSplitValid ? "Looks valid." : "This should total 100%."}
+            </p>
+          )}
+        </section>
+
+        <section className="sub-card house-tab-card">
+          <h4>Shared users</h4>
+          <p className="muted-text">Secure shared-house database sync is not enabled yet. This local V1 stores house members/invites for future Supabase RLS work, but it does not expose private accounts, balances or unrelated transactions to another user.</p>
+          <div className="backup-warning-box">
+            Requires Supabase sharing setup before invites can be sent safely.
+          </div>
+        </section>
+
+        <section className="sub-card house-tab-card">
+          <h4>Linked payments</h4>
+          <p className="muted-text">{linkedTransactions.length} tracked app transaction(s) link to this house. Shared users should only see the safe contribution summary, not private account balances or unrelated transaction details.</p>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function InfoMetric({ label, value }) {
+  return (
+    <div className="loan-detail-card sub-card">
+      <small>{label}</small>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function ContributionSplitList({ summary }) {
+  if (summary.byPerson.length === 0) return <p className="muted-text">No contributions recorded yet.</p>;
+  return (
+    <div className="house-split-list">
+      {summary.byPerson.map(person => (
+        <div key={person.key} className="house-split-row">
+          <span>{person.name}</span>
+          <strong>{formatMoney(person.amount)} · {person.percentage.toFixed(1)}%</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HouseContributionTable({ contributions, people, onEditContribution, onDeleteContribution }) {
+  if (contributions.length === 0) return <p className="muted-text">No house contributions yet.</p>;
+  return (
+    <div className="loan-event-table-wrap">
+      <table className="loan-event-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Person</th>
+            <th>Type</th>
+            <th>Source</th>
+            <th>Amount</th>
+            <th>Notes</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...contributions].sort((a, b) => String(b.date).localeCompare(String(a.date))).map(item => {
+            const person = people.find(candidate => candidate.id === item.personId);
+            return (
+              <tr key={item.id}>
+                <td>{item.date}</td>
+                <td>{person?.name || item.personName || "Unassigned"}</td>
+                <td>{formatContributionType(item.type)}</td>
+                <td>{formatSourceType(item.sourceType)}</td>
+                <td>{formatMoney(item.amount)}</td>
+                <td>{item.notes || "—"}</td>
+                <td>
+                  <div className="row-actions">
+                    <button type="button" className="secondary-button small" onClick={() => onEditContribution(item)}>Edit</button>
+                    <button type="button" className="danger-button small" onClick={() => onDeleteContribution(item)}>Delete</button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function HouseModal({ houseForm, editingHouse, accounts, updateHouseForm, closeHouseModal, submitHouse }) {
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={submitHouse}>
+        <div className="section-header">
+          <h2>{editingHouse ? "Edit house" : "Add house"}</h2>
+          <button type="button" className="icon-button" onClick={closeHouseModal}>×</button>
+        </div>
+        <div className="form-section-card">
+          <h3>House details</h3>
+          <div className="form-grid">
+            <label>House name<input value={houseForm.name} onChange={event => updateHouseForm("name", event.target.value)} /></label>
+            <label>Address/name label<input value={houseForm.addressLabel} onChange={event => updateHouseForm("addressLabel", event.target.value)} /></label>
+            <label>Purchase price<input type="number" min="0" step="0.01" value={houseForm.purchasePrice} onChange={event => updateHouseForm("purchasePrice", event.target.value)} /></label>
+            <label>Purchase date<input type="date" value={houseForm.purchaseDate} onChange={event => updateHouseForm("purchaseDate", event.target.value)} /></label>
+            <label>Current estimated value<input type="number" min="0" step="0.01" value={houseForm.propertyValue} onChange={event => updateHouseForm("propertyValue", event.target.value)} /></label>
+            <label>Ownership/contribution mode<select value={houseForm.ownershipMode} onChange={event => updateHouseForm("ownershipMode", event.target.value)}>
+              {HOUSE_OWNERSHIP_MODES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select></label>
+            <label className="full-width">Notes<textarea value={houseForm.notes} onChange={event => updateHouseForm("notes", event.target.value)} /></label>
+          </div>
+        </div>
+        <div className="form-section-card">
+          <h3>Mortgage details</h3>
+          <div className="form-grid">
+            <label>Original mortgage amount<input type="number" min="0" step="0.01" value={houseForm.mortgageOriginalAmount} onChange={event => updateHouseForm("mortgageOriginalAmount", event.target.value)} /></label>
+            <label>Current mortgage balance<input type="number" min="0" step="0.01" value={houseForm.mortgageCurrentBalance} onChange={event => updateHouseForm("mortgageCurrentBalance", event.target.value)} /></label>
+            <label>Mortgage start date<input type="date" value={houseForm.mortgageStartDate} onChange={event => updateHouseForm("mortgageStartDate", event.target.value)} /></label>
+            <label>Term years<input type="number" min="0" step="1" value={houseForm.mortgageTermYears} onChange={event => updateHouseForm("mortgageTermYears", event.target.value)} /></label>
+            <label>Interest rate %<input type="number" min="0" step="0.01" value={houseForm.mortgageInterestRate} onChange={event => updateHouseForm("mortgageInterestRate", event.target.value)} /></label>
+            <label>Rate type<select value={houseForm.mortgageRateType} onChange={event => updateHouseForm("mortgageRateType", event.target.value)}>
+              <option value="fixed">Fixed</option>
+              <option value="variable">Variable</option>
+              <option value="tracker">Tracker</option>
+            </select></label>
+            <label>Fixed period end<input type="date" value={houseForm.mortgageFixedEndDate} onChange={event => updateHouseForm("mortgageFixedEndDate", event.target.value)} /></label>
+            <label>Monthly repayment<input type="number" min="0" step="0.01" value={houseForm.mortgageMonthlyPayment} onChange={event => updateHouseForm("mortgageMonthlyPayment", event.target.value)} /></label>
+            <label>Linked tracked account<select value={houseForm.linkedAccountId} onChange={event => updateHouseForm("linkedAccountId", event.target.value)}>
+              <option value="">None</option>
+              {accounts.filter(account => account.isActive !== false).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+            </select></label>
+          </div>
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="secondary-button" onClick={closeHouseModal}>Cancel</button>
+          <button className="primary-button">{editingHouse ? "Save house" : "Add house"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function HouseContributionModal({ house, appData, contributionForm, updateContributionForm, submitContribution, editingContribution, closeContributionModal }) {
+  const people = (appData.housePeople || []).filter(person => person.houseId === house.id);
+  const linkedTransactions = (appData.transactions || [])
+    .filter(transaction => transaction.type === "expense" && (!transaction.linkedHouseId || transaction.id === contributionForm.linkedTransactionId))
+    .slice(0, 80);
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={submitContribution}>
+        <div className="section-header">
+          <h2>{editingContribution ? "Edit contribution" : "Add contribution"}: {house.name}</h2>
+          <button type="button" className="icon-button" onClick={closeContributionModal}>×</button>
+        </div>
+        <div className="form-grid">
+          <label>Person<select value={contributionForm.personId} onChange={event => updateContributionForm("personId", event.target.value)}>
+            <option value="">Unassigned / type name below</option>
+            {people.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
+          </select></label>
+          <label>Person name<input value={contributionForm.personName} onChange={event => updateContributionForm("personName", event.target.value)} /></label>
+          <label>Amount<input type="number" min="0" step="0.01" value={contributionForm.amount} onChange={event => updateContributionForm("amount", event.target.value)} /></label>
+          <label>Date<input type="date" value={contributionForm.date} onChange={event => updateContributionForm("date", event.target.value)} /></label>
+          <label>Type<select value={contributionForm.type} onChange={event => updateContributionForm("type", event.target.value)}>
+            {HOUSE_CONTRIBUTION_TYPES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </select></label>
+          <label>Source<select value={contributionForm.sourceType} onChange={event => updateContributionForm("sourceType", event.target.value)}>
+            {HOUSE_SOURCE_TYPES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </select></label>
+          {contributionForm.sourceType === "linkedTransaction" && (
+            <label className="full-width">Linked transaction<select value={contributionForm.linkedTransactionId} onChange={event => updateContributionForm("linkedTransactionId", event.target.value)}>
+              <option value="">Choose transaction</option>
+              {linkedTransactions.map(transaction => (
+                <option key={transaction.id} value={transaction.id}>{transaction.date} · {transaction.title} · {formatMoney(transaction.amount, false)}</option>
+              ))}
+            </select></label>
+          )}
+          <label className="full-width">Notes<textarea value={contributionForm.notes} onChange={event => updateContributionForm("notes", event.target.value)} /></label>
+        </div>
+        {contributionForm.sourceType === "external" && <p className="backup-warning-box">External contributions are recorded for the house only. They do not change tracked account balances.</p>}
+        {contributionForm.sourceType === "linkedTransaction" && <p className="backup-warning-box">Linked transactions already affect account balances. This records the house contribution view only.</p>}
+        <div className="modal-actions">
+          <button type="button" className="secondary-button" onClick={closeContributionModal}>Cancel</button>
+          <button className="primary-button">{editingContribution ? "Save contribution" : "Add contribution"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function HousePersonModal({ house, personForm, updatePersonForm, submitPerson, closePersonModal }) {
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-card" onSubmit={submitPerson}>
+        <div className="section-header">
+          <h2>Add person: {house.name}</h2>
+          <button type="button" className="icon-button" onClick={closePersonModal}>×</button>
+        </div>
+        <div className="form-grid">
+          <label>Name<input value={personForm.name} onChange={event => updatePersonForm("name", event.target.value)} /></label>
+          <label>Email / optional<input type="email" value={personForm.email} onChange={event => updatePersonForm("email", event.target.value)} /></label>
+          <label>Label<input value={personForm.label} onChange={event => updatePersonForm("label", event.target.value)} placeholder="Partner, parent, solicitor" /></label>
+          <label>Manual ownership %<input type="number" min="0" max="100" step="0.01" value={personForm.ownershipPercentage} onChange={event => updatePersonForm("ownershipPercentage", event.target.value)} /></label>
+        </div>
+        <p className="muted-text">Manual ownership is separate from contribution tracking and does not change account balances.</p>
+        <div className="modal-actions">
+          <button type="button" className="secondary-button" onClick={closePersonModal}>Cancel</button>
+          <button className="primary-button">Add person</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function formatContributionType(value) {
+  return HOUSE_CONTRIBUTION_TYPES.find(([key]) => key === value)?.[1] || "Other";
+}
+
+function formatSourceType(value) {
+  return HOUSE_SOURCE_TYPES.find(([key]) => key === value)?.[1] || "External contribution";
 }
 
 function LoanTile({ loan, index, selected, onSelect }) {

@@ -4,12 +4,13 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.22 - Supabase admin SQL setup source aligned with Admin Control Centre user management.
+V2.6.23 - House tracking V1 inside Loans with contributions, mortgage details and safe sharing foundation.
 
 ## What Is Included
 
 - React/Vite app structure
 - Dashboard, accounts, budgets, bills, savings, loans, reports and transactions
+- House tracking in Loans for property details, mortgage details, contributions, people/splits and a safe sharing foundation
 - Add/edit/delete transactions with CSV import and import rules
 - Local IndexedDB storage with localStorage fallback/recovery support
 - Full JSON backup export and restore with preview and validation
@@ -35,6 +36,34 @@ For a phone or new device:
 Local JSON backup remains the safest portable recovery copy.
 
 App updates should not clear local data. If browser storage cannot be read after an update, the app shows a recovery screen instead of loading defaults over existing data. Export raw storage before resetting or starting fresh.
+
+## House Tracking
+
+Go to:
+
+```text
+Loans -> House
+```
+
+House tracking replaces the old mortgage-only focus with a broader property view. A house can store property value, purchase details, mortgage details, people involved, deposits, mortgage payments, overpayments and other house costs.
+
+Contribution sources:
+
+- `External contribution`: records money paid outside tracked app accounts. It does not change account balances.
+- `Linked transaction`: points to an existing app transaction. The transaction already affects account balances, and the house contribution avoids double-counting.
+- `Manual adjustment`: records a correcting contribution entry without touching account balances.
+
+Contribution split is shown as tracking only. It is not legal ownership. Manual ownership percentages can be recorded separately and should total 100% when used.
+
+Existing mortgage loan records are preserved and mapped into House records where possible. Student loans continue to use the existing Loans tracker.
+
+Sharing V1:
+
+- The local data model includes house people, members, invites and ownership splits.
+- The UI shows a Shared users area, but secure live sharing remains disabled until Supabase house-sharing tables/RLS are added.
+- Shared users must only ever see house-related summaries, not unrelated accounts, balances, transactions, budgets, reports, backups or settings.
+
+House data is included in JSON backup/restore and cloud backup payloads because the app backs up the normal local app data. Transaction CSV export includes linked-house columns, and the monthly HTML report includes a House summary.
 
 ## Install And Run For Development
 

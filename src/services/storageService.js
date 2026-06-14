@@ -1,4 +1,12 @@
 import { defaultCategories } from "../data/defaultCategories.js";
+import {
+  ensureHousesFromMortgageLoans,
+  normaliseHouseContributionRecord,
+  normaliseHouseInviteRecord,
+  normaliseHouseMemberRecord,
+  normaliseHouseOwnershipSplitRecord,
+  normaliseHousePersonRecord
+} from "../utils/houseTracking.js";
 import { normaliseFeatureFlags } from "./adminService.js";
 import { exportReceiptBackupRecords } from "./receiptStorageService.js";
 import {
@@ -20,8 +28,8 @@ const STORAGE_META_KEY = "guinness-budgeting-storage-meta-v2";
 const LEGACY_MIGRATION_SNAPSHOT_KEY = "guinness-budgeting-v2-5-localstorage-migration-snapshot";
 const CORRUPT_SNAPSHOT_PREFIX = "guinness-budgeting-corrupt-snapshot";
 
-export const APP_VERSION = "2.6.22";
-export const DATA_SCHEMA_VERSION = "2.6.22";
+export const APP_VERSION = "2.6.23";
+export const DATA_SCHEMA_VERSION = "2.6.23";
 export const BACKUP_FORMAT_VERSION = "1.9";
 
 export const STORAGE_LOAD_FAILURE_CODE = "GH_STORAGE_LOAD_FAILED";
@@ -36,7 +44,23 @@ const REQUIRED_ARRAY_FIELDS = [
   "closedMonths"
 ];
 
-const OPTIONAL_ARRAY_FIELDS = ["accountAdjustments", "importBatches", "importRules", "transferRules", "externalAccountMappings", "csvColumnMappings", "profiles", "loans", "loanEvents"];
+const OPTIONAL_ARRAY_FIELDS = [
+  "accountAdjustments",
+  "importBatches",
+  "importRules",
+  "transferRules",
+  "externalAccountMappings",
+  "csvColumnMappings",
+  "profiles",
+  "loans",
+  "loanEvents",
+  "houses",
+  "housePeople",
+  "houseContributions",
+  "houseMembers",
+  "houseInvites",
+  "houseOwnershipSplits"
+];
 
 const DEFAULT_PROFILE_TYPE = "Personal";
 
@@ -782,6 +806,12 @@ export function normaliseAppData(data) {
 
   next.savingsGoals = next.savingsGoals.map(normaliseSavingsGoalRecord);
   next.loans = next.loans.map(normaliseLoanRecord);
+  next.houses = ensureHousesFromMortgageLoans({ ...next, houses: next.houses });
+  next.housePeople = next.housePeople.map(normaliseHousePersonRecord).filter(item => item.houseId);
+  next.houseContributions = next.houseContributions.map(normaliseHouseContributionRecord).filter(item => item.houseId);
+  next.houseMembers = next.houseMembers.map(normaliseHouseMemberRecord).filter(item => item.houseId);
+  next.houseInvites = next.houseInvites.map(normaliseHouseInviteRecord).filter(item => item.houseId);
+  next.houseOwnershipSplits = next.houseOwnershipSplits.map(normaliseHouseOwnershipSplitRecord).filter(item => item.houseId);
 
   const profileSource = base.profile && typeof base.profile === "object" && !Array.isArray(base.profile)
     ? base.profile
@@ -814,6 +844,12 @@ export function normaliseAppData(data) {
     "accountAdjustments",
     "loans",
     "loanEvents",
+    "houses",
+    "housePeople",
+    "houseContributions",
+    "houseMembers",
+    "houseInvites",
+    "houseOwnershipSplits",
     "importBatches",
     "importRules",
     "transferRules",
@@ -882,7 +918,14 @@ export function getBackupCounts(data) {
     accountAdjustments: safeData.accountAdjustments.length,
     loans: safeData.loans.length,
     loanEvents: safeData.loanEvents.length,
+    houses: safeData.houses.length,
+    housePeople: safeData.housePeople.length,
+    houseContributions: safeData.houseContributions.length,
+    houseMembers: safeData.houseMembers.length,
+    houseInvites: safeData.houseInvites.length,
+    houseOwnershipSplits: safeData.houseOwnershipSplits.length,
     linkedLoanTransactions: safeData.transactions.filter(transaction => Boolean(transaction.linkedLoanId)).length,
+    linkedHouseTransactions: safeData.transactions.filter(transaction => Boolean(transaction.linkedHouseId)).length,
     importBatches: safeData.importBatches.length,
     importRules: safeData.importRules.length,
     transferRules: safeData.transferRules.length,

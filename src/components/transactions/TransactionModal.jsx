@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { todayIsoDate } from "../../utils/dates.js";
+import { HOUSE_CONTRIBUTION_TYPES } from "../../utils/houseTracking.js";
 import { createId } from "../../utils/ids.js";
 import { upsertTransaction } from "../../services/transactionService.js";
 import { estimateLoanPaymentSplit } from "../../utils/loanLinking.js";
@@ -34,6 +35,12 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     toAccountId: editingTransaction?.toAccountId || "acc_savings",
     linkedSavingsGoalId: editingTransaction?.linkedSavingsGoalId || "",
     linkedLoanId: editingTransaction?.linkedLoanId || "",
+    linkedHouseId: editingTransaction?.linkedHouseId || "",
+    linkedHouseContributionId: editingTransaction?.linkedHouseContributionId || null,
+    houseContributionType: editingTransaction?.houseContributionType || "mortgagePayment",
+    housePersonId: editingTransaction?.housePersonId || "",
+    housePersonName: editingTransaction?.housePersonName || "",
+    houseContributionNotes: editingTransaction?.houseContributionNotes || "",
     loanInterestAmount: editingTransaction?.loanInterestAmount ?? "",
     loanPrincipalAmount: editingTransaction?.loanPrincipalAmount ?? "",
     isLoanOverpayment: Boolean(editingTransaction?.isLoanOverpayment),
@@ -69,6 +76,13 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     (appData.loans || []).filter(loan => loan.status !== "archived" && loan.status !== "closed")
   ), [appData.loans]);
   const selectedLoan = activeLoans.find(loan => loan.id === form.linkedLoanId) || null;
+  const activeHouses = useMemo(() => (
+    (appData.houses || []).filter(house => house.status !== "archived" && !house.archived)
+  ), [appData.houses]);
+  const selectedHouse = activeHouses.find(house => house.id === form.linkedHouseId) || null;
+  const selectedHousePeople = useMemo(() => (
+    (appData.housePeople || []).filter(person => person.houseId === form.linkedHouseId)
+  ), [appData.housePeople, form.linkedHouseId]);
   const activeSavingsGoals = useMemo(() => (
     (appData.savingsGoals || []).filter(goal => goal.isActive !== false && !goal.isArchived && !goal.archivedAt)
   ), [appData.savingsGoals]);
@@ -123,6 +137,11 @@ export default function TransactionModal({ appData, actions, editingTransaction 
 
       if (field === "type" && value !== "expense") {
         next.linkedLoanId = "";
+        next.linkedHouseId = "";
+        next.houseContributionType = "mortgagePayment";
+        next.housePersonId = "";
+        next.housePersonName = "";
+        next.houseContributionNotes = "";
         next.loanInterestAmount = "";
         next.loanPrincipalAmount = "";
         next.isLoanOverpayment = false;
@@ -134,6 +153,20 @@ export default function TransactionModal({ appData, actions, editingTransaction 
         next.loanPrincipalAmount = "";
         next.isLoanOverpayment = false;
         next.loanOverpaymentAmount = "";
+      }
+
+      if (field === "linkedHouseId") {
+        next.housePersonId = "";
+        next.housePersonName = "";
+        if (!value) {
+          next.houseContributionType = "mortgagePayment";
+          next.houseContributionNotes = "";
+        }
+      }
+
+      if (field === "housePersonId") {
+        const person = (appData.housePeople || []).find(item => item.id === value);
+        next.housePersonName = person?.name || "";
       }
 
       if (field === "isLoanOverpayment" && value && !prev.loanOverpaymentAmount) {
@@ -373,6 +406,63 @@ export default function TransactionModal({ appData, actions, editingTransaction 
                       <div className="loan-link-actions full-width">
                         <button type="button" className="secondary-button small" onClick={autoEstimateLoanSplit}>Auto-estimate split</button>
                       </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {form.type === "expense" && activeHouses.length > 0 && (
+                <div className="loan-link-box full-width">
+                  <div className="section-header compact-header">
+                    <div>
+                      <h4>House link</h4>
+                      <p className="muted-text">Linked house payments still affect this account balance as normal, then also count in House contributions.</p>
+                    </div>
+                  </div>
+
+                  <label>
+                    Link to house
+                    <select value={form.linkedHouseId || ""} onChange={e => update("linkedHouseId", e.target.value)}>
+                      <option value="">No house link</option>
+                      {activeHouses.map(house => (
+                        <option key={house.id} value={house.id}>{house.name}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {selectedHouse && (
+                    <div className="loan-link-split-grid">
+                      <label>
+                        Contribution type
+                        <select value={form.houseContributionType} onChange={e => update("houseContributionType", e.target.value)}>
+                          {HOUSE_CONTRIBUTION_TYPES.map(([key, label]) => (
+                            <option key={key} value={key}>{label}</option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label>
+                        Paid by
+                        <select value={form.housePersonId || ""} onChange={e => update("housePersonId", e.target.value)}>
+                          <option value="">Unassigned</option>
+                          {selectedHousePeople.map(person => (
+                            <option key={person.id} value={person.id}>{person.name}</option>
+                          ))}
+                        </select>
+                      </label>
+
+                      {selectedHousePeople.length === 0 && (
+                        <p className="muted-text full-width">Add people in Loans, House, People / Splits to attribute this payment.</p>
+                      )}
+
+                      <label className="full-width">
+                        House contribution note
+                        <input
+                          value={form.houseContributionNotes}
+                          onChange={e => update("houseContributionNotes", e.target.value)}
+                          placeholder="Safe note for the house contribution"
+                        />
+                      </label>
                     </div>
                   )}
                 </div>
