@@ -585,7 +585,7 @@ create or replace function public.gh_get_admin_access_state()
 returns table(
   current_user_id uuid,
   current_email text,
-  current_role text,
+  "current_role" text,
   is_admin boolean,
   admin_exists boolean,
   admin_count integer,
@@ -598,9 +598,9 @@ security definer
 set search_path = public
 as $$
   select
-    current_user.id as current_user_id,
+    current_app_user.id as current_user_id,
     p.email as current_email,
-    coalesce(p.role, 'user') as current_role,
+    coalesce(p.role, 'user') as "current_role",
     coalesce(p.role = 'admin', false) as is_admin,
     exists (select 1 from public.profiles admin_profile where admin_profile.role = 'admin') as admin_exists,
     (select count(*)::integer from public.profiles admin_profile where admin_profile.role = 'admin') as admin_count,
@@ -610,16 +610,16 @@ as $$
     end as profile_count,
     coalesce((select s.admin_claim_enabled from public.gh_admin_settings s where s.id = true), false) as admin_claim_enabled,
     coalesce(p.blocked, false) as is_blocked
-  from (select auth.uid() as id) current_user
-  left join public.profiles p on p.id = current_user.id
-  where current_user.id is not null;
+  from (select auth.uid() as id) current_app_user
+  left join public.profiles p on p.id = current_app_user.id
+  where current_app_user.id is not null;
 $$;
 
 create or replace function public.gh_claim_admin()
 returns table(
   current_user_id uuid,
   current_email text,
-  current_role text,
+  "current_role" text,
   is_admin boolean,
   admin_exists boolean,
   admin_count integer,
@@ -641,11 +641,11 @@ begin
 
   select count(*)::integer into existing_admin_count
   from public.profiles
-  where role = 'admin';
+  where profiles.role = 'admin';
 
-  select coalesce(admin_claim_enabled, false) into claim_enabled
-  from public.gh_admin_settings
-  where id = true;
+  select coalesce(s.admin_claim_enabled, false) into claim_enabled
+  from public.gh_admin_settings s
+  where s.id = true;
 
   if existing_admin_count > 0 and not coalesce(claim_enabled, false) then
     raise exception 'Admin claim mode is off';
@@ -666,11 +666,11 @@ begin
       updated_at = now()
   where id = auth.uid();
 
-  update public.gh_admin_settings
+  update public.gh_admin_settings s
   set admin_claim_enabled = false,
       updated_by = auth.uid(),
       updated_at = now()
-  where id = true;
+  where s.id = true;
 
   perform public.gh_log_admin_action(
     'admin_claimed',
@@ -685,7 +685,7 @@ create or replace function public.gh_set_admin_claim_mode(enabled boolean)
 returns table(
   current_user_id uuid,
   current_email text,
-  current_role text,
+  "current_role" text,
   is_admin boolean,
   admin_exists boolean,
   admin_count integer,
@@ -706,11 +706,11 @@ begin
     raise exception 'Not authorised';
   end if;
 
-  update public.gh_admin_settings
+  update public.gh_admin_settings s
   set admin_claim_enabled = coalesce(enabled, false),
       updated_by = auth.uid(),
       updated_at = now()
-  where id = true;
+  where s.id = true;
 
   perform public.gh_log_admin_action(
     'admin_claim_mode_changed',
@@ -823,7 +823,7 @@ security definer
 set search_path = public
 as $$
 declare
-  target_current_role text;
+  target_profile_role text;
   admin_count integer;
 begin
   if auth.uid() is null then
@@ -838,30 +838,30 @@ begin
     raise exception 'Invalid admin action';
   end if;
 
-  select role into target_current_role
-  from public.profiles
-  where profiles.id = target_user_id;
+  select p.role into target_profile_role
+  from public.profiles p
+  where p.id = target_user_id;
 
-  if target_current_role is null then
+  if target_profile_role is null then
     raise exception 'User not found';
   end if;
 
   select count(*)::integer into admin_count
   from public.profiles
-  where role = 'admin';
+  where profiles.role = 'admin';
 
-  if target_current_role = 'admin' and new_role = 'user' and admin_count <= 1 then
+  if target_profile_role = 'admin' and new_role = 'user' and admin_count <= 1 then
     raise exception 'Cannot remove the last admin.';
   end if;
 
-  update public.profiles
+  update public.profiles p
   set role = new_role,
       updated_at = now()
-  where profiles.id = target_user_id;
+  where p.id = target_user_id;
 
   perform public.gh_log_admin_action(
     case when new_role = 'admin' then 'user_promoted_to_admin' else 'user_demoted_to_user' end,
-    jsonb_build_object('target_user_id', target_user_id, 'previous_role', target_current_role, 'new_role', new_role)
+    jsonb_build_object('target_user_id', target_user_id, 'previous_role', target_profile_role, 'new_role', new_role)
   );
 
   return query
@@ -889,7 +889,7 @@ security definer
 set search_path = public
 as $$
 declare
-  target_current_role text;
+  target_profile_role text;
   target_current_blocked boolean;
   admin_count integer;
 begin
@@ -905,29 +905,29 @@ begin
     raise exception 'Invalid admin action';
   end if;
 
-  select role, coalesce(profiles.blocked, false)
-    into target_current_role, target_current_blocked
-  from public.profiles
-  where profiles.id = target_user_id;
+  select p.role, coalesce(p.blocked, false)
+    into target_profile_role, target_current_blocked
+  from public.profiles p
+  where p.id = target_user_id;
 
-  if target_current_role is null then
+  if target_profile_role is null then
     raise exception 'User not found';
   end if;
 
   select count(*)::integer into admin_count
   from public.profiles
-  where role = 'admin' and coalesce(profiles.blocked, false) = false;
+  where profiles.role = 'admin' and coalesce(profiles.blocked, false) = false;
 
-  if target_current_role = 'admin' and target_blocked = true and admin_count <= 1 then
+  if target_profile_role = 'admin' and target_blocked = true and admin_count <= 1 then
     raise exception 'Cannot block the last admin.';
   end if;
 
-  update public.profiles
+  update public.profiles p
   set blocked = coalesce(target_blocked, false),
       blocked_at = case when coalesce(target_blocked, false) then now() else null end,
       blocked_by = case when coalesce(target_blocked, false) then auth.uid() else null end,
       updated_at = now()
-  where profiles.id = target_user_id;
+  where p.id = target_user_id;
 
   perform public.gh_log_admin_action(
     case when coalesce(target_blocked, false) then 'user_blocked' else 'user_unblocked' end,

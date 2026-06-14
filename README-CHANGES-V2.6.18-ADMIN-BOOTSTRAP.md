@@ -1,6 +1,6 @@
-# V2.6.18/V2.6.20 Admin Bootstrap And User Management
+# V2.6.18/V2.6.21 Admin Bootstrap And User Management
 
-V2.6.20 extends the Admin Control Centre with safe user/account summaries, admin promotion/demotion, account blocking/unblocking, blocked-user route guards, a standalone Supabase SQL setup file and clearer missing-RPC handling.
+V2.6.21 extends the Admin Control Centre with safe user/account summaries, admin promotion/demotion, account blocking/unblocking, blocked-user route guards, a standalone Supabase SQL setup file and safer rerunnable SQL for Supabase.
 
 ## Files Changed
 
@@ -69,6 +69,8 @@ It also revokes direct profile updates from changing `role`; admin role changes 
 After running SQL, wait 30-60 seconds and refresh the app if Supabase says a new function was not found. That usually means the PostgREST schema cache has not refreshed yet.
 
 If `public.gh_admin_list_users()` is missing, the Admin Control Centre now shows `Admin SQL setup has not been run yet` and suppresses the Users / Accounts totals until a valid safe user list is returned.
+
+V2.6.21 quotes the `gh_get_admin_access_state()` output column `"current_role"` and qualifies admin-claim and profile role references so the SQL can be pasted into Supabase without syntax or ambiguity errors.
 
 ## First Admin Flow
 

@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.20 - Admin SQL setup file and missing-RPC handling for Admin Control Centre user management.
+V2.6.21 - Supabase admin SQL syntax and ambiguity fixes for Admin Control Centre setup.
 
 ## What Is Included
 
