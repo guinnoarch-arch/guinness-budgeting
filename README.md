@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.23 - House tracking V1 inside Loans with contributions, mortgage details and safe sharing foundation.
+V2.6.24 - House sharing now uses Supabase-backed roles, invites and safe house-only RPC access.
 
 ## What Is Included
 

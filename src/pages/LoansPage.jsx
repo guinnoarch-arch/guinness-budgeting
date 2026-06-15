@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { studentLoanPlanOptions, getStudentLoanPlan } from "../data/studentLoanPlans.js";
 import {
@@ -17,6 +17,18 @@ import {
   normaliseHouseRecord
 } from "../utils/houseTracking.js";
 import { formatMoney } from "../utils/money.js";
+import {
+  acceptHouseInvite,
+  addSharedHouseContribution,
+  cancelHouseInvite,
+  declineHouseInvite,
+  inviteHouseMember,
+  isHouseSharingSetupMissing,
+  listSharedHouseBundles,
+  removeHouseMember,
+  updateHouseMemberRole,
+  upsertSharedHouseSnapshot
+} from "../services/houseSharingService.js";
 import {
   getLoanTimelineEvents,
   getLoanValidationWarnings,
@@ -95,6 +107,70 @@ const blankLoanForm = {
   propertyValue: ""
 };
 
+function buildSharedHouseData(bundles = []) {
+  return bundles.reduce((acc, bundle) => {
+    const houseId = bundle.house_id || bundle.house?.id;
+    if (!houseId) return acc;
+    const house = {
+      ...normaliseHouseRecord({
+      ...(bundle.house || {}),
+      id: houseId
+      }),
+      sharedRole: bundle.role || "viewer",
+      isSharedHouse: true
+    };
+    acc.houses.push(house);
+    acc.housePeople.push(...(Array.isArray(bundle.people) ? bundle.people : []).map(item => ({ ...item, houseId })));
+    acc.houseContributions.push(...(Array.isArray(bundle.contributions) ? bundle.contributions : []).map(item => ({ ...item, houseId })));
+    acc.houseOwnershipSplits.push(...(Array.isArray(bundle.ownership_splits) ? bundle.ownership_splits : []).map(item => ({ ...item, houseId })));
+    acc.houseMembers.push(...(Array.isArray(bundle.members) ? bundle.members : []).map(item => ({ ...item, houseId })));
+    acc.houseInvites.push(...(Array.isArray(bundle.invites) ? bundle.invites : []).map(item => ({ ...item, houseId })));
+    return acc;
+  }, {
+    houses: [],
+    housePeople: [],
+    houseContributions: [],
+    houseOwnershipSplits: [],
+    houseMembers: [],
+    houseInvites: []
+  });
+}
+
+function mergeHouseDisplayData(appData, sharedData) {
+  const sharedById = new Map((sharedData.houses || []).map(house => [house.id, house]));
+  const localHouses = (appData.houses || []).map(house => {
+    const shared = sharedById.get(house.id);
+    return shared ? { ...house, sharedRole: shared.sharedRole, isSharedHouse: false } : house;
+  });
+  const localIds = new Set(localHouses.map(house => house.id));
+  const remoteOnlyHouses = (sharedData.houses || []).filter(house => !localIds.has(house.id));
+
+  return {
+    ...appData,
+    houses: [...localHouses, ...remoteOnlyHouses],
+    housePeople: [
+      ...(appData.housePeople || []),
+      ...(sharedData.housePeople || []).filter(item => !localIds.has(item.houseId))
+    ],
+    houseContributions: [
+      ...(appData.houseContributions || []),
+      ...(sharedData.houseContributions || []).filter(item => !localIds.has(item.houseId))
+    ],
+    houseOwnershipSplits: [
+      ...(appData.houseOwnershipSplits || []),
+      ...(sharedData.houseOwnershipSplits || []).filter(item => !localIds.has(item.houseId))
+    ],
+    houseMembers: [
+      ...(appData.houseMembers || []),
+      ...(sharedData.houseMembers || [])
+    ],
+    houseInvites: [
+      ...(appData.houseInvites || []),
+      ...(sharedData.houseInvites || [])
+    ]
+  };
+}
+
 export default function LoansPage({ appData, actions }) {
   const [showLoanModal, setShowLoanModal] = useState(false);
   const [editingLoan, setEditingLoan] = useState(null);
@@ -111,9 +187,31 @@ export default function LoansPage({ appData, actions }) {
   const [contributionForm, setContributionForm] = useState(blankContributionForm);
   const [personHouse, setPersonHouse] = useState(null);
   const [personForm, setPersonForm] = useState(blankPersonForm);
+  const [sharedBundles, setSharedBundles] = useState([]);
+  const [sharingStatus, setSharingStatus] = useState("");
+  const [sharingBusy, setSharingBusy] = useState("");
 
+  async function refreshSharedHouses(statusMessage = "") {
+    try {
+      const bundles = await listSharedHouseBundles(appData.settings || {});
+      setSharedBundles(bundles);
+      setSharingStatus(statusMessage);
+    } catch (error) {
+      setSharedBundles([]);
+      setSharingStatus(isHouseSharingSetupMissing(error?.message)
+        ? "House sharing SQL setup has not been run yet."
+        : error?.message || "Could not load shared houses.");
+    }
+  }
+
+  useEffect(() => {
+    refreshSharedHouses();
+  }, [appData.settings?.cloudBackup?.enabled, appData.settings?.cloudBackup?.cloudUserId, appData.settings?.cloudBackup?.lastSignedInAt]);
+
+  const sharedHouseData = useMemo(() => buildSharedHouseData(sharedBundles), [sharedBundles]);
+  const displayAppData = useMemo(() => mergeHouseDisplayData(appData, sharedHouseData), [appData, sharedHouseData]);
   const summary = useMemo(() => calculateLoanSummary(appData), [appData]);
-  const houseSummary = useMemo(() => calculateHousesSummary(appData), [appData]);
+  const houseSummary = useMemo(() => calculateHousesSummary(displayAppData), [displayAppData]);
   const loanEvents = Array.isArray(appData.loanEvents) ? appData.loanEvents : [];
   const activeLoans = summary.loans;
   const selectedLoan = activeLoans.find(loan => loan.id === selectedLoanId) || null;
@@ -244,20 +342,24 @@ export default function LoansPage({ appData, actions }) {
     setContributionForm(prev => {
       const next = { ...prev, [field]: value };
       if (field === "personId") {
-        const person = (appData.housePeople || []).find(item => item.id === value);
+        const person = (displayAppData.housePeople || []).find(item => item.id === value);
         next.personName = person?.name || "";
+      }
+      if (field === "sourceType" && contributionHouse?.isSharedHouse && value === "linkedTransaction") {
+        next.sourceType = "external";
+        next.linkedTransactionId = "";
       }
       return next;
     });
   }
 
-  function submitContribution(event) {
+  async function submitContribution(event) {
     event.preventDefault();
     if (!contributionHouse) return;
     const amount = Number(contributionForm.amount || 0);
     if (!Number.isFinite(amount) || amount <= 0) return alert("Enter a contribution amount above zero.");
     const now = new Date().toISOString();
-    const person = (appData.housePeople || []).find(item => item.id === contributionForm.personId);
+    const person = (displayAppData.housePeople || []).find(item => item.id === contributionForm.personId);
     const contributionId = editingContribution?.id || createId("house_contribution");
     const contribution = {
       ...(editingContribution || {}),
@@ -275,6 +377,30 @@ export default function LoansPage({ appData, actions }) {
       createdAt: editingContribution?.createdAt || now,
       updatedAt: now
     };
+
+    if (contributionHouse.isSharedHouse) {
+      if (editingContribution) return alert("Shared contribution editing is limited to newly added safe contributions.");
+      if (contributionHouse.sharedRole === "viewer") return alert("Viewers cannot add house contributions.");
+      setSharingBusy("contribution");
+      try {
+        await addSharedHouseContribution(appData.settings || {}, contributionHouse.id, {
+          ...contribution,
+          sourceType: contribution.sourceType === "manualAdjustment" ? "manualAdjustment" : "external",
+          linkedTransactionId: null
+        });
+        await refreshSharedHouses("Shared contribution added.");
+        setContributionHouse(null);
+        setEditingContribution(null);
+        setContributionForm(blankContributionForm);
+      } catch (error) {
+        setSharingStatus(isHouseSharingSetupMissing(error?.message)
+          ? "House sharing SQL setup has not been run yet."
+          : error?.message || "Could not add shared contribution.");
+      } finally {
+        setSharingBusy("");
+      }
+      return;
+    }
 
     if (contribution.sourceType === "linkedTransaction" && !contribution.linkedTransactionId) {
       return alert("Choose the transaction this contribution links to.");
@@ -393,6 +519,101 @@ export default function LoansPage({ appData, actions }) {
     }), { reason: "House person added" });
     setPersonHouse(null);
     setPersonForm(blankPersonForm);
+  }
+
+  async function publishHouseForSharing(house) {
+    setSharingBusy("publish");
+    try {
+      await upsertSharedHouseSnapshot(appData.settings || {}, appData, house);
+      await refreshSharedHouses("House sharing snapshot is up to date.");
+    } catch (error) {
+      setSharingStatus(isHouseSharingSetupMissing(error?.message)
+        ? "House sharing SQL setup has not been run yet."
+        : error?.message || "Could not publish house for sharing.");
+    } finally {
+      setSharingBusy("");
+    }
+  }
+
+  async function sendHouseInvite(house, identifier, role) {
+    const trimmed = String(identifier || "").trim();
+    if (!trimmed) {
+      setSharingStatus("Enter an email address or username to invite.");
+      return;
+    }
+    setSharingBusy("invite");
+    try {
+      await upsertSharedHouseSnapshot(appData.settings || {}, appData, house);
+      await inviteHouseMember(appData.settings || {}, house.id, trimmed, role || "viewer");
+      await refreshSharedHouses("House invite updated.");
+    } catch (error) {
+      setSharingStatus(isHouseSharingSetupMissing(error?.message)
+        ? "House sharing SQL setup has not been run yet."
+        : error?.message || "Could not send house invite.");
+    } finally {
+      setSharingBusy("");
+    }
+  }
+
+  async function acceptInvite(invite) {
+    setSharingBusy(`accept-${invite.id}`);
+    try {
+      await acceptHouseInvite(appData.settings || {}, invite.id);
+      await refreshSharedHouses("House invite accepted.");
+    } catch (error) {
+      setSharingStatus(error?.message || "Could not accept house invite.");
+    } finally {
+      setSharingBusy("");
+    }
+  }
+
+  async function declineInvite(invite) {
+    setSharingBusy(`decline-${invite.id}`);
+    try {
+      await declineHouseInvite(appData.settings || {}, invite.id);
+      await refreshSharedHouses("House invite declined.");
+    } catch (error) {
+      setSharingStatus(error?.message || "Could not decline house invite.");
+    } finally {
+      setSharingBusy("");
+    }
+  }
+
+  async function cancelInvite(house, invite) {
+    setSharingBusy(`cancel-${invite.id}`);
+    try {
+      await cancelHouseInvite(appData.settings || {}, house.id, invite.id);
+      await refreshSharedHouses("House invite cancelled.");
+    } catch (error) {
+      setSharingStatus(error?.message || "Could not cancel house invite.");
+    } finally {
+      setSharingBusy("");
+    }
+  }
+
+  async function changeMemberRole(house, member, role) {
+    setSharingBusy(`role-${member.userId}`);
+    try {
+      await updateHouseMemberRole(appData.settings || {}, house.id, member.userId, role);
+      await refreshSharedHouses("House member role updated.");
+    } catch (error) {
+      setSharingStatus(error?.message || "Could not update member role.");
+    } finally {
+      setSharingBusy("");
+    }
+  }
+
+  async function removeMember(house, member) {
+    if (!window.confirm(`Remove ${member.username || member.email || "this user"} from this house?`)) return;
+    setSharingBusy(`remove-${member.userId}`);
+    try {
+      await removeHouseMember(appData.settings || {}, house.id, member.userId);
+      await refreshSharedHouses("House member removed.");
+    } catch (error) {
+      setSharingStatus(error?.message || "Could not remove member.");
+    } finally {
+      setSharingBusy("");
+    }
   }
 
   function updateLoanForm(field, value) {
@@ -612,7 +833,7 @@ export default function LoansPage({ appData, actions }) {
       </div>
 
       <HouseSection
-        appData={appData}
+        appData={displayAppData}
         houseSummary={houseSummary}
         selectedHouse={selectedHouse}
         setSelectedHouseId={setSelectedHouseId}
@@ -624,6 +845,16 @@ export default function LoansPage({ appData, actions }) {
         onEditContribution={openContributionModal}
         onDeleteContribution={deleteContribution}
         onAddPerson={openPersonModal}
+        sharingStatus={sharingStatus}
+        sharingBusy={sharingBusy}
+        onRefreshSharedHouses={refreshSharedHouses}
+        onPublishHouse={publishHouseForSharing}
+        onInviteHouse={sendHouseInvite}
+        onAcceptInvite={acceptInvite}
+        onDeclineInvite={declineInvite}
+        onCancelInvite={cancelInvite}
+        onChangeMemberRole={changeMemberRole}
+        onRemoveMember={removeMember}
       />
 
       {activeLoans.length === 0 ? (
@@ -732,7 +963,7 @@ export default function LoansPage({ appData, actions }) {
       {contributionHouse && (
         <HouseContributionModal
           house={contributionHouse}
-          appData={appData}
+          appData={displayAppData}
           contributionForm={contributionForm}
           updateContributionForm={updateContributionForm}
           submitContribution={submitContribution}
@@ -811,7 +1042,17 @@ function HouseSection({
   onAddContribution,
   onEditContribution,
   onDeleteContribution,
-  onAddPerson
+  onAddPerson,
+  sharingStatus,
+  sharingBusy,
+  onRefreshSharedHouses,
+  onPublishHouse,
+  onInviteHouse,
+  onAcceptInvite,
+  onDeclineInvite,
+  onCancelInvite,
+  onChangeMemberRole,
+  onRemoveMember
 }) {
   const archivedHouses = houseSummary.houses.filter(house => house.status === "archived" || house.archived);
   const selectedSummary = selectedHouse ? calculateHouseSummary(appData, selectedHouse) : null;
@@ -886,6 +1127,16 @@ function HouseSection({
               onEditContribution={(contribution) => onEditContribution(selectedHouse, contribution)}
               onDeleteContribution={onDeleteContribution}
               onAddPerson={() => onAddPerson(selectedHouse)}
+              sharingStatus={sharingStatus}
+              sharingBusy={sharingBusy}
+              onRefreshSharedHouses={onRefreshSharedHouses}
+              onPublishHouse={() => onPublishHouse(selectedHouse)}
+              onInviteHouse={(identifier, role) => onInviteHouse(selectedHouse, identifier, role)}
+              onAcceptInvite={onAcceptInvite}
+              onDeclineInvite={onDeclineInvite}
+              onCancelInvite={(invite) => onCancelInvite(selectedHouse, invite)}
+              onChangeMemberRole={(member, role) => onChangeMemberRole(selectedHouse, member, role)}
+              onRemoveMember={(member) => onRemoveMember(selectedHouse, member)}
             />
           )}
         </div>
@@ -915,9 +1166,35 @@ function HouseSection({
   );
 }
 
-function HouseDetailPanel({ house, summary, appData, onEdit, onArchive, onAddContribution, onEditContribution, onDeleteContribution, onAddPerson }) {
+function HouseDetailPanel({
+  house,
+  summary,
+  appData,
+  onEdit,
+  onArchive,
+  onAddContribution,
+  onEditContribution,
+  onDeleteContribution,
+  onAddPerson,
+  sharingStatus,
+  sharingBusy,
+  onRefreshSharedHouses,
+  onPublishHouse,
+  onInviteHouse,
+  onAcceptInvite,
+  onDeclineInvite,
+  onCancelInvite,
+  onChangeMemberRole,
+  onRemoveMember
+}) {
   const linkedAccount = (appData.accounts || []).find(account => account.id === house.mortgage?.linkedAccountId);
   const linkedTransactions = (appData.transactions || []).filter(transaction => transaction.linkedHouseId === house.id);
+  const role = house.sharedRole || "owner";
+  const isRemoteSharedHouse = Boolean(house.isSharedHouse);
+  const canManageSharing = role === "owner";
+  const canEditHouse = !isRemoteSharedHouse && role === "owner";
+  const canAddContribution = role === "owner" || role === "editor";
+  const canEditContributions = !isRemoteSharedHouse && role === "owner";
   const splitLabel = house.ownershipMode === "manualOwnership"
     ? "Manual ownership split"
     : house.ownershipMode === "contributionEstimate"
@@ -932,10 +1209,10 @@ function HouseDetailPanel({ house, summary, appData, onEdit, onArchive, onAddCon
           <p className="muted">{house.addressLabel || "No address label"} · {splitLabel}</p>
         </div>
         <div className="row-actions">
-          <button type="button" className="secondary-button" onClick={onAddContribution}>Add contribution</button>
-          <button type="button" className="secondary-button" onClick={onAddPerson}>Add person</button>
-          <button type="button" className="secondary-button" onClick={onEdit}>Edit house</button>
-          <button type="button" className="danger-button" onClick={onArchive}>Archive</button>
+          {canAddContribution && <button type="button" className="secondary-button" onClick={onAddContribution}>Add contribution</button>}
+          {canEditHouse && <button type="button" className="secondary-button" onClick={onAddPerson}>Add person</button>}
+          {canEditHouse && <button type="button" className="secondary-button" onClick={onEdit}>Edit house</button>}
+          {canEditHouse && <button type="button" className="danger-button" onClick={onArchive}>Archive</button>}
         </div>
       </div>
 
@@ -973,7 +1250,7 @@ function HouseDetailPanel({ house, summary, appData, onEdit, onArchive, onAddCon
             <InfoMetric label="External" value={formatMoney(summary.externalTotal)} />
             <InfoMetric label="Linked app transactions" value={formatMoney(summary.linkedTotal)} />
           </div>
-          <HouseContributionTable contributions={summary.contributions} people={summary.people} onEditContribution={onEditContribution} onDeleteContribution={onDeleteContribution} />
+          <HouseContributionTable contributions={summary.contributions} people={summary.people} onEditContribution={onEditContribution} onDeleteContribution={onDeleteContribution} canEdit={canEditContributions} />
         </section>
 
         <section className="sub-card house-tab-card">
@@ -1008,11 +1285,23 @@ function HouseDetailPanel({ house, summary, appData, onEdit, onArchive, onAddCon
         </section>
 
         <section className="sub-card house-tab-card">
-          <h4>Shared users</h4>
-          <p className="muted-text">Secure shared-house database sync is not enabled yet. This local V1 stores house members/invites for future Supabase RLS work, but it does not expose private accounts, balances or unrelated transactions to another user.</p>
-          <div className="backup-warning-box">
-            Requires Supabase sharing setup before invites can be sent safely.
-          </div>
+          <HouseSharingPanel
+            house={house}
+            members={(appData.houseMembers || []).filter(member => member.houseId === house.id)}
+            invites={(appData.houseInvites || []).filter(invite => invite.houseId === house.id)}
+            role={role}
+            sharingStatus={sharingStatus}
+            sharingBusy={sharingBusy}
+            canManageSharing={canManageSharing}
+            onRefresh={onRefreshSharedHouses}
+            onPublish={onPublishHouse}
+            onInvite={onInviteHouse}
+            onAcceptInvite={onAcceptInvite}
+            onDeclineInvite={onDeclineInvite}
+            onCancelInvite={onCancelInvite}
+            onChangeMemberRole={onChangeMemberRole}
+            onRemoveMember={onRemoveMember}
+          />
         </section>
 
         <section className="sub-card house-tab-card">
@@ -1020,6 +1309,119 @@ function HouseDetailPanel({ house, summary, appData, onEdit, onArchive, onAddCon
           <p className="muted-text">{linkedTransactions.length} tracked app transaction(s) link to this house. Shared users should only see the safe contribution summary, not private account balances or unrelated transaction details.</p>
         </section>
       </div>
+    </div>
+  );
+}
+
+function HouseSharingPanel({
+  house,
+  members,
+  invites,
+  role,
+  sharingStatus,
+  sharingBusy,
+  canManageSharing,
+  onRefresh,
+  onPublish,
+  onInvite,
+  onAcceptInvite,
+  onDeclineInvite,
+  onCancelInvite,
+  onChangeMemberRole,
+  onRemoveMember
+}) {
+  const [identifier, setIdentifier] = useState("");
+  const [inviteRole, setInviteRole] = useState("viewer");
+  const pendingInvites = invites.filter(invite => invite.status === "pending");
+  const acceptedInvites = invites.filter(invite => invite.status === "accepted");
+  const setupMissing = /setup has not been run/i.test(String(sharingStatus || ""));
+
+  function submitInvite(event) {
+    event.preventDefault();
+    onInvite(identifier, inviteRole);
+    setIdentifier("");
+  }
+
+  return (
+    <div className="house-sharing-panel">
+      <div className="section-header compact-header">
+        <div>
+          <h4>Shared users</h4>
+          <p className="muted-text">Role: {role}. Shared users receive only house details, people, splits and safe contributions.</p>
+        </div>
+        <button type="button" className="secondary-button small" onClick={onRefresh} disabled={Boolean(sharingBusy)}>Refresh</button>
+      </div>
+
+      {sharingStatus && (
+        <div className={setupMissing ? "backup-warning-box" : "success-note"}>
+          {sharingStatus}
+        </div>
+      )}
+
+      <div className="row-actions">
+        <button type="button" className="primary-button" onClick={onPublish} disabled={Boolean(sharingBusy) || !canManageSharing}>
+          {house.sharedRole ? "Sync shared house" : "Enable sharing"}
+        </button>
+      </div>
+
+      {canManageSharing ? (
+        <form className="house-share-form" onSubmit={submitInvite}>
+          <label>Email or username<input value={identifier} onChange={event => setIdentifier(event.target.value)} placeholder="friend@example.com" /></label>
+          <label>Role<select value={inviteRole} onChange={event => setInviteRole(event.target.value)}>
+            <option value="viewer">Viewer</option>
+            <option value="editor">Editor</option>
+          </select></label>
+          <button className="secondary-button" disabled={Boolean(sharingBusy)}>Invite</button>
+        </form>
+      ) : (
+        <p className="muted-text">Only house owners can invite users or change access.</p>
+      )}
+
+      <div className="house-person-list">
+        {members.length === 0 ? (
+          <p className="muted-text">No shared members loaded yet. Enable sharing or refresh after running the SQL setup.</p>
+        ) : members.map(member => (
+          <div key={member.userId || member.email} className="house-person-row">
+            <div>
+              <strong>{member.username || member.email || "Shared user"}</strong>
+              <small>{member.email || member.userId}</small>
+            </div>
+            <div className="row-actions">
+              {canManageSharing ? (
+                <select value={member.role || "viewer"} onChange={event => onChangeMemberRole(member, event.target.value)} disabled={Boolean(sharingBusy)}>
+                  <option value="owner">Owner</option>
+                  <option value="editor">Editor</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+              ) : (
+                <strong>{member.role}</strong>
+              )}
+              {canManageSharing && <button type="button" className="danger-button small" onClick={() => onRemoveMember(member)} disabled={Boolean(sharingBusy)}>Remove</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {pendingInvites.length > 0 && (
+        <div className="house-person-list">
+          <h5>Pending invites</h5>
+          {pendingInvites.map(invite => (
+            <div key={invite.id} className="house-person-row">
+              <div>
+                <strong>{invite.invitedEmail || "Pending user"}</strong>
+                <small>{invite.role} invite</small>
+              </div>
+              <div className="row-actions">
+                {!canManageSharing && <button type="button" className="secondary-button small" onClick={() => onAcceptInvite(invite)} disabled={Boolean(sharingBusy)}>Accept</button>}
+                {!canManageSharing && <button type="button" className="secondary-button small" onClick={() => onDeclineInvite(invite)} disabled={Boolean(sharingBusy)}>Decline</button>}
+                {canManageSharing && <button type="button" className="danger-button small" onClick={() => onCancelInvite(invite)} disabled={Boolean(sharingBusy)}>Cancel</button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {acceptedInvites.length > 0 && <p className="muted-text">{acceptedInvites.length} accepted invite record(s).</p>}
     </div>
   );
 }
@@ -1047,7 +1449,7 @@ function ContributionSplitList({ summary }) {
   );
 }
 
-function HouseContributionTable({ contributions, people, onEditContribution, onDeleteContribution }) {
+function HouseContributionTable({ contributions, people, onEditContribution, onDeleteContribution, canEdit = true }) {
   if (contributions.length === 0) return <p className="muted-text">No house contributions yet.</p>;
   return (
     <div className="loan-event-table-wrap">
@@ -1060,7 +1462,7 @@ function HouseContributionTable({ contributions, people, onEditContribution, onD
             <th>Source</th>
             <th>Amount</th>
             <th>Notes</th>
-            <th>Actions</th>
+            {canEdit && <th>Actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -1074,12 +1476,14 @@ function HouseContributionTable({ contributions, people, onEditContribution, onD
                 <td>{formatSourceType(item.sourceType)}</td>
                 <td>{formatMoney(item.amount)}</td>
                 <td>{item.notes || "—"}</td>
-                <td>
-                  <div className="row-actions">
-                    <button type="button" className="secondary-button small" onClick={() => onEditContribution(item)}>Edit</button>
-                    <button type="button" className="danger-button small" onClick={() => onDeleteContribution(item)}>Delete</button>
-                  </div>
-                </td>
+                {canEdit && (
+                  <td>
+                    <div className="row-actions">
+                      <button type="button" className="secondary-button small" onClick={() => onEditContribution(item)}>Edit</button>
+                      <button type="button" className="danger-button small" onClick={() => onDeleteContribution(item)}>Delete</button>
+                    </div>
+                  </td>
+                )}
               </tr>
             );
           })}
@@ -1143,6 +1547,9 @@ function HouseModal({ houseForm, editingHouse, accounts, updateHouseForm, closeH
 
 function HouseContributionModal({ house, appData, contributionForm, updateContributionForm, submitContribution, editingContribution, closeContributionModal }) {
   const people = (appData.housePeople || []).filter(person => person.houseId === house.id);
+  const sourceOptions = house.isSharedHouse
+    ? HOUSE_SOURCE_TYPES.filter(([key]) => key !== "linkedTransaction")
+    : HOUSE_SOURCE_TYPES;
   const linkedTransactions = (appData.transactions || [])
     .filter(transaction => transaction.type === "expense" && (!transaction.linkedHouseId || transaction.id === contributionForm.linkedTransactionId))
     .slice(0, 80);
@@ -1165,7 +1572,7 @@ function HouseContributionModal({ house, appData, contributionForm, updateContri
             {HOUSE_CONTRIBUTION_TYPES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select></label>
           <label>Source<select value={contributionForm.sourceType} onChange={event => updateContributionForm("sourceType", event.target.value)}>
-            {HOUSE_SOURCE_TYPES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            {sourceOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select></label>
           {contributionForm.sourceType === "linkedTransaction" && (
             <label className="full-width">Linked transaction<select value={contributionForm.linkedTransactionId} onChange={event => updateContributionForm("linkedTransactionId", event.target.value)}>

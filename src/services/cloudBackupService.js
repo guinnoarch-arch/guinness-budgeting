@@ -7,6 +7,7 @@ import {
   readSupabaseResponse,
   trimSupabaseUrl
 } from "./supabaseClient.js";
+import houseSharingSetupSql from "../../supabase-house-sharing.sql?raw";
 
 const CLOUD_SESSION_KEY = "gh-budgeting-supabase-cloud-session-v1";
 const CLOUD_BACKUP_TABLE = "gh_cloud_backups";
@@ -1047,5 +1048,7 @@ create policy "GH users can delete own backups"
   using (auth.uid() = user_id and not public.gh_is_blocked(auth.uid()));
 
 create index if not exists gh_cloud_backups_user_created_idx
-  on public.gh_cloud_backups (user_id, created_at desc);`;
+  on public.gh_cloud_backups (user_id, created_at desc);
+
+${houseSharingSetupSql}`;
 }

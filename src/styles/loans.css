@@ -322,6 +322,23 @@
   color: var(--muted);
 }
 
+.house-sharing-panel,
+.house-share-form {
+  display: grid;
+  gap: 10px;
+}
+
+.house-share-form {
+  grid-template-columns: minmax(0, 1fr) 120px auto;
+  align-items: end;
+}
+
+.house-share-form input,
+.house-share-form select,
+.house-person-row select {
+  width: 100%;
+}
+
 @media (max-width: 720px) {
   .house-section .section-header,
   .house-detail-panel .section-header {
@@ -338,5 +355,9 @@
   .house-person-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .house-share-form {
+    grid-template-columns: 1fr;
   }
 }
