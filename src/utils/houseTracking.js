@@ -44,6 +44,7 @@ export function normaliseHouseRecord(record = {}) {
     purchasePrice: safeNumber(house.purchasePrice, 0),
     purchaseDate: house.purchaseDate || null,
     propertyValue: safeNumber(house.propertyValue ?? house.currentEstimatedValue, 0),
+    agreementNotes: house.agreementNotes || "",
     notes: house.notes || "",
     status: house.status || (house.archived || house.archivedAt ? "archived" : "active"),
     archived: Boolean(house.archived || house.status === "archived" || house.archivedAt),

@@ -79,6 +79,54 @@ function QrCodeIcon() {
   );
 }
 
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-4-4" />
+    </svg>
+  );
+}
+
+function CommandIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M7 7h10" />
+      <path d="M7 12h10" />
+      <path d="M7 17h10" />
+    </svg>
+  );
+}
+
+function buildSearchResults(appData, query) {
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return [];
+  const includes = (value) => String(value || "").toLowerCase().includes(needle);
+  const rows = [];
+  (appData.transactions || []).forEach(item => {
+    if ([item.title, item.note, item.date].some(includes)) rows.push({ type: "Transaction", label: item.title || "Transaction", detail: item.date, page: "transactions" });
+  });
+  (appData.accounts || []).forEach(item => {
+    if ([item.name, item.type].some(includes)) rows.push({ type: "Account", label: item.name, detail: item.type, page: "accounts" });
+  });
+  (appData.categories || []).forEach(item => {
+    if ([item.name, item.group].some(includes)) rows.push({ type: "Category", label: item.name, detail: item.group, page: "budgets" });
+  });
+  (appData.recurringItems || []).forEach(item => {
+    if ([item.name, item.notes].some(includes)) rows.push({ type: "Bill", label: item.name, detail: item.nextDueDate, page: "bills" });
+  });
+  (appData.savingsGoals || []).forEach(item => {
+    if ([item.name, item.notes].some(includes)) rows.push({ type: "Saving", label: item.name, detail: "Savings goal", page: "savings" });
+  });
+  (appData.houses || []).forEach(item => {
+    if ([item.name, item.addressLabel, item.notes, item.agreementNotes].some(includes)) rows.push({ type: "House", label: item.name, detail: item.addressLabel, page: "loans" });
+  });
+  (appData.houseContributions || []).forEach(item => {
+    if ([item.personName, item.notes, item.type].some(includes)) rows.push({ type: "House contribution", label: item.personName || item.type, detail: item.date, page: "loans" });
+  });
+  return rows.slice(0, 30);
+}
+
 function ControlCentreIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -186,8 +234,12 @@ export default function AppShell({
   const settings = appData.settings || {};
   const [showNotifications, setShowNotifications] = useState(false);
   const [showDeviceShare, setShowDeviceShare] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [showQuickActions, setShowQuickActions] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [shareCopyStatus, setShareCopyStatus] = useState("");
   const notifications = useMemo(() => buildAppNotifications(appData), [appData]);
+  const searchResults = useMemo(() => buildSearchResults(appData, searchQuery), [appData, searchQuery]);
   const notificationCount = notifications.length;
   const backupReminder = getBackupReminder(settings);
   const hasUnbackedChanges = Boolean(settings.hasUnbackedChanges);
@@ -264,6 +316,22 @@ export default function AppShell({
               onClick={actions.togglePhoneMode}
             >
               {actions.phoneMode ? <LaptopIcon /> : <PhoneIcon />}
+            </HeaderIconButton>
+            <HeaderIconButton
+              label="Global search"
+              title="Search app data"
+              active={showSearch}
+              onClick={() => setShowSearch(prev => !prev)}
+            >
+              <SearchIcon />
+            </HeaderIconButton>
+            <HeaderIconButton
+              label="Quick actions"
+              title="Quick actions"
+              active={showQuickActions}
+              onClick={() => setShowQuickActions(prev => !prev)}
+            >
+              <CommandIcon />
             </HeaderIconButton>
 
             {featureFlags.qrPhoneAccess !== false && (
@@ -428,6 +496,65 @@ export default function AppShell({
             </button>
           </div>
         </header>
+
+        {showSearch && (
+          <div className="command-panel" role="dialog" aria-label="Global search">
+            <div className="notification-panel-header">
+              <strong>Search</strong>
+              <button type="button" className="text-button" onClick={() => setShowSearch(false)}>Close</button>
+            </div>
+            <input
+              value={searchQuery}
+              onChange={event => setSearchQuery(event.target.value)}
+              placeholder="Search transactions, accounts, bills, houses..."
+              aria-label="Search query"
+              autoFocus
+            />
+            <div className="notification-list">
+              {searchResults.length === 0 ? (
+                <p className="muted">No results yet.</p>
+              ) : searchResults.map((item, index) => (
+                <button
+                  type="button"
+                  key={`${item.type}-${item.label}-${index}`}
+                  className="notification-row notice"
+                  onClick={() => {
+                    setShowSearch(false);
+                    setActivePage(item.page);
+                  }}
+                >
+                  <span>
+                    <strong>{item.type}: {item.label}</strong>
+                    <small>{item.detail || item.page}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {showQuickActions && (
+          <div className="command-panel quick-action-panel" role="dialog" aria-label="Quick actions">
+            <div className="notification-panel-header">
+              <strong>Quick actions</strong>
+              <button type="button" className="text-button" onClick={() => setShowQuickActions(false)}>Close</button>
+            </div>
+            <div className="quick-action-grid">
+              {[
+                ["Add transaction", () => actions.openAddTransaction()],
+                ["Export backup", () => actions.backupNow()],
+                ["CSV import", () => setActivePage("import")],
+                ["Settings/Profile", () => setActivePage("settings")],
+                ["App health check", () => setActivePage("settings")],
+                ["Close month", () => setActivePage("settings")],
+                ["Add bill", () => setActivePage("bills")],
+                ["Add house contribution", () => setActivePage("loans")]
+              ].map(([label, handler]) => (
+                <button key={label} type="button" className="secondary-button" onClick={() => { setShowQuickActions(false); handler(); }}>{label}</button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {quickBackupStatus && (
           <div className="quick-backup-status" role="status" aria-live="polite">

@@ -21,6 +21,9 @@ import {
 import { getInitialAppData, removeExampleDataFromAppData } from "../data/exampleData.js";
 import PwaInstallCard from "../components/settings/PwaInstallCard.jsx";
 import { createId } from "../utils/ids.js";
+import { calculateMonthSummary } from "../utils/calculations.js";
+import { getMonthKey } from "../utils/dates.js";
+import { formatMoney } from "../utils/money.js";
 import { getReceiptStorageStats, restoreReceiptBackupRecords } from "../services/receiptStorageService.js";
 import { repairSafeAppDataIssues, validateCurrentAppData } from "../services/dataValidationService.js";
 import { addStorageLog, clearStorageLogs, listStorageLogs, saveAppDataSnapshot } from "../services/indexedDbStorageService.js";
@@ -47,7 +50,14 @@ import {
   signInWithEmailOrUsername,
   signUpWithEmail
 } from "../services/authService.js";
-import { ADMIN_ROLE_FIELD, ADMIN_ROUTE_PATH, claimAdminRole, submitFeatureSuggestion } from "../services/adminService.js";
+import {
+  ADMIN_ROLE_FIELD,
+  ADMIN_ROUTE_PATH,
+  claimAdminRole,
+  listFeatureSuggestions,
+  submitFeatureSuggestion,
+  voteFeatureSuggestion
+} from "../services/adminService.js";
 
 function formatDateTime(value) {
   if (!value) return "Never";
@@ -241,6 +251,25 @@ const ACCENT_PRESETS = [
   { name: "Red", value: "#b91c1c" }
 ];
 
+const CHANGELOG_ITEMS = [
+  "V2.6.26 adds app health, dashboard breakdowns, activity log, backup risk, month close assistant, budget templates and suggestion voting foundations.",
+  "V2.6.25 cleaned setup defaults, example data removal, header actions and admin suggestions.",
+  "V2.6.24 added Supabase-backed house sharing."
+];
+
+function riskLabelFromBackup(reminder, settings = {}) {
+  const changes = Number(settings.changesSinceBackup || 0);
+  if (reminder.level === "danger" || changes >= 25) return "Critical";
+  if (changes >= 10 || settings.lastMajorChangeAt) return "High risk";
+  if (reminder.level === "warning" || reminder.level === "notice" || changes > 0) return "Recommended";
+  return "Safe";
+}
+
+function statusTone(ok, warning = false) {
+  if (ok) return "OK";
+  return warning ? "Warning" : "Needs action";
+}
+
 function isValidHexColour(value) {
   return /^#[0-9a-fA-F]{6}$/.test(String(value || "").trim());
 }
@@ -282,6 +311,12 @@ export default function SettingsPage({ appData, actions }) {
   const [cloudRestorePhrase, setCloudRestorePhrase] = useState("");
   const [showCloudSql, setShowCloudSql] = useState(false);
   const [adminProfileStatus, setAdminProfileStatus] = useState("");
+  const [monthCloseMode, setMonthCloseMode] = useState("carry");
+  const [monthCloseSavings, setMonthCloseSavings] = useState("");
+  const [plannedDraft, setPlannedDraft] = useState({ title: "", amount: "", date: "", type: "expense" });
+  const [templateName, setTemplateName] = useState("");
+  const [serverSuggestions, setServerSuggestions] = useState([]);
+  const [serverSuggestionStatus, setServerSuggestionStatus] = useState("");
 
   const currentCounts = getBackupCounts(appData);
   const settings = appData.settings || {};
@@ -292,6 +327,22 @@ export default function SettingsPage({ appData, actions }) {
   const cloudKeySafetyIssue = getSupabaseKeySafetyIssue(getCloudConfig(settings).anonKey);
   const cloudSetupSql = getSupabaseSetupSql();
   const backupReminder = getBackupReminder(settings);
+  const selectedMonth = actions.selectedMonth || getMonthKey(new Date());
+  const monthSummary = calculateMonthSummary(appData, selectedMonth);
+  const backupRisk = riskLabelFromBackup(backupReminder, settings);
+  const existingClosedMonth = (appData.closedMonths || []).find(item => item.month === selectedMonth);
+  const healthRows = [
+    ["User logged in", cloudSession?.signedIn ? "OK" : "Warning", cloudSession?.signedIn ? "Yes" : "No"],
+    ["Supabase connected", cloudConfigured ? "OK" : "Not available", cloudConfigured ? "Configured" : "Not configured"],
+    ["Cloud backups available", cloudConfigured && cloudSession?.signedIn ? "OK" : "Warning", cloudConfigured && cloudSession?.signedIn ? "Available" : "Sign in/configure Supabase"],
+    ["Local backup recommended", backupReminder.level === "ok" ? "OK" : "Needs action", backupReminder.title],
+    ["Example data active", settings.useExampleData ? "Warning" : "OK", settings.useExampleData ? "Yes" : "No"],
+    ["Unbacked changes", settings.hasUnbackedChanges ? "Needs action" : "OK", settings.hasUnbackedChanges ? `${settings.changesSinceBackup || 0} change(s)` : "No"],
+    ["PWA installed", actions.pwaInstall?.isInstalled ? "OK" : "Not available", actions.pwaInstall?.isInstalled ? "Yes" : "No"],
+    ["App version", "OK", `V${APP_VERSION}`],
+    ["Last backup", settings.lastBackupAt ? "OK" : "Warning", settings.lastBackupAt ? formatDateTime(settings.lastBackupAt) : "Never recorded"],
+    ["Storage health", storageHealth.status === "OK" ? "OK" : "Warning", storageHealth.status]
+  ];
   const comparisonWarnings = restorePreview
     ? buildRestoreComparisonWarnings(appData, restorePreview)
     : [];
@@ -311,6 +362,23 @@ export default function SettingsPage({ appData, actions }) {
       cancelled = true;
     };
   }, [appData.transactions]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSuggestions() {
+      if (!cloudSession?.signedIn || !cloudConfigured) return;
+      try {
+        const rows = await listFeatureSuggestions(settings, "all");
+        if (!cancelled) setServerSuggestions(rows);
+      } catch (error) {
+        if (!cancelled) setServerSuggestionStatus("Shared suggestions need the latest Supabase SQL setup.");
+      }
+    }
+    loadSuggestions();
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudSession?.signedIn, cloudConfigured, settings.cloudBackup?.supabaseUrl, settings.cloudBackup?.supabaseAnonKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1143,6 +1211,124 @@ export default function SettingsPage({ appData, actions }) {
     }, { reason: "Future feature suggestion deleted" });
   }
 
+  async function refreshSharedSuggestions() {
+    setServerSuggestionStatus("Refreshing suggestions...");
+    try {
+      const rows = await listFeatureSuggestions(settings, "all");
+      setServerSuggestions(rows);
+      setServerSuggestionStatus("Suggestions refreshed.");
+    } catch (error) {
+      setServerSuggestionStatus(error.message || "Could not load shared suggestions.");
+    }
+  }
+
+  async function voteOnSuggestion(item, vote) {
+    setServerSuggestionStatus("Saving vote...");
+    try {
+      await voteFeatureSuggestion(settings, item.id, vote);
+      await refreshSharedSuggestions();
+    } catch (error) {
+      setServerSuggestionStatus(error.message || "Could not save vote.");
+    }
+  }
+
+  function closeSelectedMonth() {
+    if (existingClosedMonth && !confirm("This month is already closed. Replace the existing closed-month record?")) return;
+    const leftover = monthSummary.netMoneyLeft;
+    const savingsAmount = monthCloseMode === "savings"
+      ? Math.max(0, leftover)
+      : monthCloseMode === "split"
+        ? Math.max(0, Number(monthCloseSavings || 0))
+        : 0;
+    const carriedForward = monthCloseMode === "zero" ? 0 : Math.max(0, leftover - savingsAmount);
+    const now = new Date().toISOString();
+    const record = {
+      id: existingClosedMonth?.id || createId("closed"),
+      month: selectedMonth,
+      income: monthSummary.income,
+      expenses: monthSummary.expenses,
+      savingsTransfers: monthSummary.savingsTransfers,
+      carriedForward,
+      movedToSavings: savingsAmount,
+      excludedSpending: monthSummary.excludedSpending,
+      closedAt: now,
+      updatedAt: now,
+      isExample: Boolean(settings.useExampleData)
+    };
+    actions.updateAppData({
+      ...appData,
+      closedMonths: [record, ...(appData.closedMonths || []).filter(item => item.month !== selectedMonth)]
+    }, { reason: `Month closed: ${selectedMonth}`, major: true });
+  }
+
+  function saveCurrentBudgetsAsTemplate() {
+    const name = templateName.trim();
+    if (!name) return alert("Enter a template name.");
+    const monthBudgets = (appData.budgets || []).filter(item => item.month === selectedMonth && item.isEnabled !== false && !item.isArchived && !item.archivedAt);
+    if (monthBudgets.length === 0) return alert("No active budgets to save for this month.");
+    const now = new Date().toISOString();
+    const template = {
+      id: createId("budget_template"),
+      name,
+      sourceMonth: selectedMonth,
+      items: monthBudgets.map(item => ({ categoryId: item.categoryId, accountId: item.accountId || "acc_current", limit: Number(item.limit || 0) })),
+      createdAt: now,
+      updatedAt: now
+    };
+    actions.updateAppData({
+      ...appData,
+      budgetTemplates: [template, ...(appData.budgetTemplates || [])]
+    }, { reason: "Budget template created" });
+    setTemplateName("");
+  }
+
+  function applyBudgetTemplate(template) {
+    if (!confirm(`Apply "${template.name}" to ${selectedMonth}? Existing active budgets for the same categories/accounts will be replaced.`)) return;
+    const keys = new Set((template.items || []).map(item => `${item.categoryId}_${item.accountId || "acc_current"}`));
+    const now = new Date().toISOString();
+    const nextBudgets = [
+      ...(appData.budgets || []).filter(item => item.month !== selectedMonth || !keys.has(`${item.categoryId}_${item.accountId || "acc_current"}`)),
+      ...(template.items || []).map(item => ({
+        id: createId("bud"),
+        categoryId: item.categoryId,
+        accountId: item.accountId || "acc_current",
+        month: selectedMonth,
+        limit: Number(item.limit || 0),
+        isEnabled: true,
+        isArchived: false,
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now
+      }))
+    ];
+    actions.updateAppData({ ...appData, budgets: nextBudgets }, { reason: "Budget template applied" });
+  }
+
+  function addPlannedTransaction(event) {
+    event.preventDefault();
+    const amount = Number(plannedDraft.amount || 0);
+    if (!plannedDraft.title.trim() || amount <= 0 || !plannedDraft.date) return alert("Enter a title, amount and date.");
+    const now = new Date().toISOString();
+    const planned = {
+      id: createId("planned"),
+      title: plannedDraft.title.trim(),
+      expectedAmount: amount,
+      amount,
+      expectedDate: plannedDraft.date,
+      date: plannedDraft.date,
+      type: plannedDraft.type,
+      status: "planned",
+      notes: "",
+      createdAt: now,
+      updatedAt: now
+    };
+    actions.updateAppData({
+      ...appData,
+      plannedTransactions: [planned, ...(appData.plannedTransactions || [])]
+    }, { reason: "Planned transaction added" });
+    setPlannedDraft({ title: "", amount: "", date: "", type: "expense" });
+  }
+
   function toggleSettingsSection(sectionId) {
     setActiveSettingsSection(current => current === sectionId ? null : sectionId);
   }
@@ -1176,6 +1362,42 @@ export default function SettingsPage({ appData, actions }) {
         <h2>App settings</h2>
         <p className="muted-text">Open one section at a time. Headings expand without turning Settings into one long page.</p>
       </div>
+
+      <section className={sectionClass("health", "settings-section-entry-card")}>
+        <div className="section-header settings-accordion-heading" {...sectionHeaderProps("health")}>
+          <div>
+            <h3>App health check</h3>
+            <p className="muted-text">Quick trust checks for login, backups, example data, storage and updates.</p>
+          </div>
+          <SectionChevron sectionId="health" />
+        </div>
+        {activeSettingsSection === "health" && (
+          <div className="profile-meta-grid">
+            {healthRows.map(([label, status, detail]) => (
+              <p key={label}><span>{label}</span><strong>{status}</strong><small>{detail}</small></p>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className={sectionClass("backupRisk", "settings-section-entry-card")}>
+        <div className="section-header settings-accordion-heading" {...sectionHeaderProps("backupRisk")}>
+          <div>
+            <h3>Backup risk</h3>
+            <p className="muted-text">Backup status is always available here; the header button only appears for urgent risk.</p>
+          </div>
+          <div className="settings-accordion-heading-side"><span className="pill">{backupRisk}</span><SectionChevron sectionId="backupRisk" /></div>
+        </div>
+        {activeSettingsSection === "backupRisk" && (
+          <div className="profile-meta-grid">
+            <p><span>Status</span><strong>{backupRisk}</strong><small>{backupReminder.message}</small></p>
+            <p><span>Unbacked changes</span><strong>{settings.hasUnbackedChanges ? "Yes" : "No"}</strong><small>{settings.changesSinceBackup || 0} change(s)</small></p>
+            <p><span>Last backup</span><strong>{settings.lastBackupAt ? formatDateTime(settings.lastBackupAt) : "Never"}</strong></p>
+            <p><span>Last major change</span><strong>{settings.lastMajorChangeAt ? formatDateTime(settings.lastMajorChangeAt) : "None recorded"}</strong></p>
+            <button type="button" className="primary-button" onClick={exportBackup}>Export JSON backup</button>
+          </div>
+        )}
+      </section>
 
       <section className={sectionClass("profile", "profile-settings-card")}>
         <div className="section-header compact-header settings-accordion-heading" {...sectionHeaderProps("profile")}>
@@ -2220,6 +2442,140 @@ export default function SettingsPage({ appData, actions }) {
         )}
       </section>
 
+      <section className={sectionClass("activity", "settings-section-entry-card")}>
+        <div className="section-header settings-accordion-heading" {...sectionHeaderProps("activity")}>
+          <div>
+            <h3>Activity log</h3>
+            <p className="muted-text">Recent safe app actions recorded from local changes. Undo is documented as future work.</p>
+          </div>
+          <SectionChevron sectionId="activity" />
+        </div>
+        {activeSettingsSection === "activity" && (
+          <div className="suggestion-list">
+            {(appData.activityLog || []).slice(0, 30).length === 0 ? <p className="muted-text">No activity recorded yet.</p> : (appData.activityLog || []).slice(0, 30).map(item => (
+              <div className="suggestion-row" key={item.id}>
+                <div>
+                  <strong>{item.description}</strong>
+                  <small>{item.area || "App"} - {item.user || "Local user"} - {formatDateTime(item.createdAt)}</small>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className={sectionClass("monthClose", "settings-section-entry-card")}>
+        <div className="section-header settings-accordion-heading" {...sectionHeaderProps("monthClose")}>
+          <div>
+            <h3>Month close assistant</h3>
+            <p className="muted-text">Review the selected month and create one confirmed closed-month record.</p>
+          </div>
+          <SectionChevron sectionId="monthClose" />
+        </div>
+        {activeSettingsSection === "monthClose" && (
+          <div className="form-section-card">
+            <div className="profile-meta-grid">
+              <p><span>Month</span><strong>{selectedMonth}</strong></p>
+              <p><span>Income</span><strong>{formatMoney(monthSummary.income)}</strong></p>
+              <p><span>Spending</span><strong>{formatMoney(monthSummary.expenses)}</strong></p>
+              <p><span>Excluded spending</span><strong>{formatMoney(monthSummary.excludedSpending)}</strong></p>
+              <p><span>Savings transfers</span><strong>{formatMoney(monthSummary.savingsTransfers)}</strong></p>
+              <p><span>Net leftover</span><strong>{formatMoney(monthSummary.netMoneyLeft)}</strong></p>
+            </div>
+            {existingClosedMonth && <p className="backup-warning-box">This month is already closed. Confirming will replace the existing closed-month record.</p>}
+            <div className="form-grid">
+              <label>Leftover decision<select value={monthCloseMode} onChange={event => setMonthCloseMode(event.target.value)}>
+                <option value="carry">Carry forward leftover</option>
+                <option value="savings">Move all leftover to savings</option>
+                <option value="split">Split carry-forward and savings</option>
+                <option value="zero">Set leftover to zero</option>
+              </select></label>
+              {monthCloseMode === "split" && <label>Move to savings<input type="number" min="0" step="0.01" value={monthCloseSavings} onChange={event => setMonthCloseSavings(event.target.value)} /></label>}
+            </div>
+            <button type="button" className="primary-button" onClick={closeSelectedMonth}>Confirm close month</button>
+          </div>
+        )}
+      </section>
+
+      <section className={sectionClass("budgetTemplates", "settings-section-entry-card")}>
+        <div className="section-header settings-accordion-heading" {...sectionHeaderProps("budgetTemplates")}>
+          <div>
+            <h3>Budget templates</h3>
+            <p className="muted-text">Save this month's budgets as a reusable template and apply it deliberately later.</p>
+          </div>
+          <SectionChevron sectionId="budgetTemplates" />
+        </div>
+        {activeSettingsSection === "budgetTemplates" && (
+          <div className="suggestion-section">
+            <div className="suggestion-form">
+              <input value={templateName} onChange={event => setTemplateName(event.target.value)} placeholder="Template name" />
+              <button type="button" className="primary-button" onClick={saveCurrentBudgetsAsTemplate}>Save current month</button>
+            </div>
+            <div className="suggestion-list">
+              {(appData.budgetTemplates || []).length === 0 ? <p className="muted-text">No budget templates yet.</p> : (appData.budgetTemplates || []).map(template => (
+                <div className="suggestion-row" key={template.id}>
+                  <div><strong>{template.name}</strong><small>{template.items?.length || 0} category budget(s) from {template.sourceMonth}</small></div>
+                  <button type="button" className="secondary-button small" onClick={() => applyBudgetTemplate(template)}>Apply to {selectedMonth}</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className={sectionClass("planned", "settings-section-entry-card")}>
+        <div className="section-header settings-accordion-heading" {...sectionHeaderProps("planned")}>
+          <div>
+            <h3>Planned transactions</h3>
+            <p className="muted-text">Basic planned rows for wages, bills and expected payments. CSV matching can use planned amount/date fields.</p>
+          </div>
+          <SectionChevron sectionId="planned" />
+        </div>
+        {activeSettingsSection === "planned" && (
+          <div className="suggestion-section">
+            <form className="suggestion-form" onSubmit={addPlannedTransaction}>
+              <input value={plannedDraft.title} onChange={event => setPlannedDraft(prev => ({ ...prev, title: event.target.value }))} placeholder="Title" />
+              <input type="number" min="0" step="0.01" value={plannedDraft.amount} onChange={event => setPlannedDraft(prev => ({ ...prev, amount: event.target.value }))} placeholder="Amount" />
+              <input type="date" value={plannedDraft.date} onChange={event => setPlannedDraft(prev => ({ ...prev, date: event.target.value }))} />
+              <select value={plannedDraft.type} onChange={event => setPlannedDraft(prev => ({ ...prev, type: event.target.value }))}>
+                <option value="income">Income</option>
+                <option value="expense">Expense</option>
+                <option value="transfer">Transfer</option>
+              </select>
+              <button className="primary-button">Add planned</button>
+            </form>
+            <div className="suggestion-list">
+              {(appData.plannedTransactions || []).length === 0 ? <p className="muted-text">No planned transactions yet.</p> : (appData.plannedTransactions || []).slice(0, 20).map(item => (
+                <div className="suggestion-row" key={item.id}>
+                  <div><strong>{item.title}</strong><small>{item.status} - {item.expectedDate} - {formatMoney(item.expectedAmount)}</small></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className={sectionClass("about", "settings-section-entry-card")}>
+        <div className="section-header settings-accordion-heading" {...sectionHeaderProps("about")}>
+          <div>
+            <h3>About / changelog</h3>
+            <p className="muted-text">Current version, update status and recent changes.</p>
+          </div>
+          <div className="settings-accordion-heading-side"><span className="pill">V{APP_VERSION}</span><SectionChevron sectionId="about" /></div>
+        </div>
+        {activeSettingsSection === "about" && (
+          <div className="suggestion-list">
+            <div className="profile-meta-grid">
+              <p><span>App version</span><strong>V{APP_VERSION}</strong></p>
+              <p><span>Data version</span><strong>{DATA_SCHEMA_VERSION}</strong></p>
+              <p><span>Update ready</span><strong>{actions.pwaInstall?.hasUpdateAvailable ? "Yes" : "No"}</strong></p>
+              <p><span>Service worker</span><strong>{actions.pwaInstall?.serviceWorkerReady ? "Ready" : "Not ready yet"}</strong></p>
+            </div>
+            {CHANGELOG_ITEMS.map(item => <div className="suggestion-row" key={item}><strong>{item}</strong></div>)}
+          </div>
+        )}
+      </section>
+
       <section className={sectionClass("install", "pwa-install-card settings-install-entry")}>
         <div className="section-header settings-accordion-heading" {...sectionHeaderProps("install")}>
           <div>
@@ -2282,6 +2638,29 @@ export default function SettingsPage({ appData, actions }) {
                 <button className="primary-button">Add suggestion</button>
               </form>
               {suggestionStatus && <p className="cloud-status-message compact-status">{suggestionStatus}</p>}
+              <div className="section-header compact-header">
+                <div>
+                  <h4>Shared suggestions</h4>
+                  <p className="muted-text">Vote once per suggestion while signed in. Admin status updates appear here after SQL setup.</p>
+                </div>
+                <button type="button" className="secondary-button small" onClick={refreshSharedSuggestions}>Refresh</button>
+              </div>
+              {serverSuggestionStatus && <p className="cloud-status-message compact-status">{serverSuggestionStatus}</p>}
+              <div className="suggestion-list">
+                {serverSuggestions.length === 0 ? <p className="muted-text">No shared suggestions loaded yet.</p> : serverSuggestions.map(item => (
+                  <div key={item.id} className={`suggestion-row ${item.status === "done" ? "done" : ""}`}>
+                    <div>
+                      <strong>{item.message}</strong>
+                      <small>{item.status || "new"} - {item.submitted_username || item.submitted_email || "user"} - {item.created_at ? item.created_at.slice(0, 10) : "unknown date"}</small>
+                      {item.admin_note && <small>Admin note: {item.admin_note}</small>}
+                    </div>
+                    <div className="row-actions">
+                      <button type="button" className="secondary-button small" onClick={() => voteOnSuggestion(item, 1)}>Up {item.up_votes || 0}</button>
+                      <button type="button" className="secondary-button small" onClick={() => voteOnSuggestion(item, -1)}>Down {item.down_votes || 0}</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
 
               {(settings.futureSuggestions || []).length === 0 ? (
                 <p className="muted">No suggestions saved yet.</p>

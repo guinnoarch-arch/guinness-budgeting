@@ -568,8 +568,18 @@ export function getCategorySpend(data, monthKey, accountId = null) {
 }
 
 export function getBudgetWarnings(data, monthKey, accountId = null) {
+  const elapsed = daysElapsedInMonth(monthKey);
+  const daysInMonth = daysInCalendarMonth(monthKey);
+  const monthElapsedPercent = (elapsed / Math.max(daysInMonth, 1)) * 100;
+  const daysLeft = Math.max(daysInMonth - elapsed, 1);
   return getCategorySpend(data, monthKey, accountId)
-    .filter(item => item.limit > 0 && item.usedPercent >= (data.settings?.budgetWarningThresholds?.greenMax ?? 75))
+    .map(item => ({
+      ...item,
+      monthElapsedPercent,
+      aheadOfPace: item.limit > 0 && item.usedPercent > monthElapsedPercent + 20,
+      safeDailySpend: Math.max(0, item.remaining) / daysLeft
+    }))
+    .filter(item => item.limit > 0 && (item.usedPercent >= (data.settings?.budgetWarningThresholds?.greenMax ?? 75) || item.aheadOfPace))
     .sort((a, b) => b.usedPercent - a.usedPercent);
 }
 

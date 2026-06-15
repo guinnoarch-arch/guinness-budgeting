@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.25 - Clean setup starts at zero, example data is easier to remove, header actions are calmer, and admin suggestions sync through Supabase.
+V2.6.26 - Trust and day-to-day polish: health checks, calculation breakdowns, activity logs, backup risk, month close, house tools, suggestion voting, search, quick actions and smarter notifications.
 
 ## What Is Included
 

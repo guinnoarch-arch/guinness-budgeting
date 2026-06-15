@@ -9,31 +9,33 @@ import UpcomingBillsPanel from "../components/dashboard/UpcomingBillsPanel.jsx";
 import RecentTransactionsPanel from "../components/dashboard/RecentTransactionsPanel.jsx";
 import BudgetWarningsPanel from "../components/dashboard/BudgetWarningsPanel.jsx";
 import SavingsGoalsPanel from "../components/dashboard/SavingsGoalsPanel.jsx";
-import { calculateMonthSummary } from "../utils/calculations.js";
+import { calculateAccountBalance, calculateMonthSummary } from "../utils/calculations.js";
+import { formatMoney } from "../utils/money.js";
 
-function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpendingInCharts, onIncludeExcludedSpendingChange }) {
+function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpendingInCharts, onIncludeExcludedSpendingChange, onBreakdown }) {
   if (isSavingsView) {
     return (
       <div className="summary-grid summary-grid-two dashboard-summary-grid">
-        <SummaryCard label="Saved" value={summary.accountMoneyIn} change={summary.accountMoneyInChange} tone="positive" />
-        <SummaryCard label="Spent" value={summary.accountMoneyOut} change={summary.accountMoneyOutChange} tone="negative" />
+        <SummaryCard label="Saved" value={summary.accountMoneyIn} change={summary.accountMoneyInChange} tone="positive" onClick={() => onBreakdown("Saved")} />
+        <SummaryCard label="Spent" value={summary.accountMoneyOut} change={summary.accountMoneyOutChange} tone="negative" onClick={() => onBreakdown("Spent")} />
       </div>
     );
   }
 
   return (
     <div className="summary-grid summary-grid-five dashboard-summary-grid">
-      <SummaryCard label="Income" value={summary.income} change={summary.incomeChange} tone="positive" />
-      <SummaryCard label="Spent" value={summary.expenses} change={summary.expenseChange} tone="negative" />
-      <SummaryCard label="Saved" value={summary.savingsTransfers} change={summary.savingsChange} tone="positive" />
-      <SummaryCard label="Available balance" value={summary.spendableBalance} tone="neutral" detail="Budget-linked accounts" />
+      <SummaryCard label="Income" value={summary.income} change={summary.incomeChange} tone="positive" onClick={() => onBreakdown("Income")} />
+      <SummaryCard label="Spent" value={summary.expenses} change={summary.expenseChange} tone="negative" onClick={() => onBreakdown("Spent")} />
+      <SummaryCard label="Saved" value={summary.savingsTransfers} change={summary.savingsChange} tone="positive" onClick={() => onBreakdown("Saved")} />
+      <SummaryCard label="Available balance" value={summary.spendableBalance} tone="neutral" detail="Budget-linked accounts" onClick={() => onBreakdown("Available Balance")} />
       <SummaryCard
         label="Excluded spending"
         value={summary.excludedSpending}
         tone={summary.excludedSpending > 0 ? "warning" : "neutral"}
         detail="Not counted in budgets"
+        onClick={() => onBreakdown("Excluded Spending")}
         afterValue={(
-          <label className="summary-inline-toggle" title="Controls dashboard spending charts and the budget breakdown pie chart">
+          <label className="summary-inline-toggle" title="Controls dashboard spending charts and the budget breakdown pie chart" onClick={event => event.stopPropagation()}>
             <input
               type="checkbox"
               checked={Boolean(includeExcludedSpendingInCharts)}
@@ -43,6 +45,27 @@ function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpending
           </label>
         )}
       />
+    </div>
+  );
+}
+
+function DashboardBreakdownModal({ title, rows, onClose }) {
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card breakdown-modal">
+        <div className="section-header">
+          <h2>{title}</h2>
+          <button type="button" className="icon-button" onClick={onClose}>x</button>
+        </div>
+        <div className="profile-meta-grid">
+          {rows.map(row => (
+            <p key={row.label}>
+              <span>{row.label}</span>
+              <strong>{row.value}</strong>
+            </p>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
@@ -75,11 +98,45 @@ export default function DashboardPage({ appData, actions }) {
   const accountIdForCalculations = selectedAccountId === "all" ? null : selectedAccountId;
   const isSavingsView = selectedAccount?.type === "savings";
   const [includeExcludedSpendingInCharts, setIncludeExcludedSpendingInCharts] = useState(false);
+  const [breakdown, setBreakdown] = useState(null);
   const summary = calculateMonthSummary(appData, actions.selectedMonth, {
     accountId: accountIdForCalculations,
     includeExcludedSpendingInCharts
   });
   const dashboardLayout = appData.settings?.dashboardLayout || "full";
+
+  function getBreakdownRows(title) {
+    const accountLabel = selectedAccount?.name || "All accounts";
+    const includedAccounts = activeAccounts
+      .map(account => `${account.name}: ${formatMoney(calculateAccountBalance(appData, account.id))}`)
+      .join(", ") || "No active accounts";
+    const base = [
+      { label: "Month", value: actions.selectedMonth },
+      { label: "Account filter", value: accountLabel }
+    ];
+    const rows = {
+      "Budget Left": [
+        ...base,
+        { label: "Total active budgets", value: formatMoney(summary.totalBudgetLimit) },
+        { label: "Counted spending", value: formatMoney(summary.budgetCountedSpending) },
+        { label: "Excluded spending", value: formatMoney(summary.excludedSpending) },
+        { label: "Available linked account balance", value: formatMoney(summary.spendableBalance) },
+        { label: "Raw budget left", value: formatMoney(summary.budgetLeftRaw) },
+        { label: "Final displayed value", value: formatMoney(summary.moneyLeft) }
+      ],
+      "Income": [...base, { label: "Income rows counted", value: String(summary.monthTransactions.filter(t => t.type === "income").length) }, { label: "Final income", value: formatMoney(summary.income) }],
+      "Spent": [...base, { label: "Expense rows counted", value: String(summary.monthTransactions.filter(t => t.type === "expense").length) }, { label: "Excluded rows", value: String(summary.monthTransactions.filter(t => t.type === "expense" && t.excludeFromBudget).length) }, { label: "Final spent", value: formatMoney(summary.expenses) }],
+      "Saved": [...base, { label: "Savings transfer rows", value: String(summary.monthTransactions.filter(t => t.type === "transfer").length) }, { label: "Final saved", value: formatMoney(summary.savingsTransfers || summary.accountMoneyIn) }],
+      "Available Balance": [...base, { label: "Included accounts", value: includedAccounts }, { label: "Final available balance", value: formatMoney(summary.spendableBalance) }],
+      "Excluded Spending": [...base, { label: "Excluded expense rows", value: String(summary.monthTransactions.filter(t => t.type === "expense" && t.excludeFromBudget).length) }, { label: "Excluded total", value: formatMoney(summary.excludedSpending) }],
+      "Carry-forward": [...base, { label: "Previous closed month record", value: summary.carryForward ? "Found" : "None" }, { label: "Carry-forward", value: formatMoney(summary.carryForward) }]
+    };
+    return rows[title] || base;
+  }
+
+  function openBreakdown(title) {
+    setBreakdown({ title, rows: getBreakdownRows(title) });
+  }
 
   function updateDashboardLayout(layout) {
     actions.updateAppData({
@@ -113,6 +170,7 @@ export default function DashboardPage({ appData, actions }) {
           : !isSavingsView
             ? `Based on active budgets minus counted spending. Capped by available account money: ${summary.spendableBalance.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}.`
             : ""}
+        onClick={() => openBreakdown(isSavingsView ? "Saved" : "Budget Left")}
       />
 
       <DashboardSummaryCards
@@ -120,7 +178,15 @@ export default function DashboardPage({ appData, actions }) {
         isSavingsView={isSavingsView}
         includeExcludedSpendingInCharts={includeExcludedSpendingInCharts}
         onIncludeExcludedSpendingChange={setIncludeExcludedSpendingInCharts}
+        onBreakdown={openBreakdown}
       />
+
+      {!isSavingsView && summary.carryForward !== 0 && (
+        <section className="card compact-insight-card clickable-card" role="button" tabIndex={0} onClick={() => openBreakdown("Carry-forward")}>
+          <strong>Carry-forward: {formatMoney(summary.carryForward)}</strong>
+          <small>Click to see the closed-month source.</small>
+        </section>
+      )}
 
       {dashboardLayout === "simple" ? (
         <>
@@ -180,6 +246,7 @@ export default function DashboardPage({ appData, actions }) {
           )}
         </>
       )}
+      {breakdown && <DashboardBreakdownModal title={breakdown.title} rows={breakdown.rows} onClose={() => setBreakdown(null)} />}
     </div>
   );
 }

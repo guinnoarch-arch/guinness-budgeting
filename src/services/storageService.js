@@ -28,8 +28,8 @@ const STORAGE_META_KEY = "guinness-budgeting-storage-meta-v2";
 const LEGACY_MIGRATION_SNAPSHOT_KEY = "guinness-budgeting-v2-5-localstorage-migration-snapshot";
 const CORRUPT_SNAPSHOT_PREFIX = "guinness-budgeting-corrupt-snapshot";
 
-export const APP_VERSION = "2.6.25";
-export const DATA_SCHEMA_VERSION = "2.6.25";
+export const APP_VERSION = "2.6.26";
+export const DATA_SCHEMA_VERSION = "2.6.26";
 export const BACKUP_FORMAT_VERSION = "1.9";
 
 export const STORAGE_LOAD_FAILURE_CODE = "GH_STORAGE_LOAD_FAILED";
@@ -59,7 +59,10 @@ const OPTIONAL_ARRAY_FIELDS = [
   "houseContributions",
   "houseMembers",
   "houseInvites",
-  "houseOwnershipSplits"
+  "houseOwnershipSplits",
+  "activityLog",
+  "budgetTemplates",
+  "plannedTransactions"
 ];
 
 const DEFAULT_PROFILE_TYPE = "Personal";
@@ -850,6 +853,9 @@ export function normaliseAppData(data) {
     "houseMembers",
     "houseInvites",
     "houseOwnershipSplits",
+    "activityLog",
+    "budgetTemplates",
+    "plannedTransactions",
     "importBatches",
     "importRules",
     "transferRules",
@@ -924,6 +930,9 @@ export function getBackupCounts(data) {
     houseMembers: safeData.houseMembers.length,
     houseInvites: safeData.houseInvites.length,
     houseOwnershipSplits: safeData.houseOwnershipSplits.length,
+    activityLog: safeData.activityLog.length,
+    budgetTemplates: safeData.budgetTemplates.length,
+    plannedTransactions: safeData.plannedTransactions.length,
     linkedLoanTransactions: safeData.transactions.filter(transaction => Boolean(transaction.linkedLoanId)).length,
     linkedHouseTransactions: safeData.transactions.filter(transaction => Boolean(transaction.linkedHouseId)).length,
     importBatches: safeData.importBatches.length,
@@ -968,16 +977,27 @@ export function markAppDataChanged(data, options = {}) {
 
   const now = options.changedAt || new Date().toISOString();
   const previousCount = Number(safeData.settings?.changesSinceBackup || 0);
+  const reason = options.reason || safeData.settings?.lastChangeReason || "App data updated";
+  const activityEntry = {
+    id: `activity_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    type: options.activityType || reason.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "app_update",
+    description: reason,
+    area: options.area || inferActivityArea(reason),
+    user: safeData.profile?.displayName || safeData.profile?.username || safeData.settings?.cloudBackup?.cloudUserEmail || "Local user",
+    metadata: options.activityMetadata || {},
+    createdAt: now
+  };
 
   return normaliseAppData({
     ...safeData,
+    activityLog: [activityEntry, ...(safeData.activityLog || [])].slice(0, 200),
     settings: {
       ...safeData.settings,
       hasUnbackedChanges: true,
       changesSinceBackup: previousCount + 1,
       lastDataChangedAt: now,
       lastMajorChangeAt: options.major ? now : safeData.settings?.lastMajorChangeAt || null,
-      lastChangeReason: options.reason || safeData.settings?.lastChangeReason || "App data updated",
+      lastChangeReason: reason,
       cloudBackup: {
         ...(safeData.settings.cloudBackup || {}),
         cloudBackupNeeded: Boolean(safeData.settings.cloudBackup?.enabled || safeData.settings.cloudBackup?.linkedLocalDataAt)
@@ -986,6 +1006,20 @@ export function markAppDataChanged(data, options = {}) {
       appVersion: APP_VERSION
     }
   });
+}
+
+function inferActivityArea(reason = "") {
+  const text = String(reason).toLowerCase();
+  if (text.includes("transaction")) return "Transactions";
+  if (text.includes("budget") || text.includes("category")) return "Budgets";
+  if (text.includes("bill") || text.includes("recurring")) return "Bills";
+  if (text.includes("saving")) return "Savings";
+  if (text.includes("house") || text.includes("loan") || text.includes("mortgage")) return "Loans / House";
+  if (text.includes("import")) return "Import";
+  if (text.includes("backup") || text.includes("restore")) return "Backup";
+  if (text.includes("admin")) return "Admin";
+  if (text.includes("example")) return "Setup";
+  return "App";
 }
 
 export function getBackupReminder(settingsOrLastBackupAt, now = new Date()) {

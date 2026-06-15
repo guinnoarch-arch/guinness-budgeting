@@ -55,6 +55,16 @@ export default function BudgetsPage({ appData, actions }) {
   const activeMonthlyBudgets = (appData.budgets || [])
     .filter(budget => budget.month === actions.selectedMonth && budget.isEnabled !== false && !budget.isArchived && !budget.archivedAt);
   const totalBudgetAmount = activeMonthlyBudgets.reduce((sum, budget) => sum + Number(budget.limit || 0), 0);
+  const flexibleRemaining = categorySpend
+    .filter(item => item.category?.type !== "income")
+    .reduce((sum, item) => sum + Math.max(0, Number(item.limit || 0) - Number(item.spent || 0)), 0);
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const monthEnd = new Date(Number(actions.selectedMonth.slice(0, 4)), Number(actions.selectedMonth.slice(5, 7)), 0);
+  const daysLeft = actions.selectedMonth === currentMonthKey
+    ? Math.max(1, monthEnd.getDate() - now.getDate() + 1)
+    : Math.max(1, monthEnd.getDate());
+  const safeDailySpend = flexibleRemaining / daysLeft;
   const activeManagerCategories = (appData.categories || [])
     .filter(category => category.isActive !== false && !category.isArchived && !category.archivedAt)
     .sort((a, b) => `${a.type}-${a.group || ""}-${a.name || ""}`.localeCompare(`${b.type}-${b.group || ""}-${b.name || ""}`));
@@ -338,6 +348,10 @@ export default function BudgetsPage({ appData, actions }) {
           <div className="mini-total-card">
             <span>Total budgets this month</span>
             <strong>{formatMoney(totalBudgetAmount)}</strong>
+          </div>
+          <div className="mini-total-card">
+            <span>Safe daily flexible spend</span>
+            <strong>{formatMoney(safeDailySpend)}</strong>
           </div>
           <button type="button" className="secondary-button" onClick={() => setShowBudgetManager(true)}>Manage categories & budgets</button>
         </div>

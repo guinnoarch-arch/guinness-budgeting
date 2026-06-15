@@ -497,14 +497,14 @@ export default function ControlCentrePage({ appData, actions }) {
 
         <div className="admin-user-tools">
           <div className="segmented-control admin-filter-tabs" role="group" aria-label="Suggestion filter">
-            {["all", "new", "reviewed", "planned", "done", "rejected"].map(key => (
+            {["all", "new", "reviewed", "planned", "in_progress", "done", "rejected"].map(key => (
               <button
                 key={key}
                 type="button"
                 className={suggestionFilter === key ? "active" : ""}
                 onClick={() => setSuggestionFilter(key)}
               >
-                {key === "all" ? "All" : key[0].toUpperCase() + key.slice(1)}
+                {key === "all" ? "All" : key.replace("_", " ").replace(/^\w/, char => char.toUpperCase())}
               </button>
             ))}
           </div>
@@ -522,6 +522,7 @@ export default function ControlCentrePage({ appData, actions }) {
                 <small>
                   {item.submitted_username || item.submitted_email || "Unknown user"} - {formatDateTime(item.created_at)}
                 </small>
+                <small>Votes: +{item.up_votes || 0} / -{item.down_votes || 0}</small>
                 {item.admin_note && <small>Admin note: {item.admin_note}</small>}
               </div>
               <div className="admin-user-actions">
@@ -532,6 +533,7 @@ export default function ControlCentrePage({ appData, actions }) {
                   <option value="new">New</option>
                   <option value="reviewed">Reviewed</option>
                   <option value="planned">Planned</option>
+                  <option value="in_progress">In progress</option>
                   <option value="done">Done</option>
                   <option value="rejected">Rejected</option>
                 </select>

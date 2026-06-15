@@ -44,6 +44,7 @@ const blankHouseForm = {
   purchasePrice: "",
   purchaseDate: "",
   propertyValue: "",
+  agreementNotes: "",
   notes: "",
   ownershipMode: "contributionTracking",
   mortgageOriginalAmount: "",
@@ -236,6 +237,7 @@ export default function LoansPage({ appData, actions }) {
       purchasePrice: String(house.purchasePrice ?? ""),
       purchaseDate: house.purchaseDate || "",
       propertyValue: String(house.propertyValue ?? ""),
+      agreementNotes: house.agreementNotes || "",
       notes: house.notes || "",
       ownershipMode: house.ownershipMode || "contributionTracking",
       mortgageOriginalAmount: String(house.mortgage?.originalAmount ?? ""),
@@ -270,6 +272,7 @@ export default function LoansPage({ appData, actions }) {
       purchasePrice: Number(houseForm.purchasePrice || 0),
       purchaseDate: houseForm.purchaseDate || null,
       propertyValue: Number(houseForm.propertyValue || 0),
+      agreementNotes: houseForm.agreementNotes.trim(),
       notes: houseForm.notes.trim(),
       ownershipMode: houseForm.ownershipMode,
       status: editingHouse?.status || "active",
@@ -1230,6 +1233,12 @@ function HouseDetailPanel({
         </section>
 
         <section className="sub-card house-tab-card">
+          <h4>Agreement notes</h4>
+          <p className="muted-text">Personal tracking note. Not legal advice and not proof of legal ownership.</p>
+          <p>{house.agreementNotes || "No agreement notes recorded yet."}</p>
+        </section>
+
+        <section className="sub-card house-tab-card">
           <h4>Mortgage details</h4>
           <div className="loan-detail-grid">
             <InfoMetric label="Original mortgage" value={formatMoney(house.mortgage?.originalAmount || 0)} />
@@ -1238,6 +1247,7 @@ function HouseDetailPanel({
             <InfoMetric label="Term" value={`${Number(house.mortgage?.termYears || 0)} years`} />
           </div>
           <p className="muted-text">Linked account: {linkedAccount?.name || "None selected"}</p>
+          <MortgageOverpaymentMiniCalculator house={house} />
         </section>
 
         <section className="sub-card house-tab-card">
@@ -1282,6 +1292,7 @@ function HouseDetailPanel({
               Manual ownership total: {summary.manualTotalPercentage.toFixed(1)}%. {summary.manualSplitValid ? "Looks valid." : "This should total 100%."}
             </p>
           )}
+          <HouseBalanceEstimate summary={summary} />
         </section>
 
         <section className="sub-card house-tab-card">
@@ -1426,6 +1437,82 @@ function HouseSharingPanel({
   );
 }
 
+function HouseBalanceEstimate({ summary }) {
+  if (!summary.people.length || summary.totalContributed <= 0) return null;
+  const manualSplits = new Map(summary.splits.map(split => [split.personId, Number(split.percentage || 0)]));
+  const hasManual = summary.manualSplitValid && manualSplits.size > 0;
+  const equalPercent = summary.people.length > 0 ? 100 / summary.people.length : 0;
+  const rows = summary.people.map(person => {
+    const actual = summary.byPerson.find(item => item.personId === person.id)?.amount || 0;
+    const expectedPercent = hasManual ? manualSplits.get(person.id) || 0 : equalPercent;
+    const expected = summary.totalContributed * (expectedPercent / 100);
+    return { person, expected, actual, difference: actual - expected };
+  });
+  return (
+    <div className="house-balance-estimate">
+      <h5>Contribution balance</h5>
+      <p className="muted-text">Ahead / behind estimate only. This is not a legal debt record.</p>
+      <div className="loan-event-table-wrap">
+        <table className="loan-event-table">
+          <thead><tr><th>Person</th><th>Expected</th><th>Actual</th><th>Difference</th></tr></thead>
+          <tbody>
+            {rows.map(row => (
+              <tr key={row.person.id}>
+                <td>{row.person.name}</td>
+                <td>{formatMoney(row.expected)}</td>
+                <td>{formatMoney(row.actual)}</td>
+                <td className={row.difference >= 0 ? "positive-text" : "negative-text"}>{row.difference >= 0 ? "Ahead " : "Behind "}{formatMoney(Math.abs(row.difference))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function MortgageOverpaymentMiniCalculator({ house }) {
+  const mortgage = house.mortgage || {};
+  const balance = Number(mortgage.currentBalance || 0);
+  const rate = Number(mortgage.interestRate || 0) / 100 / 12;
+  const basePayment = Number(mortgage.monthlyPayment || 0);
+  const termMonths = Math.max(1, Number(mortgage.termYears || 0) * 12);
+  const [extra, setExtra] = useState("");
+  const extraPayment = Number(extra || 0);
+
+  function simulate(paymentExtra = 0) {
+    let remaining = balance;
+    let months = 0;
+    let interest = 0;
+    const payment = Math.max(0, basePayment + paymentExtra);
+    if (!remaining || !payment) return { months: termMonths, interest: 0 };
+    while (remaining > 0 && months < 600) {
+      const monthlyInterest = remaining * rate;
+      interest += monthlyInterest;
+      remaining = Math.max(0, remaining + monthlyInterest - payment);
+      months += 1;
+      if (payment <= monthlyInterest && rate > 0) break;
+    }
+    return { months, interest };
+  }
+
+  const base = simulate(0);
+  const withExtra = simulate(extraPayment);
+  if (!balance || !basePayment) return null;
+  return (
+    <div className="mortgage-mini-calculator">
+      <h5>Overpayment estimate</h5>
+      <label>Extra monthly overpayment<input type="number" min="0" step="0.01" value={extra} onChange={event => setExtra(event.target.value)} /></label>
+      <p className="muted-text">Fixed-rate estimate only. Real lender calculations can differ.</p>
+      <div className="profile-meta-grid">
+        <p><span>Interest saved</span><strong>{formatMoney(Math.max(0, base.interest - withExtra.interest))}</strong></p>
+        <p><span>Time saved</span><strong>{Math.max(0, base.months - withExtra.months)} month(s)</strong></p>
+        <p><span>Estimated payoff</span><strong>{withExtra.months} month(s)</strong></p>
+      </div>
+    </div>
+  );
+}
+
 function InfoMetric({ label, value }) {
   return (
     <div className="loan-detail-card sub-card">
@@ -1512,6 +1599,7 @@ function HouseModal({ houseForm, editingHouse, accounts, updateHouseForm, closeH
             <label>Ownership/contribution mode<select value={houseForm.ownershipMode} onChange={event => updateHouseForm("ownershipMode", event.target.value)}>
               {HOUSE_OWNERSHIP_MODES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select></label>
+            <label className="full-width">Agreement notes / personal tracking note<textarea value={houseForm.agreementNotes} onChange={event => updateHouseForm("agreementNotes", event.target.value)} placeholder="Mortgage split, deposit tracking, renovation rules..." /></label>
             <label className="full-width">Notes<textarea value={houseForm.notes} onChange={event => updateHouseForm("notes", event.target.value)} /></label>
           </div>
         </div>

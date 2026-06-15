@@ -1,4 +1,7 @@
 import { formatMoney } from "./money.js";
+import { getBackupReminder } from "../services/storageService.js";
+import { getBudgetWarnings } from "./calculations.js";
+import { daysElapsedInMonth } from "./dates.js";
 
 function parseLocalDate(value) {
   if (!value) return null;
@@ -24,6 +27,34 @@ export function buildAppNotifications(appData, options = {}) {
   const today = options.today ? parseLocalDate(options.today) : new Date();
   const dueWindowDays = Number(appData.settings?.billReminderDays ?? 7);
   const notifications = [];
+  const selectedMonth = options.monthKey || new Date().toISOString().slice(0, 7);
+  const backupReminder = getBackupReminder(appData.settings || {});
+
+  if (backupReminder.level === "danger" || backupReminder.level === "warning") {
+    notifications.push({
+      id: `backup-${backupReminder.level}-${appData.settings?.lastDataChangedAt || "latest"}`,
+      type: backupReminder.level === "danger" ? "danger" : "warning",
+      title: backupReminder.title,
+      message: backupReminder.message,
+      date: appData.settings?.lastDataChangedAt || new Date().toISOString(),
+      sortValue: backupReminder.level === "danger" ? -200 : -150,
+      actionPage: "settings"
+    });
+  }
+
+  const monthElapsedPercent = (daysElapsedInMonth(selectedMonth) / new Date(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0).getDate()) * 100;
+  getBudgetWarnings(appData, selectedMonth).slice(0, 4).forEach(item => {
+    const aheadOfPace = item.usedPercent > monthElapsedPercent + 20;
+    notifications.push({
+      id: `budget-${item.id}-${selectedMonth}`,
+      type: item.usedPercent > 100 ? "danger" : aheadOfPace ? "warning" : "notice",
+      title: `${item.category?.name || "Budget"} ${item.usedPercent > 100 ? "over budget" : "budget warning"}`,
+      message: `${item.usedPercent.toFixed(0)}% used${aheadOfPace ? `; ${monthElapsedPercent.toFixed(0)}% through month` : ""}`,
+      date: selectedMonth,
+      sortValue: item.usedPercent > 100 ? -120 : -80,
+      actionPage: "budgets"
+    });
+  });
 
   const activeBills = (appData.recurringItems || []).filter(item => (
     item.isActive !== false && !item.archivedAt && item.reminderEnabled !== false

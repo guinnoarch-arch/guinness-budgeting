@@ -3403,6 +3403,53 @@ th {
   margin-top: 2px;
 }
 
+.clickable-card {
+  cursor: pointer;
+}
+
+.clickable-card:focus-visible {
+  outline: 3px solid rgba(47, 107, 255, 0.28);
+  outline-offset: 3px;
+}
+
+.compact-insight-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.command-panel {
+  position: fixed;
+  top: 84px;
+  right: 18px;
+  z-index: 130;
+  width: min(430px, calc(100vw - 24px));
+  max-height: calc(100vh - 110px);
+  overflow: auto;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+
+.command-panel input {
+  width: 100%;
+}
+
+.quick-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.breakdown-modal .profile-meta-grid strong {
+  text-align: right;
+}
+
 .wide-modal-card {
   width: min(1080px, 100%);
 }
@@ -4603,6 +4650,18 @@ button[disabled] {
   .page-content {
     gap: 12px;
     padding: 12px 0 24px;
+  }
+
+  .command-panel {
+    top: 76px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+
+  .compact-insight-card {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .card,

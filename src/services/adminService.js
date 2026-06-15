@@ -261,6 +261,27 @@ export async function listAdminFeatureSuggestions(settings = {}, status = "all")
   return Array.isArray(rows) ? rows : [];
 }
 
+export async function listFeatureSuggestions(settings = {}, status = "all") {
+  const rows = await supabaseRestFetch(settings, "rpc/gh_list_feature_suggestions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ p_status: status === "all" ? null : status })
+  });
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function voteFeatureSuggestion(settings = {}, suggestionId, voteValue) {
+  const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_vote_feature_suggestion", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      p_suggestion_id: suggestionId,
+      p_vote: voteValue
+    })
+  }));
+  return row;
+}
+
 export async function updateAdminFeatureSuggestion(settings = {}, suggestionId, status, adminNote = "") {
   const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_admin_update_feature_suggestion", {
     method: "POST",
