@@ -7,6 +7,96 @@ const month = getMonthKey(now);
 const previousMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 const previousMonth = getMonthKey(previousMonthDate);
 
+const EXAMPLE_SOURCE = "example";
+const exampleAccountBalances = {
+  acc_current: 750,
+  acc_savings: 1200,
+  acc_cash: 40
+};
+
+const knownExampleIds = new Set([
+  "txn_wages_this",
+  "txn_loan_this",
+  "txn_rent_this",
+  "txn_food_this",
+  "txn_fuel_this",
+  "txn_saving_this",
+  "txn_income_prev",
+  "txn_spend_prev",
+  "bud_rent",
+  "bud_food",
+  "bud_fuel",
+  "bud_going_out",
+  "bud_everything_else",
+  "rec_rent",
+  "rec_energy",
+  "rec_spotify",
+  "goal_holiday",
+  "loan_example_student",
+  "loan_example_mortgage",
+  "house_from_loan_example_mortgage"
+]);
+
+export function isExampleRecord(record = {}) {
+  return Boolean(
+    record?.isExample
+    || record?.source === EXAMPLE_SOURCE
+    || record?.source === "demo"
+    || knownExampleIds.has(record?.id)
+    || String(record?.id || "").startsWith("closed_") && Number(record?.carriedForward || 0) === 80
+  );
+}
+
+export function getExampleAccounts() {
+  return defaultAccounts.map(account => ({
+    ...account,
+    openingBalance: exampleAccountBalances[account.id] ?? account.openingBalance ?? 0,
+    isExample: true,
+    source: EXAMPLE_SOURCE
+  }));
+}
+
+function cleanDefaultAccount(account = {}) {
+  if (!account.isDefault && isExampleRecord(account)) return null;
+  if (account.isDefault && (isExampleRecord(account) || exampleAccountBalances[account.id] === Number(account.openingBalance || 0))) {
+    return {
+      ...account,
+      openingBalance: 0,
+      isExample: false,
+      source: undefined
+    };
+  }
+  return account;
+}
+
+export function removeExampleDataFromAppData(data = {}) {
+  const settings = data.settings || {};
+  const accounts = (data.accounts || []).map(cleanDefaultAccount).filter(Boolean);
+  return {
+    ...data,
+    accounts,
+    transactions: (data.transactions || []).filter(item => !isExampleRecord(item)),
+    budgets: (data.budgets || []).filter(item => !isExampleRecord(item)),
+    recurringItems: (data.recurringItems || []).filter(item => !isExampleRecord(item)),
+    savingsGoals: (data.savingsGoals || []).filter(item => !isExampleRecord(item)),
+    closedMonths: (data.closedMonths || []).filter(item => !isExampleRecord(item)),
+    accountAdjustments: (data.accountAdjustments || []).filter(item => !isExampleRecord(item)),
+    loans: (data.loans || []).filter(item => !isExampleRecord(item)),
+    loanEvents: (data.loanEvents || []).filter(item => !isExampleRecord(item)),
+    houses: (data.houses || []).filter(item => !isExampleRecord(item) && !String(item.id || "").startsWith("house_from_loan_example_")),
+    housePeople: (data.housePeople || []).filter(item => !isExampleRecord(item)),
+    houseContributions: (data.houseContributions || []).filter(item => !isExampleRecord(item)),
+    houseMembers: (data.houseMembers || []).filter(item => !isExampleRecord(item)),
+    houseInvites: (data.houseInvites || []).filter(item => !isExampleRecord(item)),
+    houseOwnershipSplits: (data.houseOwnershipSplits || []).filter(item => !isExampleRecord(item)),
+    settings: {
+      ...settings,
+      useExampleData: false,
+      startedWithExampleData: false
+    }
+  };
+}
+
 export function getInitialAppData() {
   return {
     transactions: [
@@ -155,14 +245,14 @@ export function getInitialAppData() {
         updatedAt: new Date().toISOString()
       }
     ],
-    accounts: defaultAccounts,
+    accounts: getExampleAccounts(),
     categories: defaultCategories,
     budgets: [
-      { id: "bud_rent", categoryId: "cat_rent", accountId: "acc_current", month, limit: 550, isEnabled: true },
-      { id: "bud_food", categoryId: "cat_food", accountId: "acc_current", month, limit: 220, isEnabled: true },
-      { id: "bud_fuel", categoryId: "cat_fuel", accountId: "acc_current", month, limit: 120, isEnabled: true },
-      { id: "bud_going_out", categoryId: "cat_going_out", accountId: "acc_current", month, limit: 100, isEnabled: true },
-      { id: "bud_everything_else", categoryId: "cat_everything_else", accountId: "acc_current", month, limit: 80, isEnabled: true }
+      { id: "bud_rent", categoryId: "cat_rent", accountId: "acc_current", month, limit: 550, isEnabled: true, isExample: true, source: EXAMPLE_SOURCE },
+      { id: "bud_food", categoryId: "cat_food", accountId: "acc_current", month, limit: 220, isEnabled: true, isExample: true, source: EXAMPLE_SOURCE },
+      { id: "bud_fuel", categoryId: "cat_fuel", accountId: "acc_current", month, limit: 120, isEnabled: true, isExample: true, source: EXAMPLE_SOURCE },
+      { id: "bud_going_out", categoryId: "cat_going_out", accountId: "acc_current", month, limit: 100, isEnabled: true, isExample: true, source: EXAMPLE_SOURCE },
+      { id: "bud_everything_else", categoryId: "cat_everything_else", accountId: "acc_current", month, limit: 80, isEnabled: true, isExample: true, source: EXAMPLE_SOURCE }
     ],
     recurringItems: [
       {
@@ -286,6 +376,8 @@ export function getInitialAppData() {
         savingsTransfers: 100,
         carriedForward: 80,
         movedToSavings: 100,
+        isExample: true,
+        source: EXAMPLE_SOURCE,
         closedAt: new Date(previousMonthDate.getFullYear(), previousMonthDate.getMonth() + 1, 1).toISOString()
       }
     ],

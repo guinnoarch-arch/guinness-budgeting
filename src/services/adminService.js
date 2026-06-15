@@ -238,6 +238,42 @@ export async function setAdminUserBlocked(settings = {}, targetUserId, blocked) 
   return row;
 }
 
+export async function submitFeatureSuggestion(settings = {}, message) {
+  const text = String(message || "").trim();
+  if (!text) throw new Error("Enter a suggestion first.");
+  if (!getStoredCloudSessionSummary(settings)?.signedIn || !isCloudBackupConfigured(settings)) {
+    throw new Error("Suggestion saved locally because cloud suggestion sync is not available.");
+  }
+  const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_submit_feature_suggestion", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ p_message: text })
+  }));
+  return row;
+}
+
+export async function listAdminFeatureSuggestions(settings = {}, status = "all") {
+  const rows = await supabaseRestFetch(settings, "rpc/gh_admin_list_feature_suggestions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ p_status: status === "all" ? null : status })
+  });
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function updateAdminFeatureSuggestion(settings = {}, suggestionId, status, adminNote = "") {
+  const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_admin_update_feature_suggestion", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      p_suggestion_id: suggestionId,
+      p_status: status,
+      p_admin_note: adminNote
+    })
+  }));
+  return row;
+}
+
 export function createAdminAuditEntry(action, details = {}, actor = {}) {
   return {
     id: `admin_audit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,

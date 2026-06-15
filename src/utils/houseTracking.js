@@ -50,6 +50,8 @@ export function normaliseHouseRecord(record = {}) {
     archivedAt: house.archivedAt || null,
     ownershipMode: house.ownershipMode || "contributionTracking",
     linkedLoanId: house.linkedLoanId || house.migratedFromLoanId || null,
+    isExample: Boolean(house.isExample),
+    source: house.source || null,
     mortgage: {
       originalAmount: safeNumber(mortgage.originalAmount ?? house.mortgageOriginalAmount, 0),
       currentBalance: safeNumber(mortgage.currentBalance ?? house.mortgageCurrentBalance, 0),
@@ -165,6 +167,8 @@ export function createHouseFromMortgageLoan(loan = {}) {
     ownershipMode: "contributionTracking",
     linkedLoanId: loan.id,
     migratedFromLoanId: loan.id,
+    isExample: Boolean(loan.isExample),
+    source: loan.source || (loan.isExample ? "example" : null),
     mortgage: {
       originalAmount: loan.originalAmount || 0,
       currentBalance: loan.currentBalance || 0,

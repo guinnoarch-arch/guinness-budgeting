@@ -20,7 +20,7 @@ import ImportPage from "./pages/ImportPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 import ControlCentrePage from "./pages/ControlCentrePage.jsx";
 
-import { getInitialAppData } from "./data/exampleData.js";
+import { getInitialAppData, removeExampleDataFromAppData } from "./data/exampleData.js";
 import {
   STORAGE_LOAD_FAILURE_CODE,
   exportJsonBackup,
@@ -994,15 +994,10 @@ function App() {
       <WelcomeScreen
         onSetup={(profilePatch) => setAppData(prev => {
           const profiledData = applyProfilePatch(prev, profilePatch);
-          return {
+          return removeExampleDataFromAppData({
             ...profiledData,
-            settings: { ...profiledData.settings, hasStarted: true, hasCompletedSetup: true, useExampleData: false },
-            transactions: profiledData.transactions.filter(item => !item.isExample),
-            recurringItems: profiledData.recurringItems.filter(item => !item.isExample),
-            savingsGoals: profiledData.savingsGoals.filter(goal => !goal.isExample),
-            loans: (profiledData.loans || []).filter(loan => !loan.isExample),
-            loanEvents: (profiledData.loanEvents || []).filter(event => !event.isExample)
-          };
+            settings: { ...profiledData.settings, hasStarted: true, hasCompletedSetup: true, useExampleData: false }
+          });
         })}
         onExplore={(profilePatch) => setAppData(prev => {
           const profiledData = applyProfilePatch(prev, profilePatch);

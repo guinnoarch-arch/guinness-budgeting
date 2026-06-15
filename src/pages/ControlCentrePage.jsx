@@ -10,12 +10,14 @@ import {
   STABLE_PRODUCTION_APP_URL,
   getAdminStatus,
   getFeatureFlags,
+  listAdminFeatureSuggestions,
   listAdminAuditLog,
   listAdminUsers,
   setAdminClaimMode,
   setAdminUserBlocked,
   setAdminUserRole,
-  setFeatureFlag
+  setFeatureFlag,
+  updateAdminFeatureSuggestion
 } from "../services/adminService.js";
 import { isCloudBackupConfigured } from "../services/cloudBackupService.js";
 
@@ -99,6 +101,9 @@ export default function ControlCentrePage({ appData, actions }) {
   const [userFilter, setUserFilter] = useState("all");
   const [userStatus, setUserStatus] = useState("");
   const [userListLoaded, setUserListLoaded] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionFilter, setSuggestionFilter] = useState("all");
+  const [suggestionStatus, setSuggestionStatus] = useState("");
   const storageHealth = useMemo(() => getStorageHealth(appData), [appData]);
   const backupReminder = getBackupReminder(settings);
   const publicUrlCheck = getPublicUrlCheck();
@@ -151,6 +156,31 @@ export default function ControlCentrePage({ appData, actions }) {
       setAuditLog(rows);
     } catch (error) {
       setAuditStatus(error.message || "Could not load admin audit log.");
+    }
+  }
+
+  async function refreshSuggestions(filter = suggestionFilter) {
+    if (!adminStatus.isAdmin) return;
+    setSuggestionStatus("");
+    try {
+      const rows = await listAdminFeatureSuggestions(settings, filter);
+      setSuggestions(rows);
+    } catch (error) {
+      setSuggestions([]);
+      setSuggestionStatus(isMissingAdminSqlError(error.message) || /gh_admin_list_feature_suggestions|gh_feature_suggestions/i.test(String(error.message || ""))
+        ? "Suggestion SQL setup has not been run yet. Run the latest Supabase SQL setup, wait 30-60 seconds, then refresh."
+        : error.message || "Could not load feature suggestions.");
+    }
+  }
+
+  async function updateSuggestion(item, patch) {
+    setSuggestionStatus("Updating suggestion...");
+    try {
+      await updateAdminFeatureSuggestion(settings, item.id, patch.status || item.status, patch.admin_note ?? item.admin_note ?? "");
+      setSuggestionStatus("Suggestion updated.");
+      await Promise.all([refreshSuggestions(), refreshAuditLog()]);
+    } catch (error) {
+      setSuggestionStatus(error.message || "Could not update suggestion.");
     }
   }
 
@@ -244,6 +274,16 @@ export default function ControlCentrePage({ appData, actions }) {
           if (!cancelled) setAuditLog(rows);
         }).catch(error => {
           if (!cancelled) setAuditStatus(error.message || "Could not load admin audit log.");
+        }),
+        listAdminFeatureSuggestions(settings, suggestionFilter).then(rows => {
+          if (!cancelled) setSuggestions(rows);
+        }).catch(error => {
+          if (!cancelled) {
+            setSuggestions([]);
+            setSuggestionStatus(/gh_admin_list_feature_suggestions|gh_feature_suggestions|schema cache|function .*not found|could not find the function/i.test(String(error.message || ""))
+              ? "Suggestion SQL setup has not been run yet. Run the latest Supabase SQL setup, wait 30-60 seconds, then refresh."
+              : error.message || "Could not load feature suggestions.");
+          }
         })
       ]);
     }
@@ -252,7 +292,7 @@ export default function ControlCentrePage({ appData, actions }) {
     return () => {
       cancelled = true;
     };
-  }, [adminStatus.isAdmin, adminStatus.adminClaimEnabled, settings.cloudBackup?.supabaseUrl, settings.cloudBackup?.supabaseAnonKey]);
+  }, [adminStatus.isAdmin, adminStatus.adminClaimEnabled, suggestionFilter, settings.cloudBackup?.supabaseUrl, settings.cloudBackup?.supabaseAnonKey]);
 
   const filteredUsers = users.filter(user => {
     const query = userSearch.trim().toLowerCase();
@@ -443,6 +483,71 @@ export default function ControlCentrePage({ appData, actions }) {
           </table>
           {userListLoaded && filteredUsers.length === 0 && <p className="muted-text">No users match this filter.</p>}
           {!userListLoaded && <p className="muted-text">User list is unavailable until the admin SQL setup has been run.</p>}
+        </div>
+      </div>
+
+      <div className="card control-panel users-admin-panel">
+        <div className="panel-heading admin-users-heading">
+          <div>
+            <h3>Feature suggestions</h3>
+            <p>Safe user-submitted app ideas. No financial records are shown here.</p>
+          </div>
+          <button type="button" className="secondary-button small" onClick={() => refreshSuggestions()}>Refresh</button>
+        </div>
+
+        <div className="admin-user-tools">
+          <div className="segmented-control admin-filter-tabs" role="group" aria-label="Suggestion filter">
+            {["all", "new", "reviewed", "planned", "done", "rejected"].map(key => (
+              <button
+                key={key}
+                type="button"
+                className={suggestionFilter === key ? "active" : ""}
+                onClick={() => setSuggestionFilter(key)}
+              >
+                {key === "all" ? "All" : key[0].toUpperCase() + key.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {suggestionStatus && <p className="cloud-status-message compact-status warning-status">{suggestionStatus}</p>}
+
+        <div className="suggestion-list">
+          {suggestions.length === 0 ? (
+            <p className="muted-text">No feature suggestions match this filter.</p>
+          ) : suggestions.map(item => (
+            <div className="suggestion-row" key={item.id}>
+              <div>
+                <strong>{item.message}</strong>
+                <small>
+                  {item.submitted_username || item.submitted_email || "Unknown user"} - {formatDateTime(item.created_at)}
+                </small>
+                {item.admin_note && <small>Admin note: {item.admin_note}</small>}
+              </div>
+              <div className="admin-user-actions">
+                <select
+                  value={item.status || "new"}
+                  onChange={event => updateSuggestion(item, { status: event.target.value })}
+                >
+                  <option value="new">New</option>
+                  <option value="reviewed">Reviewed</option>
+                  <option value="planned">Planned</option>
+                  <option value="done">Done</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+                <button
+                  type="button"
+                  className="secondary-button small"
+                  onClick={() => {
+                    const note = prompt("Admin note", item.admin_note || "");
+                    if (note !== null) updateSuggestion(item, { admin_note: note });
+                  }}
+                >
+                  Note
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

@@ -211,7 +211,7 @@ export default function AppShell({
   const connectionLabel = pwaInstall?.isLocalAccessMode ? "Local mode" : pwaInstall?.isOnline ? "Online" : "Offline";
   const connectionClass = pwaInstall?.isLocalAccessMode ? "connection-pill local-mode" : pwaInstall?.isOnline ? "connection-pill online" : "connection-pill offline";
   const profileName = appData.profile?.displayName || appData.profile?.username || "Local user";
-  const showHeaderBackupButton = !actions.phoneMode || backupButtonLevel === "danger";
+  const showHeaderBackupButton = backupButtonLevel === "danger";
   const showInstallBanner = Boolean(
     pwaInstall?.installPrompt
     && !pwaInstall?.isInstalled
@@ -423,9 +423,6 @@ export default function AppShell({
                 Backup Now
               </button>
             )}
-            <button className="secondary-button header-logout-button" onClick={actions.logoutApp} title="Back up if needed, then sign out">
-              Logout
-            </button>
             <button className="primary-button" onClick={actions.openAddTransaction}>
               + Add Transaction
             </button>

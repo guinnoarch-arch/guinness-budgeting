@@ -18,7 +18,7 @@ import {
   prepareRestoredAppData,
   updateLocalProfile
 } from "../services/storageService.js";
-import { getInitialAppData } from "../data/exampleData.js";
+import { getInitialAppData, removeExampleDataFromAppData } from "../data/exampleData.js";
 import PwaInstallCard from "../components/settings/PwaInstallCard.jsx";
 import { createId } from "../utils/ids.js";
 import { getReceiptStorageStats, restoreReceiptBackupRecords } from "../services/receiptStorageService.js";
@@ -47,7 +47,7 @@ import {
   signInWithEmailOrUsername,
   signUpWithEmail
 } from "../services/authService.js";
-import { ADMIN_ROLE_FIELD, ADMIN_ROUTE_PATH, claimAdminRole } from "../services/adminService.js";
+import { ADMIN_ROLE_FIELD, ADMIN_ROUTE_PATH, claimAdminRole, submitFeatureSuggestion } from "../services/adminService.js";
 
 function formatDateTime(value) {
   if (!value) return "Never";
@@ -263,6 +263,7 @@ export default function SettingsPage({ appData, actions }) {
   const [storageHealth, setStorageHealth] = useState(() => getStorageHealth(appData));
   const [persistentStorageStatus, setPersistentStorageStatus] = useState("");
   const [newSuggestionText, setNewSuggestionText] = useState("");
+  const [suggestionStatus, setSuggestionStatus] = useState("");
   const [validationReport, setValidationReport] = useState(null);
   const [validationStatus, setValidationStatus] = useState("");
   const [storageLogs, setStorageLogs] = useState([]);
@@ -854,17 +855,9 @@ export default function SettingsPage({ appData, actions }) {
   }
 
   function removeExampleData() {
-    if (!confirm("Remove example data? Default categories and accounts will stay.")) return;
-    actions.updateAppData({
-      ...appData,
-      transactions: appData.transactions.filter(item => !item.isExample),
-      recurringItems: appData.recurringItems.filter(item => !item.isExample),
-      savingsGoals: appData.savingsGoals.filter(item => !item.isExample),
-      loans: (appData.loans || []).filter(item => !item.isExample),
-      loanEvents: (appData.loanEvents || []).filter(item => !item.isExample),
-      closedMonths: appData.closedMonths.filter(item => !item.isExample),
-      settings: { ...settings, useExampleData: false }
-    });
+    if (!confirm("Remove example data? This removes demo transactions, budgets, bills, goals, closed months and example loan/house records. Default categories and real data will stay.")) return;
+    actions.updateAppData(removeExampleDataFromAppData(appData), { reason: "Example data removed" });
+    alert("Example data removed. Any remaining dashboard values come from real data only.");
   }
 
   async function resetAll() {
@@ -1087,7 +1080,7 @@ export default function SettingsPage({ appData, actions }) {
   const unassignedCategoryRules = savedCategoryRules.filter(rule => !rule.categoryId || !appData.categories.some(category => category.id === rule.categoryId));
 
 
-  function addFutureSuggestion(event) {
+  async function addFutureSuggestion(event) {
     event.preventDefault();
     const text = newSuggestionText.trim();
     if (!text) return;
@@ -1101,6 +1094,19 @@ export default function SettingsPage({ appData, actions }) {
       createdAt: now,
       updatedAt: now
     };
+
+    setSuggestionStatus("");
+    try {
+      await submitFeatureSuggestion(settings, text);
+      nextSuggestion.syncedToAdmin = true;
+      nextSuggestion.status = "new";
+      setSuggestionStatus("Suggestion sent to the Admin Control Centre.");
+    } catch (error) {
+      nextSuggestion.syncedToAdmin = false;
+      setSuggestionStatus(error.message?.includes("SQL setup")
+        ? "Suggestion saved locally. Run the updated Supabase SQL setup before admin sync is available."
+        : "Suggestion saved locally because admin sync is not available from this session.");
+    }
 
     actions.updateAppData({
       ...appData,
@@ -2230,7 +2236,7 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header settings-accordion-heading" {...sectionHeaderProps("exampleData")}>
           <div>
             <h3>Example data</h3>
-            <p className="muted-text">Remove fake transactions and example goals while keeping default categories/accounts.</p>
+            <p className="muted-text">Remove demo transactions, budgets, carry-forward, goals and example house/loan data while keeping default categories and real records.</p>
           </div>
           <SectionChevron sectionId="exampleData" />
         </div>
@@ -2263,7 +2269,7 @@ export default function SettingsPage({ appData, actions }) {
             <div className="suggestion-section">
               <div>
                 <h4>Suggestions</h4>
-                <p className="muted-text">Local list for ideas you want to remember. Later this can become a user feedback/suggestion inbox.</p>
+                <p className="muted-text">Signed-in suggestions are sent to the Admin Control Centre. If cloud admin SQL is unavailable, a local copy is kept here.</p>
               </div>
 
               <form className="suggestion-form" onSubmit={addFutureSuggestion}>
@@ -2275,6 +2281,7 @@ export default function SettingsPage({ appData, actions }) {
                 />
                 <button className="primary-button">Add suggestion</button>
               </form>
+              {suggestionStatus && <p className="cloud-status-message compact-status">{suggestionStatus}</p>}
 
               {(settings.futureSuggestions || []).length === 0 ? (
                 <p className="muted">No suggestions saved yet.</p>

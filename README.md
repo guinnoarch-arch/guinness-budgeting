@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.24 - House sharing now uses Supabase-backed roles, invites and safe house-only RPC access.
+V2.6.25 - Clean setup starts at zero, example data is easier to remove, header actions are calmer, and admin suggestions sync through Supabase.
 
 ## What Is Included
 
