@@ -4,7 +4,7 @@ Local-first React/Vite budgeting app for personal, student and household budgeti
 
 ## Current Version
 
-V2.6.26 - Trust and day-to-day polish: health checks, calculation breakdowns, activity logs, backup risk, month close, house tools, suggestion voting, search, quick actions and smarter notifications.
+V2.6.27 - House now keeps the full mortgage tracker inside each property, including detailed mortgage fields, projections, linked payments, overpayments and old mortgage-data compatibility.
 
 ## What Is Included
 
@@ -47,6 +47,8 @@ Loans -> House
 
 House tracking replaces the old mortgage-only focus with a broader property view. A house can store property value, purchase details, mortgage details, people involved, deposits, mortgage payments, overpayments and other house costs.
 
+Mortgage tracking remains a full feature inside each House. Open `Loans -> House`, choose a house, then use the `Mortgage` section for summary cards, detailed mortgage fields, projected payoff, balance graph, payment/overpayment history and overpayment estimates.
+
 Contribution sources:
 
 - `External contribution`: records money paid outside tracked app accounts. It does not change account balances.
@@ -54,6 +56,19 @@ Contribution sources:
 - `Manual adjustment`: records a correcting contribution entry without touching account balances.
 
 Contribution split is shown as tracking only. It is not legal ownership. Manual ownership percentages can be recorded separately and should total 100% when used.
+
+Legacy mortgage data maps into House safely:
+
+- `loan.originalAmount` -> `house.mortgage.originalAmount`
+- `loan.currentBalance` -> `house.mortgage.currentBalance`
+- `loan.startDate` -> `house.mortgage.startDate`
+- `loan.mortgageDetails.currentRate` -> `house.mortgage.interestRate`
+- `loan.mortgageDetails.monthlyPayment` -> `house.mortgage.monthlyPayment`
+- `loan.mortgageDetails.fixedUntil` -> `house.mortgage.fixedEndDate`
+- `loan.mortgageDetails.plannedMonthlyOverpayment` -> `house.mortgage.plannedMonthlyOverpayment`
+- `loan.mortgageDetails.overpaymentAllowancePercent` -> `house.mortgage.overpaymentAllowancePercent`
+
+Linked mortgage transactions affect tracked accounts once and can also appear in the House mortgage/contribution view. External mortgage payments and overpayments are house records only; they do not change account balances.
 
 Existing mortgage loan records are preserved and mapped into House records where possible. Student loans continue to use the existing Loans tracker.
 

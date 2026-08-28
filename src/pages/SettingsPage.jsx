@@ -252,6 +252,7 @@ const ACCENT_PRESETS = [
 ];
 
 const CHANGELOG_ITEMS = [
+  "V2.6.27 restores the full mortgage tracker inside House, including mortgage projections, linked payment history and richer mortgage fields.",
   "V2.6.26 adds app health, dashboard breakdowns, activity log, backup risk, month close assistant, budget templates and suggestion voting foundations.",
   "V2.6.25 cleaned setup defaults, example data removal, header actions and admin suggestions.",
   "V2.6.24 added Supabase-backed house sharing."

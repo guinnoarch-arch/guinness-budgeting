@@ -345,6 +345,13 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
 
   analysis.rows.forEach(previewRow => {
     const edit = rowEdits[previewRow.id] || {};
+    const effectivePreviewRow = {
+      ...previewRow,
+      date: edit.date || previewRow.date,
+      description: edit.description || previewRow.description,
+      amount: Number(edit.amount ?? previewRow.amount),
+      signedAmount: (Number(edit.amount ?? previewRow.amount) || 0) * (previewRow.signedAmount < 0 ? -1 : 1)
+    };
     const include = edit.include ?? previewRow.defaultInclude;
     if (!include) {
       skippedRows.push({ rowIndex: previewRow.rowIndex, reason: "not_selected" });
@@ -358,7 +365,7 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
     const linkedAccountId = edit.linkedAccountId || previewRow.linkedAccountId || null;
     const matchTransactionId = edit.matchTransactionId || previewRow.matchTransactionId || null;
 
-    const bankRow = buildMatchedBankRow(previewRow, importBatchId, accountId);
+    const bankRow = buildMatchedBankRow(effectivePreviewRow, importBatchId, accountId);
 
     if (rowAction === "duplicate") {
       skippedRows.push({ rowIndex: previewRow.rowIndex, reason: "duplicate" });
@@ -366,22 +373,30 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
     }
 
     if (rowAction === "match_existing_transfer" && matchTransactionId) {
-      nextData.transactions = nextData.transactions.map(transaction => {
-        if (transaction.id !== matchTransactionId) return transaction;
-        return mergeImportedTransaction(transaction, previewRow, bankRow, now, true);
-      });
+      const existingMatch = nextData.transactions.find(transaction => transaction.id === matchTransactionId);
+      if (existingMatch?.type !== "transfer" && linkedAccountId && linkedAccountId !== accountId) {
+        nextData.transactions = nextData.transactions.map(transaction => {
+          if (transaction.id !== matchTransactionId) return transaction;
+          return convertToLinkedTransfer(transaction, effectivePreviewRow, bankRow, accountId, linkedAccountId, now);
+        });
+      } else {
+        nextData.transactions = nextData.transactions.map(transaction => {
+          if (transaction.id !== matchTransactionId) return transaction;
+          return mergeImportedTransaction(transaction, effectivePreviewRow, bankRow, now, true);
+        });
+      }
       linkedTransactionIds.push(matchTransactionId);
-      rememberTransferMappings(nextData, previewRow, accountId, linkedAccountId, now);
+      rememberTransferMappings(nextData, effectivePreviewRow, accountId, linkedAccountId, now);
       return;
     }
 
     if (rowAction === "match_planned" && matchTransactionId) {
       nextData.transactions = nextData.transactions.map(transaction => {
         if (transaction.id !== matchTransactionId) return transaction;
-        return mergeImportedTransaction(transaction, previewRow, bankRow, now, false, finalExcludeFromBudget);
+        return mergeImportedTransaction(transaction, effectivePreviewRow, bankRow, now, false, finalExcludeFromBudget);
       });
       linkedTransactionIds.push(matchTransactionId);
-      rememberCategoryRule(nextData, previewRow, finalCategoryId, finalType, now);
+      rememberCategoryRule(nextData, effectivePreviewRow, finalCategoryId, finalType, now);
       return;
     }
 
@@ -391,17 +406,17 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
         return;
       }
 
-      const transfer = buildTransferTransaction(previewRow, accountId, linkedAccountId, bankRow, now);
+      const transfer = buildTransferTransaction(effectivePreviewRow, accountId, linkedAccountId, bankRow, now);
       nextData.transactions = [transfer, ...nextData.transactions];
       importedTransactionIds.push(transfer.id);
-      rememberTransferMappings(nextData, previewRow, accountId, linkedAccountId, now);
+      rememberTransferMappings(nextData, effectivePreviewRow, accountId, linkedAccountId, now);
       return;
     }
 
-    const transaction = buildStandardTransaction(previewRow, accountId, finalType, finalCategoryId, bankRow, now, finalExcludeFromBudget);
+    const transaction = buildStandardTransaction(effectivePreviewRow, accountId, finalType, finalCategoryId, bankRow, now, finalExcludeFromBudget);
     nextData.transactions = [transaction, ...nextData.transactions];
     importedTransactionIds.push(transaction.id);
-    rememberCategoryRule(nextData, previewRow, finalCategoryId, finalType, now);
+    rememberCategoryRule(nextData, effectivePreviewRow, finalCategoryId, finalType, now);
   });
 
   let reconciliationAdjustment = null;
@@ -561,14 +576,19 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
   const normalisedDescription = normaliseText(description);
   const sourceRowHash = createSourceRowHash({ accountId, date, amount: signedAmount, description });
 
-  const existingDuplicate = findExistingImportedRow(data, sourceRowHash, accountId, date, signedAmount, description);
+  const oppositeAccountMatch = findOppositeSignAccountMatch(data, accountId, date, signedAmount, description);
+  const existingDuplicate = oppositeAccountMatch ? null : findExistingImportedRow(data, sourceRowHash, accountId, date, signedAmount, description);
   const mappedExternalAccount = findExternalAccountMatch(normalisedMappings, description);
   const transferRule = findTransferRule(transferRules, accountId, description);
   const likelyTransfer = Boolean(transferRule || mappedExternalAccount || isLikelyTransferDescription(description));
-  const linkedAccountId = transferRule?.linkedAccountId || mappedExternalAccount?.gbAccountId || null;
-  const existingTransferMatch = likelyTransfer
-    ? findExistingTransferMatch(data, accountId, linkedAccountId, date, signedAmount)
-    : null;
+  let linkedAccountId = transferRule?.linkedAccountId || mappedExternalAccount?.gbAccountId || null;
+  // Always check for an existing transfer once we know the account/date/amount.
+  // This is important for multi-CSV imports: the first statement may create the
+  // one-sided transfer, and a later statement must be able to attach its
+  // opposite-sign row even when the bank description is just the user's name.
+  const existingTransferMatch = oppositeAccountMatch
+    ? oppositeAccountMatch
+    : findExistingTransferMatch(data, accountId, linkedAccountId, date, signedAmount);
   const plannedMatch = !existingTransferMatch && !existingDuplicate
     ? findPlannedMatch(data, accountId, date, signedAmount, description, likelyTransfer)
     : null;
@@ -585,11 +605,19 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
   let defaultInclude = true;
   let warning = "";
 
-  if (existingDuplicate) {
+  if (existingTransferMatch && existingTransferMatch.matchKind === "opposite_sign_account") {
+    action = "match_existing_transfer";
+    actionLabel = "Opposite-sign match → transfer";
+    type = "transfer";
+    matchTransactionId = existingTransferMatch.id;
+    linkedAccountId = existingTransferMatch.accountId;
+    warning = `Possible transfer: matches ${existingTransferMatch.accountName || "another account"} for the same amount on a nearby date.`;
+  } else if (existingDuplicate) {
     action = "duplicate";
     actionLabel = "Already imported / duplicate";
     defaultInclude = false;
-    warning = "This looks like an existing transaction. It is unticked by default.";
+    matchTransactionId = existingDuplicate.id;
+    warning = "This looks like an existing transaction. Compare both before deciding.";
   } else if (existingTransferMatch) {
     action = "match_existing_transfer";
     actionLabel = "Link to existing transfer";
@@ -640,7 +668,18 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
     suggestedExcludeFromBudget,
     externalAccountName,
     confidence: getConfidenceLabel(action, plannedMatch, existingTransferMatch),
-    matchedTitle: plannedMatch?.title || existingTransferMatch?.title || null,
+    matchedTitle: plannedMatch?.title || existingTransferMatch?.title || existingDuplicate?.title || null,
+    duplicateTransactionId: existingDuplicate?.id || null,
+    duplicateTransaction: existingDuplicate ? {
+      id: existingDuplicate.id,
+      type: existingDuplicate.type,
+      date: existingDuplicate.date,
+      amount: existingDuplicate.amount,
+      title: existingDuplicate.title || "",
+      note: existingDuplicate.note || "",
+      categoryId: existingDuplicate.categoryId || "",
+      accountId: existingDuplicate.accountId || null
+    } : null,
     plannedDate: plannedMatch?.date || null,
     plannedAmount: plannedMatch?.amount ?? null,
     actualDate: date,
@@ -707,6 +746,35 @@ function buildTransferTransaction(previewRow, uploadedAccountId, linkedAccountId
     actualDate: previewRow.date,
     actualAmount: previewRow.amount,
     createdAt: now,
+    updatedAt: now
+  };
+}
+
+function convertToLinkedTransfer(transaction, previewRow, bankRow, uploadedAccountId, linkedAccountId, now) {
+  const existingWasIncoming = getSignedAmountForAccount(transaction, transaction.accountId) > 0;
+  const fromAccountId = existingWasIncoming ? transaction.accountId : uploadedAccountId;
+  const toAccountId = existingWasIncoming ? uploadedAccountId : transaction.accountId;
+  const existingBankRows = Array.isArray(transaction.matchedBankRows) ? transaction.matchedBankRows : [];
+  const nextBankRows = existingBankRows.some(row => row.sourceRowHash === bankRow.sourceRowHash)
+    ? existingBankRows
+    : [bankRow, ...existingBankRows];
+
+  return {
+    ...transaction,
+    type: "transfer",
+    accountId: null,
+    fromAccountId,
+    toAccountId,
+    categoryId: null,
+    date: transaction.date || previewRow.date,
+    amount: previewRow.amount,
+    status: nextBankRows.length >= 2 ? "matched" : "one_side_imported",
+    importSource: transaction.importSource || "csv",
+    actualDate: previewRow.date,
+    actualAmount: previewRow.amount,
+    excludeFromBudget: false,
+    matchedBankRows: nextBankRows,
+    note: `${transaction.note || ""}${transaction.note ? "\n" : ""}Converted to transfer after opposite-sign CSV match: ${previewRow.description}`,
     updatedAt: now
   };
 }
@@ -990,6 +1058,39 @@ function findExistingImportedRow(data, sourceRowHash, accountId, date, signedAmo
     const transactionText = normaliseText(`${transaction.title || ""} ${transaction.note || ""}`);
     return transactionText.includes(text.slice(0, 14)) || text.includes(transactionText.slice(0, 14));
   }) || null;
+}
+
+function findOppositeSignAccountMatch(data, uploadedAccountId, date, signedAmount, description) {
+  const amount = Math.abs(Number(signedAmount || 0));
+  const text = normaliseText(description);
+  if (!uploadedAccountId || !amount || !text) return null;
+
+  const candidates = (data.transactions || [])
+    .filter(transaction => {
+      if (!transaction || transaction.type === "transfer") return false;
+      if (transaction.accountId === uploadedAccountId) return false;
+      if (Math.abs(Number(transaction.amount || 0) - amount) > 0.005) return false;
+      if (daysBetween(transaction.date, date) > 3) return false;
+      return true;
+    })
+    .map(transaction => {
+      const candidateText = normaliseText(`${transaction.title || ""} ${transaction.note || ""}`);
+      const similarity = getTextSimilarity(candidateText, text);
+      const exactText = candidateText === text || candidateText.includes(text) || text.includes(candidateText);
+      const opposite = getSignedAmountForAccount(transaction, transaction.accountId) * signedAmount < 0;
+      const transferSignal = exactText || similarity >= 0.25 || isLikelyTransferDescription(description) || isLikelyTransferDescription(transaction.title || "");
+      if (!opposite || !transferSignal) return null;
+      return {
+        ...transaction,
+        matchKind: "opposite_sign_account",
+        accountName: (data.accounts || []).find(account => account.id === transaction.accountId)?.name || "Another account",
+        matchScore: (exactText ? 70 : 0) + similarity * 30 + Math.max(0, 10 - daysBetween(transaction.date, date) * 3)
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.matchScore - a.matchScore);
+
+  return candidates[0] || null;
 }
 
 function findExistingTransferMatch(data, uploadedAccountId, linkedAccountId, date, signedAmount) {

@@ -101,12 +101,13 @@ function getProjectedBalanceAtDate(appData, analysis, rowEdits) {
   let projected = calculateAccountBalanceAtDate(appData, accountId, cutoffDate);
 
   analysis.rows.forEach(row => {
-    const edit = getRowEdit(rowEdits, row);
+    const edit = getRowEdit(effectiveRowEdits, row);
     const include = edit.include ?? row.defaultInclude;
     if (!include || !row.date || row.date > cutoffDate) return;
 
     const action = edit.action || row.action;
     const type = edit.type || row.type;
+    const signedAmount = Number(edit.amount ?? row.amount) * (row.signedAmount < 0 ? -1 : 1);
     if (action === "duplicate" || action === "match_existing_transfer") return;
 
     if (action === "match_planned" && row.matchTransactionId) {
@@ -115,12 +116,12 @@ function getProjectedBalanceAtDate(appData, analysis, rowEdits) {
         const previousSigned = getSignedAmountForAccount(existing, accountId, cutoffDate);
         projected -= previousSigned;
       }
-      projected += row.signedAmount;
+      projected += signedAmount;
       return;
     }
 
     if (type === "income" || type === "expense" || type === "transfer") {
-      projected += row.signedAmount;
+      projected += signedAmount;
     }
   });
 
@@ -220,6 +221,10 @@ export default function ImportPage({ appData, actions }) {
   const [headers, setHeaders] = useState([]);
   const [rows, setRows] = useState([]);
   const [columnMap, setColumnMap] = useState(emptyColumnMap);
+  const [uploadItems, setUploadItems] = useState([]);
+  const [expandedMappingId, setExpandedMappingId] = useState(null);
+  const [multiRowEdits, setMultiRowEdits] = useState({});
+  const [isMultiAnalysis, setIsMultiAnalysis] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [rowEdits, setRowEdits] = useState({});
   const [createAdjustment, setCreateAdjustment] = useState(false);
@@ -228,49 +233,107 @@ export default function ImportPage({ appData, actions }) {
   const [accountModal, setAccountModal] = useState(null);
   const [accountForm, setAccountForm] = useState(emptyAccountForm);
   const [detailBatchId, setDetailBatchId] = useState(null);
+  const [duplicateReviewRowId, setDuplicateReviewRowId] = useState(null);
 
   const incomeCategories = useMemo(() => (appData.categories || []).filter(category => category.type === "income" && category.isActive !== false), [appData.categories]);
   const expenseCategories = useMemo(() => (appData.categories || []).filter(category => category.type === "expense" && category.isActive !== false), [appData.categories]);
   const latestImportBatches = (appData.importBatches || []).slice(0, 5);
-  const visibleRows = analysis ? analysis.rows.filter(row => rowMatchesFilter(row, rowEdits, activeFilter)) : [];
+  const effectiveRowEdits = isMultiAnalysis ? multiRowEdits : rowEdits;
+  const visibleRows = analysis ? analysis.rows.filter(row => rowMatchesFilter(row, effectiveRowEdits, activeFilter)) : [];
 
   async function handleFile(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
 
     setStatus("");
     setAnalysis(null);
-    setRowEdits({});
+    setMultiRowEdits({});
     setCreateAdjustment(false);
     setActiveFilter("all");
 
     try {
-      const text = await file.text();
-      const parsed = parseCsvText(text);
-      if (!parsed.headers.length || !parsed.rows.length) {
-        setStatus("Could not find a header row and transaction rows in that CSV.");
-        return;
+      const loaded = [];
+      for (const file of files) {
+        const text = await file.text();
+        const parsed = parseCsvText(text);
+        if (!parsed.headers.length || !parsed.rows.length) {
+          loaded.push({
+            id: createId("csvfile"),
+            fileName: file.name,
+            error: "Could not find a header row and transaction rows in this CSV.",
+            headers: [],
+            rows: [],
+            columnMap: emptyColumnMap,
+            accountId: activeAccounts[0]?.id || "",
+            expanded: true
+          });
+          continue;
+        }
+
+        const savedMapping = findSavedCsvColumnMapping(appData, parsed.headers);
+        const accountId = savedMapping?.accountId && activeAccounts.some(account => account.id === savedMapping.accountId)
+          ? savedMapping.accountId
+          : activeAccounts[0]?.id || "";
+
+        loaded.push({
+          id: createId("csvfile"),
+          fileName: file.name,
+          headers: parsed.headers,
+          rows: parsed.rows,
+          columnMap: savedMapping?.columnMap
+            ? { ...emptyColumnMap, ...savedMapping.columnMap }
+            : { ...emptyColumnMap, ...suggestColumnMap(parsed.headers) },
+          accountId,
+          ignoredTopRows: parsed.ignoredTopRows || 0,
+          savedMappingName: savedMapping?.name || savedMapping?.fileName || "",
+          expanded: files.length === 1
+        });
       }
-      setFileName(file.name);
-      setHeaders(parsed.headers);
-      setRows(parsed.rows);
-      const savedMapping = findSavedCsvColumnMapping(appData, parsed.headers);
-      const nextColumnMap = savedMapping?.columnMap
-        ? { ...emptyColumnMap, ...savedMapping.columnMap }
-        : { ...emptyColumnMap, ...suggestColumnMap(parsed.headers) };
-      setColumnMap(nextColumnMap);
-      if (savedMapping?.accountId && appData.accounts.some(account => account.id === savedMapping.accountId && account.isActive !== false)) {
-        setSelectedAccountId(savedMapping.accountId);
+
+      setUploadItems(prev => [...prev, ...loaded]);
+      setExpandedMappingId(loaded[0]?.id || null);
+
+      // Preserve the old single-file controls for compatibility with the rest of the page.
+      if (loaded.length === 1 && loaded[0].headers.length) {
+        const item = loaded[0];
+        setFileName(item.fileName);
+        setHeaders(item.headers);
+        setRows(item.rows);
+        setColumnMap(item.columnMap);
+        setSelectedAccountId(item.accountId);
       }
-      const ignoredRowsText = parsed.ignoredTopRows > 0 ? ` Ignored ${parsed.ignoredTopRows} statement title/header note row(s).` : "";
-      const mappingText = savedMapping ? ` Used saved CSV mapping: ${savedMapping.name || savedMapping.fileName || "saved format"}.` : "";
-      setStatus(`Loaded ${parsed.rows.length} CSV transaction row(s).${ignoredRowsText}${mappingText} Check the column mapping, then analyse.`);
+
+      const usable = loaded.filter(item => item.rows.length);
+      setStatus(`${usable.length} CSV file(s) loaded. Assign/check the account and mapping under each file, then analyse all files together.`);
     } catch (error) {
       console.error("CSV read failed:", error);
-      setStatus("Could not read this CSV file.");
+      setStatus("Could not read one or more CSV files.");
     } finally {
       event.target.value = "";
     }
+  }
+
+  function updateUploadItem(fileId, field, value) {
+    setUploadItems(prev => prev.map(item => item.id === fileId ? { ...item, [field]: value } : item));
+    setAnalysis(null);
+  }
+
+  function updateUploadItemMap(fileId, field, value) {
+    setUploadItems(prev => prev.map(item => item.id === fileId
+      ? { ...item, columnMap: { ...item.columnMap, [field]: value } }
+      : item
+    ));
+    setAnalysis(null);
+  }
+
+  function removeUploadItem(fileId) {
+    setUploadItems(prev => prev.filter(item => item.id !== fileId));
+    setAnalysis(null);
+    setMultiRowEdits({});
+  }
+
+  function toggleMapping(fileId) {
+    setExpandedMappingId(prev => prev === fileId ? null : fileId);
   }
 
   function updateColumnMap(field, value) {
@@ -356,20 +419,90 @@ export default function ImportPage({ appData, actions }) {
   }
 
   function analyseImport() {
-    if (!selectedAccountId) return setStatus("Choose the GH account this CSV belongs to.");
-    if (!columnMap.date || !columnMap.description) return setStatus("Map at least Date and Description.");
-    if (!columnMap.amount && (!columnMap.paidIn || !columnMap.paidOut)) return setStatus("Map either a signed Amount column or both Paid In and Paid Out columns.");
+    const files = uploadItems.length
+      ? uploadItems.filter(item => item.rows.length)
+      : (rows.length ? [{
+          id: "legacy_single",
+          fileName,
+          headers,
+          rows,
+          columnMap,
+          accountId: selectedAccountId,
+          ignoredTopRows: 0
+        }] : []);
 
-    const nextAnalysis = analyseCsvImport(appData, {
-      accountId: selectedAccountId,
-      fileName,
-      headers,
-      rows,
-      columnMap
+    if (!files.length) return setStatus("Add at least one CSV file first.");
+    const invalid = files.find(item => !item.accountId || !item.columnMap.date || !item.columnMap.description || (!item.columnMap.amount && (!item.columnMap.paidIn || !item.columnMap.paidOut)));
+    if (invalid) return setStatus(`Check the account and column mapping for "${invalid.fileName}".`);
+
+    const analyses = files.map(item => ({
+      ...analyseCsvImport(appData, {
+        accountId: item.accountId,
+        fileName: item.fileName,
+        headers: item.headers,
+        rows: item.rows,
+        columnMap: item.columnMap
+      }),
+      fileId: item.id,
+      accountId: item.accountId
+    }));
+
+    // Give every preview row a globally unique id, then identify likely cross-file
+    // transfers. The actual import re-checks these pairs against the transactions
+    // created by earlier files, so only one transfer record is created.
+    const combinedRows = [];
+    analyses.forEach(fileAnalysis => {
+      fileAnalysis.rows.forEach(row => {
+        combinedRows.push({
+          ...row,
+          id: files.length > 1 ? `${fileAnalysis.fileId}__${row.id}` : row.id,
+          fileId: fileAnalysis.fileId,
+          sourceRowId: row.id,
+          sourceFileName: fileAnalysis.fileName,
+          sourceAccountId: fileAnalysis.accountId
+        });
+      });
     });
 
+    for (let i = 0; i < combinedRows.length; i += 1) {
+      const a = combinedRows[i];
+      if (!a.date || !Number.isFinite(Number(a.signedAmount))) continue;
+      const aAction = a.action;
+      if (aAction === "duplicate" || aAction === "match_planned" || a.type === "transfer") continue;
+
+      for (let j = i + 1; j < combinedRows.length; j += 1) {
+        const b = combinedRows[j];
+        if (a.sourceAccountId === b.sourceAccountId) continue;
+        if (b.action === "duplicate" || b.action === "match_planned" || b.type === "transfer") continue;
+        if (Math.abs(Number(a.signedAmount) + Number(b.signedAmount)) > 0.005) continue;
+        const dayGap = Math.abs((new Date(`${a.date}T00:00:00`) - new Date(`${b.date}T00:00:00`)) / 86400000);
+        if (dayGap > 3) continue;
+
+        a.type = "transfer";
+        a.action = "new_transfer";
+        a.actionLabel = "Cross-file transfer";
+        a.linkedAccountId = b.sourceAccountId;
+        a.defaultInclude = true;
+        a.warning = `Likely transfer matched with ${b.sourceFileName} (${b.date}, ${formatMoney(b.amount)} opposite sign).`;
+        a.confidence = "High";
+
+        b.type = "transfer";
+        b.action = "new_transfer";
+        b.actionLabel = "Cross-file transfer";
+        b.linkedAccountId = a.sourceAccountId;
+        b.defaultInclude = true;
+        b.warning = `Likely transfer matched with ${a.sourceFileName} (${a.date}, ${formatMoney(a.amount)} opposite sign).`;
+        b.confidence = "High";
+        a.crossFileMatchId = b.id;
+        b.crossFileMatchId = a.id;
+        break;
+      }
+    }
+
+    combinedRows.sort((a, b) => a.date.localeCompare(b.date) || a.sourceFileName.localeCompare(b.sourceFileName) || a.rowIndex - b.rowIndex);
+
     const initialEdits = {};
-    nextAnalysis.rows.forEach(row => {
+    combinedRows.forEach(row => {
       initialEdits[row.id] = {
         include: row.defaultInclude,
         action: row.action,
@@ -377,29 +510,190 @@ export default function ImportPage({ appData, actions }) {
         categoryId: row.categoryId || "",
         linkedAccountId: row.linkedAccountId || "",
         matchTransactionId: row.matchTransactionId || "",
-        excludeFromBudget: false
+        excludeFromBudget: false,
+        date: row.date,
+        description: row.description,
+        amount: row.amount
       };
     });
 
-    setAnalysis(nextAnalysis);
-    setRowEdits(initialEdits);
+    setAnalysis({
+      id: createId("analysis"),
+      fileName: `${files.length} CSV files`,
+      accountId: files[0].accountId,
+      headers: [],
+      columnMap: null,
+      createdAt: new Date().toISOString(),
+      rows: combinedRows,
+      totals: summariseCombinedAnalyses(analyses, combinedRows),
+      reconciliation: null,
+      files: analyses,
+      isMulti: files.length > 1
+    });
+    if (files.length > 1) {
+      setMultiRowEdits(initialEdits);
+      setRowEdits({});
+    } else {
+      setRowEdits(initialEdits);
+      setMultiRowEdits({});
+    }
+    setIsMultiAnalysis(files.length > 1);
     setCreateAdjustment(false);
     setActiveFilter("all");
-    setStatus(`Analysed ${nextAnalysis.rows.length} usable transaction row(s). Review before importing.`);
+    setStatus(`Analysed ${combinedRows.length} transaction row(s) across ${files.length} CSV file(s). Transactions are ordered by date. Review transfers and duplicates before importing.`);
   }
 
   function updateRow(rowId, field, value) {
+    if (isMultiAnalysis) {
+      setMultiRowEdits(prev => ({
+        ...prev,
+        [rowId]: { ...(prev[rowId] || {}), [field]: value }
+      }));
+      return;
+    }
     setRowEdits(prev => ({
       ...prev,
-      [rowId]: {
-        ...(prev[rowId] || {}),
-        [field]: value
-      }
+      [rowId]: { ...(prev[rowId] || {}), [field]: value }
     }));
+  }
+
+  function openDuplicateReview(row) {
+    setDuplicateReviewRowId(row.id);
+  }
+
+  function closeDuplicateReview() {
+    setDuplicateReviewRowId(null);
+  }
+
+  function updateExistingDuplicate(transactionId, changes) {
+    const nextTransactions = (appData.transactions || []).map(transaction => (
+      transaction.id === transactionId
+        ? { ...transaction, ...changes, updatedAt: new Date().toISOString() }
+        : transaction
+    ));
+    actions.updateAppData({ ...appData, transactions: nextTransactions }, { reason: "Duplicate review: existing transaction edited" });
+  }
+
+  function keepExistingDuplicate(rowId) {
+    updateRow(rowId, "include", false);
+    updateRow(rowId, "action", "duplicate");
+    setStatus("Kept the existing transaction. The imported row will be skipped.");
+    closeDuplicateReview();
+  }
+
+  function useImportedDuplicate(row, importedValues, existingValues) {
+    if (!row.duplicateTransactionId) return;
+
+    const now = new Date().toISOString();
+    const existing = appData.transactions.find(transaction => transaction.id === row.duplicateTransactionId);
+    if (!existing) return;
+
+    const updatedExisting = {
+      ...existing,
+      date: importedValues.date,
+      amount: Number(importedValues.amount),
+      title: importedValues.description || existing.title,
+      type: importedValues.type,
+      categoryId: importedValues.type === "expense" || importedValues.type === "income" ? importedValues.categoryId || existing.categoryId : null,
+      accountId: existing.type === "transfer" ? existing.accountId : existing.accountId,
+      updatedAt: now
+    };
+
+    actions.updateAppData({
+      ...appData,
+      transactions: (appData.transactions || []).map(transaction => transaction.id === existing.id ? updatedExisting : transaction)
+    }, { reason: "Duplicate review: imported details selected" });
+
+    updateRow(row.id, "include", true);
+    updateRow(row.id, "action", "match_planned");
+    updateRow(row.id, "matchTransactionId", existing.id);
+    updateRow(row.id, "type", importedValues.type);
+    updateRow(row.id, "categoryId", importedValues.categoryId || "");
+    updateRow(row.id, "date", importedValues.date);
+    updateRow(row.id, "description", importedValues.description);
+    updateRow(row.id, "amount", Number(importedValues.amount));
+    setStatus("Imported details selected. The duplicate will be linked to the existing transaction when you confirm the import.");
+    closeDuplicateReview();
   }
 
   function confirmImport() {
     if (!analysis) return;
+
+    if (analysis.isMulti) {
+      let workingData = appData;
+      const aggregate = {
+        importedTransactionIds: [],
+        linkedTransactionIds: [],
+        skippedRows: [],
+        batches: []
+      };
+
+      // Import each statement in upload order. Before each file is applied, re-run
+      // its analysis against the transactions already created by earlier files.
+      // This is what turns an opposite-sign pair from two CSVs into one transfer.
+      for (const fileAnalysis of analysis.files) {
+        const currentItem = uploadItems.find(item => item.id === fileAnalysis.fileId);
+        if (!currentItem) continue;
+
+        const refreshed = analyseCsvImport(workingData, {
+          accountId: fileAnalysis.accountId,
+          fileName: fileAnalysis.fileName,
+          headers: fileAnalysis.headers,
+          rows: fileAnalysis.rows.map(row => row.raw),
+          columnMap: fileAnalysis.columnMap
+        });
+
+        const edits = {};
+        refreshed.rows.forEach(row => {
+          const combinedId = `${fileAnalysis.fileId}__${row.id}`;
+          const originalEdit = multiRowEdits[combinedId] || {};
+          edits[row.id] = { ...originalEdit };
+
+          // Preserve the user's cross-file transfer/account decision when possible.
+          const previewCombined = analysis.rows.find(item => item.id === combinedId);
+          if (previewCombined?.linkedAccountId && !edits[row.id].linkedAccountId) {
+            edits[row.id].linkedAccountId = previewCombined.linkedAccountId;
+          }
+          if (previewCombined?.type === "transfer" && !edits[row.id].type) {
+            edits[row.id].type = "transfer";
+          }
+        });
+
+        const missingTransfer = refreshed.rows.some(row => {
+          const edit = edits[row.id] || {};
+          const include = edit.include ?? row.defaultInclude;
+          const type = edit.type || row.type;
+          const action = edit.action || row.action;
+          const linkedAccountId = edit.linkedAccountId || row.linkedAccountId;
+          return include && type === "transfer" && action !== "match_existing_transfer" && !linkedAccountId;
+        });
+        if (missingTransfer) {
+          setStatus(`Choose the other account for every selected transfer in "${fileAnalysis.fileName}".`);
+          setActiveFilter("needs_review");
+          return;
+        }
+
+        const result = applyCsvImport(workingData, refreshed, edits, { createReconciliationAdjustment: false });
+        workingData = result.data;
+        aggregate.importedTransactionIds.push(...result.result.importedTransactionIds);
+        aggregate.linkedTransactionIds.push(...result.result.linkedTransactionIds);
+        aggregate.skippedRows.push(...result.result.skippedRows);
+        aggregate.batches.push(result.result.importBatch);
+      }
+
+      actions.updateAppData(workingData, { major: true, reason: "Multiple CSV imports completed" });
+      setStatus(`Import complete: ${aggregate.batches.length} statement(s), ${aggregate.importedTransactionIds.length} new, ${aggregate.linkedTransactionIds.length} linked, ${aggregate.skippedRows.length} skipped.`);
+      setAnalysis(null);
+      setRows([]);
+      setHeaders([]);
+      setFileName("");
+      setUploadItems([]);
+      setMultiRowEdits({});
+      setIsMultiAnalysis(false);
+      setCreateAdjustment(false);
+      setActiveFilter("all");
+      return;
+    }
 
     const missingTransfer = analysis.rows.some(row => {
       const edit = rowEdits[row.id] || {};
@@ -426,7 +720,9 @@ export default function ImportPage({ appData, actions }) {
     setRows([]);
     setHeaders([]);
     setFileName("");
+    setUploadItems([]);
     setRowEdits({});
+    setMultiRowEdits({});
     setCreateAdjustment(false);
     setActiveFilter("all");
   }
@@ -464,26 +760,65 @@ export default function ImportPage({ appData, actions }) {
 
         <div className="form-grid import-setup-grid">
           <label>
-            CSV belongs to account
-            <select value={selectedAccountId} onChange={event => handleStatementAccountChange(event.target.value)}>
-              {activeAccounts.map(account => (
-                <option key={account.id} value={account.id}>{account.name}</option>
-              ))}
-              <option value={ADD_ACCOUNT_VALUE}>+ Add new account</option>
-            </select>
+            CSV file(s)
+            <input type="file" accept=".csv,text/csv" multiple onChange={handleFile} />
           </label>
-
-          <label>
-            CSV file
-            <input type="file" accept=".csv,text/csv" onChange={handleFile} />
-          </label>
+          {!uploadItems.length && (
+            <label>
+              Default account for a single CSV
+              <select value={selectedAccountId} onChange={event => handleStatementAccountChange(event.target.value)}>
+                {activeAccounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+                <option value={ADD_ACCOUNT_VALUE}>+ Add new account</option>
+              </select>
+            </label>
+          )}
         </div>
 
-        {fileName && <p className="muted-text">Loaded file: <strong>{fileName}</strong> · {rows.length} raw row(s)</p>}
+        {uploadItems.length > 0 && (
+          <div className="archive-list">
+            {uploadItems.map(item => {
+              const account = activeAccounts.find(accountItem => accountItem.id === item.accountId);
+              const expanded = expandedMappingId === item.id;
+              return (
+                <div key={item.id} className="archive-row">
+                  <div>
+                    <strong>{item.fileName}</strong>
+                    <small>{item.error || `${item.rows.length} row(s) · ${account?.name || "No account selected"}`}</small>
+                  </div>
+                  <div className="archive-row-actions">
+                    {!item.error && <select value={item.accountId} onChange={event => updateUploadItem(item.id, "accountId", event.target.value)}>
+                      {activeAccounts.map(accountOption => <option key={accountOption.id} value={accountOption.id}>{accountOption.name}</option>)}
+                    </select>}
+                    <button type="button" className="secondary-button small" onClick={() => toggleMapping(item.id)}>
+                      {expanded ? "Hide mapping" : "Check mapping"}
+                    </button>
+                    <button type="button" className="secondary-button small" onClick={() => removeUploadItem(item.id)}>Remove</button>
+                  </div>
+                  {!item.error && expanded && (
+                    <div className="import-mapping-dropdown">
+                      <p className="muted-text">Mapping for this statement. Saved mappings are applied automatically but can be changed here.</p>
+                      <div className="form-grid import-map-grid">
+                        <ColumnSelect label="Date" field="date" value={item.columnMap.date} headers={item.headers} update={(field, value) => updateUploadItemMap(item.id, field, value)} required />
+                        <ColumnSelect label="Description" field="description" value={item.columnMap.description} headers={item.headers} update={(field, value) => updateUploadItemMap(item.id, field, value)} required />
+                        <ColumnSelect label="Signed amount" field="amount" value={item.columnMap.amount} headers={item.headers} update={(field, value) => updateUploadItemMap(item.id, field, value)} />
+                        <ColumnSelect label="Paid in" field="paidIn" value={item.columnMap.paidIn} headers={item.headers} update={(field, value) => updateUploadItemMap(item.id, field, value)} />
+                        <ColumnSelect label="Paid out" field="paidOut" value={item.columnMap.paidOut} headers={item.headers} update={(field, value) => updateUploadItemMap(item.id, field, value)} />
+                        <ColumnSelect label="Balance / closing balance" field="balance" value={item.columnMap.balance} headers={item.headers} update={(field, value) => updateUploadItemMap(item.id, field, value)} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {fileName && !uploadItems.length && <p className="muted-text">Loaded file: <strong>{fileName}</strong> · {rows.length} raw row(s)</p>}
         {status && <div className="import-status-box">{status}</div>}
+        {uploadItems.length > 0 && <div className="modal-actions"><button type="button" className="primary-button" onClick={analyseImport}>Analyse all CSVs</button></div>}
       </section>
 
-      {headers.length > 0 && (
+      {headers.length > 0 && uploadItems.length === 0 && (
         <section className="card import-workflow-card">
           <div className="section-header compact-header">
             <div>
@@ -520,24 +855,31 @@ export default function ImportPage({ appData, actions }) {
           <section className="card import-workflow-card">
             <div className="section-header compact-header">
               <div>
-                <h3>3. Balance reconciliation</h3>
+                <h3>{analysis.isMulti ? "3. Review combined import" : "3. Balance reconciliation"}</h3>
                 <p className="muted-text">If the CSV includes a balance, the app checks the bank balance at the correct date rather than blindly comparing to today.</p>
               </div>
             </div>
-            <ReconciliationPreview
-              appData={appData}
-              analysis={analysis}
-              rowEdits={rowEdits}
-              createAdjustment={createAdjustment}
-              setCreateAdjustment={setCreateAdjustment}
-            />
+            {analysis.isMulti ? (
+              <div className="import-reconciliation-box muted-box">
+                <strong>Combined statement review</strong>
+                <span>Balance reconciliation is performed separately for each statement. The transaction review below combines all files and orders every row by date so transfers between accounts are easy to spot.</span>
+              </div>
+            ) : (
+              <ReconciliationPreview
+                appData={appData}
+                analysis={analysis}
+                rowEdits={rowEdits}
+                createAdjustment={createAdjustment}
+                setCreateAdjustment={setCreateAdjustment}
+              />
+            )}
           </section>
 
           <section className="table-card import-preview-card">
             <div className="import-preview-header">
               <div>
-                <h3>4. Review rows before importing</h3>
-                <p className="muted-text">Untick anything you do not want. Transfers need the other GH account selected before import.</p>
+                <h3>{analysis.isMulti ? "4. Review all statements together" : "4. Review rows before importing"}</h3>
+                <p className="muted-text">{analysis.isMulti ? "All statements are combined and sorted by date. Opposite-sign matches across accounts are highlighted as transfers." : "Untick anything you do not want. Transfers need the other GH account selected before import."}</p>
               </div>
               <button className="primary-button" onClick={confirmImport}>Confirm import</button>
             </div>
@@ -550,7 +892,7 @@ export default function ImportPage({ appData, actions }) {
                   className={`filter-chip ${activeFilter === key ? "active" : ""}`}
                   onClick={() => setActiveFilter(key)}
                 >
-                  {label} <span>{getFilterCount(analysis.rows, rowEdits, key)}</span>
+                  {label} <span>{getFilterCount(analysis.rows, effectiveRowEdits, key)}</span>
                 </button>
               ))}
             </div>
@@ -560,6 +902,7 @@ export default function ImportPage({ appData, actions }) {
                 <tr>
                   <th>Import?</th>
                   <th>Date</th>
+                  {analysis.isMulti && <th>Statement / account</th>}
                   <th>Description</th>
                   <th>Amount</th>
                   <th>Action</th>
@@ -571,11 +914,15 @@ export default function ImportPage({ appData, actions }) {
               </thead>
               <tbody>
                 {visibleRows.map(row => {
-                  const edit = getRowEdit(rowEdits, row);
+                  const edit = getRowEdit(effectiveRowEdits, row);
                   const type = edit.type || row.type;
                   const action = edit.action || row.action;
                   const categoryOptions = type === "income" ? incomeCategories : expenseCategories;
                   const transferText = getTransferText(row, edit, selectedAccountId, appData.accounts);
+                  const displayDate = edit.date || row.date;
+                  const displayDescription = edit.description || row.description;
+                  const displayAmount = Number(edit.amount ?? row.amount);
+                  const displaySignedAmount = displayAmount * (row.signedAmount < 0 ? -1 : 1);
 
                   return (
                     <tr key={row.id} className={row.warning ? "import-row-warning" : ""}>
@@ -586,12 +933,13 @@ export default function ImportPage({ appData, actions }) {
                           onChange={event => updateRow(row.id, "include", event.target.checked)}
                         />
                       </td>
-                      <td>{row.date}</td>
+                      <td>{displayDate}</td>
+                      {analysis.isMulti && <td><small>{row.sourceFileName}</small><small>{appData.accounts.find(account => account.id === row.sourceAccountId)?.name || "Unknown account"}</small></td>}
                       <td>
-                        <strong>{row.description}</strong>
+                        <strong>{displayDescription}</strong>
                         <small>{row.confidence} confidence</small>
                       </td>
-                      <td className={row.signedAmount >= 0 ? "positive-text" : "negative-text"}>{getSignedDisplay(row)}</td>
+                      <td className={displaySignedAmount >= 0 ? "positive-text" : "negative-text"}>{displaySignedAmount >= 0 ? `+${formatMoney(displayAmount)}` : `-${formatMoney(displayAmount)}`}</td>
                       <td>
                         <select value={action} onChange={event => updateRow(row.id, "action", event.target.value)}>
                           {getActionOptions(row).map(([value, label]) => (
@@ -654,6 +1002,9 @@ export default function ImportPage({ appData, actions }) {
                           <small>Planned {formatMoney(row.plannedAmount)} on {row.plannedDate} → actual {formatMoney(row.actualAmount)} on {row.actualDate}</small>
                         )}
                         {row.warning && <small className="danger-text">{row.warning}</small>}
+                        {row.duplicateTransactionId && (
+                          <button type="button" className="secondary-button small" onClick={() => openDuplicateReview(row)}>Compare duplicate</button>
+                        )}
                         {row.externalAccountName && <small>External account text: {row.externalAccountName}</small>}
                       </td>
                     </tr>
@@ -706,6 +1057,20 @@ export default function ImportPage({ appData, actions }) {
           appData={appData}
           close={() => setDetailBatchId(null)}
           undoImport={undoImport}
+        />
+      )}
+
+      {duplicateReviewRowId && (
+        <DuplicateReviewModal
+          row={analysis?.rows.find(row => row.id === duplicateReviewRowId)}
+          rowEdit={effectiveRowEdits[duplicateReviewRowId] || {}}
+          existingTransaction={(appData.transactions || []).find(transaction => transaction.id === analysis?.rows.find(row => row.id === duplicateReviewRowId)?.duplicateTransactionId)}
+          appData={appData}
+          close={closeDuplicateReview}
+          updateRow={updateRow}
+          updateExistingDuplicate={updateExistingDuplicate}
+          keepExisting={keepExistingDuplicate}
+          useImported={useImportedDuplicate}
         />
       )}
 
@@ -766,6 +1131,101 @@ export default function ImportPage({ appData, actions }) {
           </form>
         </div>
       )}
+    </div>
+  );
+}
+
+function DuplicateReviewModal({ row, rowEdit, existingTransaction, appData, close, updateRow, updateExistingDuplicate, keepExisting, useImported }) {
+  const [imported, setImported] = useState(() => ({
+    date: row?.date || "",
+    description: row?.description || "",
+    amount: row?.amount ?? "",
+    type: row?.baseType || row?.type || "expense",
+    categoryId: row?.categoryId || ""
+  }));
+  const [existing, setExisting] = useState(() => ({
+    date: existingTransaction?.date || "",
+    title: existingTransaction?.title || "",
+    amount: existingTransaction?.amount ?? "",
+    type: existingTransaction?.type || "expense",
+    categoryId: existingTransaction?.categoryId || ""
+  }));
+
+  if (!row || !existingTransaction) return null;
+
+  const categories = (appData.categories || []).filter(category => category.isActive !== false && category.type === imported.type);
+  const existingCategories = (appData.categories || []).filter(category => category.isActive !== false && category.type === existing.type);
+
+  function saveExisting() {
+    updateExistingDuplicate(existingTransaction.id, {
+      date: existing.date,
+      title: existing.title,
+      amount: Number(existing.amount),
+      type: existing.type,
+      categoryId: existing.type === "transfer" ? null : existing.categoryId
+    });
+  }
+
+  function chooseImported() {
+    if (!imported.date || !imported.description || !Number(imported.amount)) return;
+    updateRow(row.id, "date", imported.date);
+    updateRow(row.id, "description", imported.description);
+    updateRow(row.id, "amount", Number(imported.amount));
+    updateRow(row.id, "type", imported.type);
+    updateRow(row.id, "categoryId", imported.categoryId || "");
+    useImported(row, imported, existing);
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal-card import-duplicate-review-modal">
+        <div className="section-header">
+          <div>
+            <h2>Compare possible duplicate</h2>
+            <p className="muted-text">The import found an existing transaction with the same account, date, amount and similar description. Nothing is deleted automatically.</p>
+          </div>
+          <button type="button" className="icon-button" onClick={close}>×</button>
+        </div>
+
+        <div className="two-column">
+          <section className="card">
+            <h3>Imported statement row</h3>
+            <div className="form-grid">
+              <label>Date<input type="date" value={imported.date} onChange={event => setImported(prev => ({ ...prev, date: event.target.value }))} /></label>
+              <label>Description<input value={imported.description} onChange={event => setImported(prev => ({ ...prev, description: event.target.value }))} /></label>
+              <label>Amount<input type="number" step="0.01" value={imported.amount} onChange={event => setImported(prev => ({ ...prev, amount: event.target.value }))} /></label>
+              <label>Type<select value={imported.type} onChange={event => setImported(prev => ({ ...prev, type: event.target.value, categoryId: "" }))}>
+                <option value="expense">Expense</option><option value="income">Income</option>
+              </select></label>
+              <label>Category<select value={imported.categoryId} onChange={event => setImported(prev => ({ ...prev, categoryId: event.target.value }))}>
+                {categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+              </select></label>
+            </div>
+          </section>
+
+          <section className="card">
+            <h3>Existing transaction</h3>
+            <div className="form-grid">
+              <label>Date<input type="date" value={existing.date} onChange={event => setExisting(prev => ({ ...prev, date: event.target.value }))} /></label>
+              <label>Description<input value={existing.title} onChange={event => setExisting(prev => ({ ...prev, title: event.target.value }))} /></label>
+              <label>Amount<input type="number" step="0.01" value={existing.amount} onChange={event => setExisting(prev => ({ ...prev, amount: event.target.value }))} /></label>
+              <label>Type<select value={existing.type} onChange={event => setExisting(prev => ({ ...prev, type: event.target.value, categoryId: "" }))}>
+                <option value="expense">Expense</option><option value="income">Income</option><option value="transfer">Transfer</option>
+              </select></label>
+              {existing.type !== "transfer" && <label>Category<select value={existing.categoryId} onChange={event => setExisting(prev => ({ ...prev, categoryId: event.target.value }))}>
+                {existingCategories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+              </select></label>}
+            </div>
+            <button type="button" className="secondary-button small" onClick={saveExisting}>Save existing edits</button>
+          </section>
+        </div>
+
+        <div className="modal-actions">
+          <button type="button" className="secondary-button" onClick={() => keepExisting(row.id)}>Keep existing</button>
+          <button type="button" className="primary-button" onClick={chooseImported}>Use imported details</button>
+        </div>
+        <p className="muted-text">“Use imported details” keeps one transaction record, replaces its editable details with the statement row, and then links the imported bank row to it. It does not create a second transaction.</p>
+      </div>
     </div>
   );
 }
@@ -882,6 +1342,27 @@ function ColumnSelect({ label, field, value, headers, update, required = false }
   );
 }
 
+
+function summariseCombinedAnalyses(analyses, rows) {
+  const base = {
+    total: rows.length,
+    newRows: 0,
+    plannedMatches: 0,
+    existingTransferMatches: 0,
+    duplicates: 0,
+    needsReview: 0,
+    transfers: rows.filter(row => row.type === "transfer").length,
+    largeExpenses: rows.filter(row => row.suggestedExcludeFromBudget).length
+  };
+  rows.forEach(row => {
+    if (row.action === "duplicate") base.duplicates += 1;
+    else if (row.action === "match_planned") base.plannedMatches += 1;
+    else if (row.action === "match_existing_transfer") base.existingTransferMatches += 1;
+    else base.newRows += 1;
+    if (row.warning || row.confidence === "Needs review") base.needsReview += 1;
+  });
+  return base;
+}
 function SummaryItem({ label, value }) {
   return (
     <section className="card summary-card">

@@ -51,10 +51,18 @@ const blankHouseForm = {
   mortgageCurrentBalance: "",
   mortgageStartDate: "",
   mortgageTermYears: "",
+  mortgageRemainingTermMonths: "",
   mortgageInterestRate: "",
   mortgageRateType: "fixed",
+  mortgageRepaymentType: "repayment",
   mortgageFixedEndDate: "",
+  mortgageFollowOnRate: "",
   mortgageMonthlyPayment: "",
+  mortgagePaymentDay: "1",
+  mortgagePlannedMonthlyOverpayment: "",
+  mortgageOverpaymentAllowancePercent: "10",
+  mortgageEarlyRepaymentChargeApplies: false,
+  mortgageNotes: "",
   linkedAccountId: ""
 };
 
@@ -244,10 +252,18 @@ export default function LoansPage({ appData, actions }) {
       mortgageCurrentBalance: String(house.mortgage?.currentBalance ?? ""),
       mortgageStartDate: house.mortgage?.startDate || "",
       mortgageTermYears: String(house.mortgage?.termYears ?? ""),
+      mortgageRemainingTermMonths: String(house.mortgage?.remainingTermMonths ?? ""),
       mortgageInterestRate: String(house.mortgage?.interestRate ?? ""),
       mortgageRateType: house.mortgage?.rateType || "fixed",
+      mortgageRepaymentType: house.mortgage?.repaymentType || "repayment",
       mortgageFixedEndDate: house.mortgage?.fixedEndDate || "",
+      mortgageFollowOnRate: String(house.mortgage?.followOnRate ?? ""),
       mortgageMonthlyPayment: String(house.mortgage?.monthlyPayment ?? ""),
+      mortgagePaymentDay: String(house.mortgage?.paymentDay ?? "1"),
+      mortgagePlannedMonthlyOverpayment: String(house.mortgage?.plannedMonthlyOverpayment ?? ""),
+      mortgageOverpaymentAllowancePercent: String(house.mortgage?.overpaymentAllowancePercent ?? "10"),
+      mortgageEarlyRepaymentChargeApplies: Boolean(house.mortgage?.earlyRepaymentChargeApplies),
+      mortgageNotes: house.mortgage?.notes || "",
       linkedAccountId: house.mortgage?.linkedAccountId || ""
     });
     setShowHouseModal(true);
@@ -282,11 +298,19 @@ export default function LoansPage({ appData, actions }) {
         currentBalance: Number(houseForm.mortgageCurrentBalance || 0),
         startDate: houseForm.mortgageStartDate || null,
         termYears: Number(houseForm.mortgageTermYears || 0),
+        remainingTermMonths: Number(houseForm.mortgageRemainingTermMonths || 0),
         interestRate: Number(houseForm.mortgageInterestRate || 0),
         rateType: houseForm.mortgageRateType,
+        repaymentType: houseForm.mortgageRepaymentType,
         fixedEndDate: houseForm.mortgageFixedEndDate || null,
+        followOnRate: Number(houseForm.mortgageFollowOnRate || 0),
         monthlyPayment: Number(houseForm.mortgageMonthlyPayment || 0),
-        linkedAccountId: houseForm.linkedAccountId || null
+        paymentDay: Number(houseForm.mortgagePaymentDay || 1),
+        plannedMonthlyOverpayment: Number(houseForm.mortgagePlannedMonthlyOverpayment || 0),
+        overpaymentAllowancePercent: Number(houseForm.mortgageOverpaymentAllowancePercent || 0),
+        earlyRepaymentChargeApplies: Boolean(houseForm.mortgageEarlyRepaymentChargeApplies),
+        linkedAccountId: houseForm.linkedAccountId || null,
+        notes: houseForm.mortgageNotes.trim()
       },
       createdAt: editingHouse?.createdAt || now,
       updatedAt: now
@@ -1192,6 +1216,9 @@ function HouseDetailPanel({
 }) {
   const linkedAccount = (appData.accounts || []).find(account => account.id === house.mortgage?.linkedAccountId);
   const linkedTransactions = (appData.transactions || []).filter(transaction => transaction.linkedHouseId === house.id);
+  const mortgageLoan = buildMortgageLoanFromHouse(house, appData);
+  const mortgageEstimate = calculateLoanEstimate(mortgageLoan);
+  const mortgageEvents = getLoanTimelineEvents(appData, mortgageLoan);
   const role = house.sharedRole || "owner";
   const isRemoteSharedHouse = Boolean(house.isSharedHouse);
   const canManageSharing = role === "owner";
@@ -1239,15 +1266,15 @@ function HouseDetailPanel({
         </section>
 
         <section className="sub-card house-tab-card">
-          <h4>Mortgage details</h4>
-          <div className="loan-detail-grid">
-            <InfoMetric label="Original mortgage" value={formatMoney(house.mortgage?.originalAmount || 0)} />
-            <InfoMetric label="Monthly repayment" value={formatMoney(house.mortgage?.monthlyPayment || 0)} />
-            <InfoMetric label="Rate" value={`${Number(house.mortgage?.interestRate || 0).toFixed(2)}% ${house.mortgage?.rateType || ""}`} />
-            <InfoMetric label="Term" value={`${Number(house.mortgage?.termYears || 0)} years`} />
-          </div>
-          <p className="muted-text">Linked account: {linkedAccount?.name || "None selected"}</p>
-          <MortgageOverpaymentMiniCalculator house={house} />
+          <HouseMortgagePanel
+            house={house}
+            summary={summary}
+            mortgageLoan={mortgageLoan}
+            mortgageEstimate={mortgageEstimate}
+            mortgageEvents={mortgageEvents}
+            appData={appData}
+            linkedAccount={linkedAccount}
+          />
         </section>
 
         <section className="sub-card house-tab-card">
@@ -1322,6 +1349,143 @@ function HouseDetailPanel({
       </div>
     </div>
   );
+}
+
+function buildMortgageLoanFromHouse(house, appData = {}) {
+  const linkedLoan = (appData.loans || []).find(loan => loan.id === house.linkedLoanId) || {};
+  const legacyDetails = linkedLoan.mortgageDetails || {};
+  const mortgage = house.mortgage || {};
+  const balanceDate = linkedLoan.balanceDate || mortgage.balanceDate || house.updatedAt?.slice(0, 10) || today();
+  const termYears = Number(mortgage.termYears || legacyDetails.termYears || 0);
+  const remainingTermMonths = Number(mortgage.remainingTermMonths || legacyDetails.remainingTermMonths || termYears * 12 || 0);
+
+  return {
+    ...linkedLoan,
+    id: house.linkedLoanId || `house_mortgage_${house.id}`,
+    houseId: house.id,
+    type: "mortgage",
+    name: linkedLoan.name || `${house.name} mortgage`,
+    originalAmount: Number(mortgage.originalAmount || linkedLoan.originalAmount || 0),
+    currentBalance: Number(mortgage.currentBalance || linkedLoan.currentBalance || 0),
+    balanceDate,
+    startDate: mortgage.startDate || linkedLoan.startDate || house.purchaseDate || null,
+    notes: mortgage.notes || linkedLoan.notes || "",
+    mortgageDetails: {
+      ...legacyDetails,
+      repaymentType: mortgage.repaymentType || legacyDetails.repaymentType || "repayment",
+      termYears,
+      remainingTermMonths,
+      monthlyPayment: Number(mortgage.monthlyPayment || legacyDetails.monthlyPayment || 0),
+      paymentDay: Number(mortgage.paymentDay || legacyDetails.paymentDay || 1),
+      interestType: mortgage.rateType || legacyDetails.interestType || "fixed",
+      currentRate: Number(mortgage.interestRate || legacyDetails.currentRate || 0),
+      fixedUntil: mortgage.fixedEndDate || legacyDetails.fixedUntil || null,
+      followOnRate: Number(mortgage.followOnRate || legacyDetails.followOnRate || 0),
+      plannedMonthlyOverpayment: Number(mortgage.plannedMonthlyOverpayment || legacyDetails.plannedMonthlyOverpayment || 0),
+      overpaymentAllowancePercent: Number(mortgage.overpaymentAllowancePercent ?? legacyDetails.overpaymentAllowancePercent ?? 10),
+      earlyRepaymentChargeApplies: Boolean(mortgage.earlyRepaymentChargeApplies ?? legacyDetails.earlyRepaymentChargeApplies),
+      propertyValue: Number(house.propertyValue || legacyDetails.propertyValue || 0),
+      linkedAccountId: mortgage.linkedAccountId || legacyDetails.linkedAccountId || null
+    }
+  };
+}
+
+function HouseMortgagePanel({ house, summary, mortgageLoan, mortgageEstimate, mortgageEvents, appData, linkedAccount }) {
+  const mortgage = house.mortgage || {};
+  const details = mortgageLoan.mortgageDetails || {};
+  const mortgageAppData = buildHouseMortgageAppData(appData, house, mortgageLoan);
+  const mortgageContributions = summary.contributions.filter(item => ["mortgagePayment", "mortgageOverpayment"].includes(item.type));
+  const externalMortgageTotal = mortgageContributions
+    .filter(item => item.sourceType === "external")
+    .reduce((total, item) => total + Number(item.amount || 0), 0);
+  const linkedMortgageTotal = mortgageContributions
+    .filter(item => item.sourceType === "linkedTransaction")
+    .reduce((total, item) => total + Number(item.amount || 0), 0);
+  const projectedPayoffDate = mortgageEstimate.projectedPayoffMonths
+    ? getProjectedDateFromMonths(mortgageEstimate.projectedPayoffMonths, mortgageLoan.balanceDate)
+    : null;
+
+  return (
+    <div className="house-mortgage-panel stack">
+      <div className="section-header compact-header">
+        <div>
+          <h4>Mortgage</h4>
+          <p className="muted-text">Full mortgage tracking lives inside this House. Linked app transactions affect accounts once; external payments are house records only.</p>
+        </div>
+      </div>
+
+      <div className="loan-detail-grid">
+        <InfoMetric label="Current mortgage balance" value={formatMoney(mortgageLoan.currentBalance)} />
+        <InfoMetric label="Original borrowed" value={formatMoney(mortgageLoan.originalAmount)} />
+        <InfoMetric label="Total paid off" value={formatMoney(Math.max(0, Number(mortgageLoan.originalAmount || 0) - Number(mortgageLoan.currentBalance || 0)))} />
+        <InfoMetric label="Monthly repayment" value={formatMoney(details.monthlyPayment || 0)} />
+        <InfoMetric label="Interest rate" value={`${Number(details.currentRate || 0).toFixed(2)}% ${details.interestType || ""}`} />
+        <InfoMetric label="Fixed/rate ends" value={details.fixedUntil || "Not set"} />
+        <InfoMetric label="Remaining term" value={details.remainingTermMonths ? `${details.remainingTermMonths} months` : `${details.termYears || 0} years`} />
+        <InfoMetric label="Projected payoff" value={projectedPayoffDate || "Not enough data"} />
+        <InfoMetric label="Linked account" value={linkedAccount?.name || "None selected"} />
+      </div>
+
+      <div className="loan-detail-grid">
+        <InfoMetric label="Mortgage payments" value={formatMoney(summary.mortgagePaymentTotal)} />
+        <InfoMetric label="Overpayments" value={formatMoney(summary.mortgageOverpaymentTotal)} />
+        <InfoMetric label="Linked app payments" value={formatMoney(linkedMortgageTotal)} />
+        <InfoMetric label="External mortgage payments" value={formatMoney(externalMortgageTotal)} />
+      </div>
+
+      <MortgageLoanDetails
+        loan={mortgageLoan}
+        estimate={mortgageEstimate}
+        events={mortgageEvents}
+        transactions={mortgageAppData.transactions || []}
+        appData={mortgageAppData}
+      />
+
+      <MortgageOverpaymentMiniCalculator house={house} />
+
+      <details className="loan-extra-details-card">
+        <summary>Mortgage detail fields</summary>
+        <div className="profile-meta-grid">
+          <p><span>Start date</span><strong>{mortgageLoan.startDate || "Not set"}</strong></p>
+          <p><span>Repayment type</span><strong>{details.repaymentType || "repayment"}</strong></p>
+          <p><span>Payment day</span><strong>{details.paymentDay || "Not set"}</strong></p>
+          <p><span>Follow-on rate</span><strong>{Number(details.followOnRate || 0).toFixed(2)}%</strong></p>
+          <p><span>Planned monthly overpayment</span><strong>{formatMoney(details.plannedMonthlyOverpayment || 0)}</strong></p>
+          <p><span>Overpayment allowance</span><strong>{Number(details.overpaymentAllowancePercent || 0).toFixed(1)}%</strong></p>
+          <p><span>Early repayment charge</span><strong>{details.earlyRepaymentChargeApplies ? "May apply" : "Not marked"}</strong></p>
+          <p><span>Notes</span><strong>{mortgage.notes || mortgageLoan.notes || "None"}</strong></p>
+        </div>
+      </details>
+
+      <details className="loan-extra-details-card">
+        <summary>Mortgage payments and overpayments</summary>
+        <HouseContributionTable contributions={mortgageContributions} people={summary.people} canEdit={false} />
+      </details>
+    </div>
+  );
+}
+
+function buildHouseMortgageAppData(appData = {}, house, mortgageLoan) {
+  const transactions = (appData.transactions || []).map(transaction => {
+    const isHouseMortgagePayment = transaction.linkedHouseId === house.id
+      && ["mortgagePayment", "mortgageOverpayment"].includes(transaction.houseContributionType || (transaction.isLoanOverpayment ? "mortgageOverpayment" : ""));
+    if (!isHouseMortgagePayment || transaction.linkedLoanId) return transaction;
+    return {
+      ...transaction,
+      linkedLoanId: mortgageLoan.id
+    };
+  });
+
+  const loans = [
+    mortgageLoan,
+    ...(appData.loans || []).filter(loan => loan.id !== mortgageLoan.id)
+  ];
+
+  return {
+    ...appData,
+    loans,
+    transactions
+  };
 }
 
 function HouseSharingPanel({
@@ -1610,6 +1774,12 @@ function HouseModal({ houseForm, editingHouse, accounts, updateHouseForm, closeH
             <label>Current mortgage balance<input type="number" min="0" step="0.01" value={houseForm.mortgageCurrentBalance} onChange={event => updateHouseForm("mortgageCurrentBalance", event.target.value)} /></label>
             <label>Mortgage start date<input type="date" value={houseForm.mortgageStartDate} onChange={event => updateHouseForm("mortgageStartDate", event.target.value)} /></label>
             <label>Term years<input type="number" min="0" step="1" value={houseForm.mortgageTermYears} onChange={event => updateHouseForm("mortgageTermYears", event.target.value)} /></label>
+            <label>Remaining term months<input type="number" min="0" step="1" value={houseForm.mortgageRemainingTermMonths} onChange={event => updateHouseForm("mortgageRemainingTermMonths", event.target.value)} /></label>
+            <label>Repayment type<select value={houseForm.mortgageRepaymentType} onChange={event => updateHouseForm("mortgageRepaymentType", event.target.value)}>
+              <option value="repayment">Repayment</option>
+              <option value="interestOnly">Interest-only</option>
+              <option value="partAndPart">Part-and-part</option>
+            </select></label>
             <label>Interest rate %<input type="number" min="0" step="0.01" value={houseForm.mortgageInterestRate} onChange={event => updateHouseForm("mortgageInterestRate", event.target.value)} /></label>
             <label>Rate type<select value={houseForm.mortgageRateType} onChange={event => updateHouseForm("mortgageRateType", event.target.value)}>
               <option value="fixed">Fixed</option>
@@ -1617,11 +1787,20 @@ function HouseModal({ houseForm, editingHouse, accounts, updateHouseForm, closeH
               <option value="tracker">Tracker</option>
             </select></label>
             <label>Fixed period end<input type="date" value={houseForm.mortgageFixedEndDate} onChange={event => updateHouseForm("mortgageFixedEndDate", event.target.value)} /></label>
+            <label>Follow-on rate %<input type="number" min="0" step="0.01" value={houseForm.mortgageFollowOnRate} onChange={event => updateHouseForm("mortgageFollowOnRate", event.target.value)} /></label>
             <label>Monthly repayment<input type="number" min="0" step="0.01" value={houseForm.mortgageMonthlyPayment} onChange={event => updateHouseForm("mortgageMonthlyPayment", event.target.value)} /></label>
+            <label>Payment day<input type="number" min="1" max="28" step="1" value={houseForm.mortgagePaymentDay} onChange={event => updateHouseForm("mortgagePaymentDay", event.target.value)} /></label>
+            <label>Monthly overpayment<input type="number" min="0" step="0.01" value={houseForm.mortgagePlannedMonthlyOverpayment} onChange={event => updateHouseForm("mortgagePlannedMonthlyOverpayment", event.target.value)} /></label>
+            <label>Overpayment allowance %<input type="number" min="0" step="0.1" value={houseForm.mortgageOverpaymentAllowancePercent} onChange={event => updateHouseForm("mortgageOverpaymentAllowancePercent", event.target.value)} /></label>
             <label>Linked tracked account<select value={houseForm.linkedAccountId} onChange={event => updateHouseForm("linkedAccountId", event.target.value)}>
               <option value="">None</option>
               {accounts.filter(account => account.isActive !== false).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
             </select></label>
+            <label className="checkbox-label full-width">
+              <input type="checkbox" checked={houseForm.mortgageEarlyRepaymentChargeApplies} onChange={event => updateHouseForm("mortgageEarlyRepaymentChargeApplies", event.target.checked)} />
+              Early repayment charge may apply
+            </label>
+            <label className="full-width">Mortgage notes<textarea value={houseForm.mortgageNotes} onChange={event => updateHouseForm("mortgageNotes", event.target.value)} placeholder="Lender, product, ERC notes, statement notes..." /></label>
           </div>
         </div>
         <div className="modal-actions">
