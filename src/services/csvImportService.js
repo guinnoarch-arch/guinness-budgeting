@@ -612,17 +612,23 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
     matchTransactionId = existingTransferMatch.id;
     linkedAccountId = existingTransferMatch.accountId;
     warning = `Possible transfer: matches ${existingTransferMatch.accountName || "another account"} for the same amount on a nearby date.`;
+  } else if (existingTransferMatch) {
+    // An already-started transfer (e.g. the other side was imported from a
+    // previous CSV) always wins over the duplicate heuristic below, otherwise
+    // completing a transfer on the second statement gets misread as a
+    // duplicate and left unticked instead of linking the two sides together.
+    action = "match_existing_transfer";
+    actionLabel = "Link to existing transfer";
+    type = "transfer";
+    matchTransactionId = existingTransferMatch.id;
+    linkedAccountId = linkedAccountId
+      || (existingTransferMatch.fromAccountId === accountId ? existingTransferMatch.toAccountId : existingTransferMatch.fromAccountId);
   } else if (existingDuplicate) {
     action = "duplicate";
     actionLabel = "Already imported / duplicate";
     defaultInclude = false;
     matchTransactionId = existingDuplicate.id;
     warning = "This looks like an existing transaction. Compare both before deciding.";
-  } else if (existingTransferMatch) {
-    action = "match_existing_transfer";
-    actionLabel = "Link to existing transfer";
-    type = "transfer";
-    matchTransactionId = existingTransferMatch.id;
   } else if (plannedMatch) {
     action = "match_planned";
     actionLabel = "Link to planned transaction";

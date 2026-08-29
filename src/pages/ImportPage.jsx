@@ -101,7 +101,7 @@ function getProjectedBalanceAtDate(appData, analysis, rowEdits) {
   let projected = calculateAccountBalanceAtDate(appData, accountId, cutoffDate);
 
   analysis.rows.forEach(row => {
-    const edit = getRowEdit(effectiveRowEdits, row);
+    const edit = getRowEdit(rowEdits, row);
     const include = edit.include ?? row.defaultInclude;
     if (!include || !row.date || row.date > cutoffDate) return;
 
@@ -919,6 +919,7 @@ export default function ImportPage({ appData, actions }) {
                   const action = edit.action || row.action;
                   const categoryOptions = type === "income" ? incomeCategories : expenseCategories;
                   const transferText = getTransferText(row, edit, selectedAccountId, appData.accounts);
+                  const matchedTransaction = getMatchedTransactionInfo(row, edit, analysis, appData, appData.accounts);
                   const displayDate = edit.date || row.date;
                   const displayDescription = edit.description || row.description;
                   const displayAmount = Number(edit.amount ?? row.amount);
@@ -969,13 +970,20 @@ export default function ImportPage({ appData, actions }) {
                             <select value={edit.linkedAccountId || row.linkedAccountId || ""} onChange={event => handleTransferAccountChange(row, event.target.value)}>
                               <option value="">Choose other account</option>
                               {activeAccounts
-                                .filter(account => account.id !== selectedAccountId)
+                                .filter(account => account.id !== (row.sourceAccountId || selectedAccountId))
                                 .map(account => (
                                   <option key={account.id} value={account.id}>{account.name}</option>
                                 ))}
                               <option value={ADD_ACCOUNT_VALUE}>+ Add new account</option>
                             </select>
                             {transferText && <small>{transferText}</small>}
+                            {matchedTransaction && (
+                              <div className="import-matched-transaction-box">
+                                <strong>Matched transaction</strong>
+                                <span>{matchedTransaction.date} · {matchedTransaction.description}</span>
+                                <span>{matchedTransaction.signedAmount >= 0 ? "+" : "-"}{formatMoney(Math.abs(matchedTransaction.signedAmount))} · {matchedTransaction.accountName}</span>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <span className="muted">—</span>
@@ -1319,15 +1327,50 @@ function ImportBatchDetailModal({ batch, appData, close, undoImport }) {
   );
 }
 
+function getMatchedTransactionInfo(row, edit, analysis, appData, accounts) {
+  const action = edit.action || row.action;
+
+  // Two CSVs uploaded together: the opposite-sign row already sitting in the
+  // combined preview (before anything is saved).
+  if (row.crossFileMatchId) {
+    const other = (analysis.rows || []).find(item => item.id === row.crossFileMatchId);
+    if (other) {
+      const accountName = accounts.find(account => account.id === other.sourceAccountId)?.name
+        || other.sourceFileName
+        || "Other account";
+      return { date: other.date, description: other.description, signedAmount: other.signedAmount, accountName };
+    }
+  }
+
+  // A transfer already saved in this account (e.g. from an earlier CSV import)
+  // that this row is being linked to.
+  if (action === "match_existing_transfer" && row.matchTransactionId) {
+    const existing = (appData.transactions || []).find(transaction => transaction.id === row.matchTransactionId);
+    if (existing) {
+      const linkedAccountId = edit.linkedAccountId || row.linkedAccountId;
+      const accountName = accounts.find(account => account.id === linkedAccountId)?.name
+        || accounts.find(account => account.id === existing.accountId)?.name
+        || "Other account";
+      const signedAmount = existing.type === "transfer"
+        ? (existing.toAccountId === linkedAccountId ? Number(existing.amount || 0) : -Number(existing.amount || 0))
+        : (existing.type === "income" ? Number(existing.amount || 0) : -Number(existing.amount || 0));
+      return { date: existing.date, description: existing.title || "Matched transaction", signedAmount, accountName };
+    }
+  }
+
+  return null;
+}
+
 function getTransferText(row, edit, selectedAccountId, accounts) {
   const linkedAccountId = edit.linkedAccountId || row.linkedAccountId;
   if (!linkedAccountId) return "Choose the other account or add a new one.";
 
-  const uploadedAccount = accounts.find(account => account.id === selectedAccountId)?.name || "Selected account";
+  const uploadedAccountId = row.sourceAccountId || selectedAccountId;
+  const uploadedAccount = accounts.find(account => account.id === uploadedAccountId)?.name || "Selected account";
   const linkedAccount = accounts.find(account => account.id === linkedAccountId)?.name || "Other account";
   return row.signedAmount > 0
-    ? `${linkedAccount} → ${uploadedAccount}`
-    : `${uploadedAccount} → ${linkedAccount}`;
+    ? `${uploadedAccount} FROM ${linkedAccount}`
+    : `${uploadedAccount} TO ${linkedAccount}`;
 }
 
 function ColumnSelect({ label, field, value, headers, update, required = false }) {
