@@ -1,0 +1,55 @@
+name: Apply CSV transfer fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Patch transfer direction
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("src/services/csvImportService.js")
+          text = path.read_text(encoding="utf-8")
+
+          old = '''function convertToLinkedTransfer(transaction, previewRow, bankRow, uploadedAccountId, linkedAccountId, now) {
+  const existingWasIncoming = getSignedAmountForAccount(transaction, transaction.accountId) > 0;
+  const fromAccountId = existingWasIncoming ? transaction.accountId : uploadedAccountId;
+  const toAccountId = existingWasIncoming ? uploadedAccountId : transaction.accountId;'''
+
+          new = '''function convertToLinkedTransfer(transaction, previewRow, bankRow, uploadedAccountId, linkedAccountId, now) {
+  // The CSV row being imported is the source of truth for transfer direction.
+  // Positive = money into the uploaded account: linked account -> uploaded account.
+  // Negative = money out of the uploaded account: uploaded account -> linked account.
+  const isMoneyIntoUploadedAccount = Number(previewRow.signedAmount || 0) > 0;
+  const fromAccountId = isMoneyIntoUploadedAccount ? linkedAccountId : uploadedAccountId;
+  const toAccountId = isMoneyIntoUploadedAccount ? uploadedAccountId : linkedAccountId;'''
+
+          if old not in text:
+              raise SystemExit("Expected transfer-direction block was not found; no change made.")
+
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+      - name: Validate
+        run: node --check src/services/csvImportService.js
+
+      - name: Commit patch and remove workflow
+        shell: bash
+        run: |
+          git config user.name "guinnoarch-arch"
+          git config user.email "guinno.arch@icloud.com"
+          rm -f .github/workflows/apply-csv-transfer-fix.yml
+          git add src/services/csvImportService.js .github/workflows/apply-csv-transfer-fix.yml
+          git commit -m "Fix CSV linked transfer direction" || exit 0
+          git push origin HEAD:main
