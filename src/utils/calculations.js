@@ -20,11 +20,6 @@ export function normaliseAccountFilter(accountId) {
 export function transactionMatchesAccount(transaction, accountId) {
   const selectedAccountId = normaliseAccountFilter(accountId);
   if (!selectedAccountId) return true;
-
-  if (transaction.type === "transfer") {
-    return transaction.fromAccountId === selectedAccountId || transaction.toAccountId === selectedAccountId;
-  }
-
   return transaction.accountId === selectedAccountId;
 }
 
@@ -50,24 +45,32 @@ function budgetMatchesAccount(budget, accountId) {
   return getBudgetAccountIds(budget).includes(selectedAccountId);
 }
 
+// A transfer-linked leg is still a real movement of money into or out of its
+// own account (it counts fully toward that account's balance), but it is the
+// user moving their own money between their own accounts, not real spending
+// or income — so every "real" income/expense filter used for reporting
+// (budgets, spend totals, trends) must exclude it, or a transfer would get
+// silently double-counted as spending on one side and income on the other.
 function expenseMatchesAccount(transaction, accountId) {
   const selectedAccountId = normaliseAccountFilter(accountId);
-  if (!selectedAccountId) return transaction.type === "expense";
-  return transaction.type === "expense" && transaction.accountId === selectedAccountId;
+  const isRealExpense = transaction.type === "expense" && !transaction.transferLinkId;
+  if (!selectedAccountId) return isRealExpense;
+  return isRealExpense && transaction.accountId === selectedAccountId;
 }
 
 function incomeMatchesAccount(transaction, accountId) {
   const selectedAccountId = normaliseAccountFilter(accountId);
-  if (!selectedAccountId) return transaction.type === "income";
-  return transaction.type === "income" && transaction.accountId === selectedAccountId;
+  const isRealIncome = transaction.type === "income" && !transaction.transferLinkId;
+  if (!selectedAccountId) return isRealIncome;
+  return isRealIncome && transaction.accountId === selectedAccountId;
 }
 
 export function isBudgetCountedExpense(transaction) {
-  return transaction?.type === "expense" && transaction.excludeFromBudget !== true;
+  return transaction?.type === "expense" && !transaction.transferLinkId && transaction.excludeFromBudget !== true;
 }
 
 export function isBudgetExcludedExpense(transaction) {
-  return transaction?.type === "expense" && transaction.excludeFromBudget === true;
+  return transaction?.type === "expense" && !transaction.transferLinkId && transaction.excludeFromBudget === true;
 }
 
 function getSpendableAccountIds(data, activeBudgets, accountId = null) {
@@ -133,57 +136,49 @@ export function getBudgetLeftSummary(data, monthKey, accountId = null) {
   };
 }
 
+// The receiving (income) leg of a linked transfer is what represents money
+// having arrived in savings - the sending (expense) leg is excluded here so
+// a single transfer is never counted twice. Its partner's own accountId
+// (looked up via transferLinkId, since the leg no longer carries a
+// fromAccountId) tells us which account the money left.
 function getSavingsTransferAmount(data, transactions, accountId) {
   const selectedAccountId = normaliseAccountFilter(accountId);
+  const transactionsById = new Map(data.transactions.map(t => [t.id, t]));
 
   return sum(
     transactions
       .filter(transaction => {
-        if (transaction.type !== "transfer") return false;
-        const goesToSavings = isSavingsAccount(data.accounts, transaction.toAccountId);
+        if (transaction.type !== "income" || !transaction.transferLinkId) return false;
+        const goesToSavings = isSavingsAccount(data.accounts, transaction.accountId);
         if (!goesToSavings) return false;
 
         if (!selectedAccountId) return true;
 
         const selectedAccountIsSavings = isSavingsAccount(data.accounts, selectedAccountId);
         if (selectedAccountIsSavings) {
-          return transaction.toAccountId === selectedAccountId;
+          return transaction.accountId === selectedAccountId;
         }
 
-        return transaction.fromAccountId === selectedAccountId;
+        const sourceLeg = transactionsById.get(transaction.transferLinkId);
+        return sourceLeg?.accountId === selectedAccountId;
       })
       .map(transaction => transaction.amount)
   );
 }
 
+// A transfer leg is just as real a movement of this account's own money as
+// any other income/expense row, so unlike the budget/spend helpers above,
+// these deliberately do NOT exclude transfer-linked transactions.
 function getAccountMoneyIn(transactions, accountId) {
   const selectedAccountId = normaliseAccountFilter(accountId);
   if (!selectedAccountId) return 0;
-
-  const income = sum(transactions
-    .filter(t => t.type === "income" && t.accountId === selectedAccountId)
-    .map(t => t.amount));
-
-  const transfersIn = sum(transactions
-    .filter(t => t.type === "transfer" && t.toAccountId === selectedAccountId)
-    .map(t => t.amount));
-
-  return income + transfersIn;
+  return sum(transactions.filter(t => t.type === "income" && t.accountId === selectedAccountId).map(t => t.amount));
 }
 
 function getAccountMoneyOut(transactions, accountId) {
   const selectedAccountId = normaliseAccountFilter(accountId);
   if (!selectedAccountId) return 0;
-
-  const expenses = sum(transactions
-    .filter(t => t.type === "expense" && t.accountId === selectedAccountId)
-    .map(t => t.amount));
-
-  const transfersOut = sum(transactions
-    .filter(t => t.type === "transfer" && t.fromAccountId === selectedAccountId)
-    .map(t => t.amount));
-
-  return expenses + transfersOut;
+  return sum(transactions.filter(t => t.type === "expense" && t.accountId === selectedAccountId).map(t => t.amount));
 }
 
 export function getTransactionsForMonth(transactions, monthKey) {
@@ -236,14 +231,14 @@ export function calculateMonthSummary(data, monthKey, options = {}) {
   const savingsTransfers = getSavingsTransferAmount(data, monthTransactionsAll, accountId);
 
   const transferIn = accountId
-    ? sum(monthTransactionsAll.filter(t => t.type === "transfer" && t.toAccountId === accountId).map(t => t.amount))
+    ? sum(monthTransactionsAll.filter(t => t.type === "income" && t.transferLinkId && t.accountId === accountId).map(t => t.amount))
     : 0;
   const transferOut = accountId
-    ? sum(monthTransactionsAll.filter(t => t.type === "transfer" && t.fromAccountId === accountId).map(t => t.amount))
+    ? sum(monthTransactionsAll.filter(t => t.type === "expense" && t.transferLinkId && t.accountId === accountId).map(t => t.amount))
     : 0;
 
-  const accountMoneyIn = accountId ? income + transferIn : income;
-  const accountMoneyOut = accountId ? expenses + transferOut : expenses;
+  const accountMoneyIn = accountId ? getAccountMoneyIn(monthTransactionsAll, accountId) : income;
+  const accountMoneyOut = accountId ? getAccountMoneyOut(monthTransactionsAll, accountId) : expenses;
 
   const carryForward = accountId
     ? 0
@@ -293,7 +288,7 @@ export function calculateMonthSummary(data, monthKey, options = {}) {
   const savingsRate = income > 0 ? (savingsTransfers / income) * 100 : 0;
   const averageDailySpend = expenses / Math.max(daysElapsedInMonth(monthKey), 1);
   const largestExpense = monthTransactions
-    .filter(t => t.type === "expense")
+    .filter(t => t.type === "expense" && !t.transferLinkId)
     .sort((a, b) => b.amount - a.amount)[0];
 
   return {
@@ -435,12 +430,7 @@ function getCumulativeSavingInSeries(transactions, monthKey, maxDays, accountId 
 
   transactions
     .filter(t => isInMonth(t.date, monthKey))
-    .filter(t => {
-      if (!selectedAccountId) return false;
-      if (t.type === "transfer") return t.toAccountId === selectedAccountId;
-      if (t.type === "income") return t.accountId === selectedAccountId;
-      return false;
-    })
+    .filter(t => selectedAccountId && t.type === "income" && t.accountId === selectedAccountId)
     .forEach(transaction => {
       const day = Number(transaction.date?.slice(8, 10));
       if (day >= 1 && day <= monthDays) {
@@ -469,11 +459,7 @@ export function getSavingsGoalBreakdown(data, monthKey, accountId = null) {
   const totalsByName = new Map();
 
   getTransactionsForMonth(data.transactions, monthKey)
-    .filter(t => {
-      if (t.type === "transfer") return t.toAccountId === selectedAccountId;
-      if (t.type === "income") return t.accountId === selectedAccountId;
-      return false;
-    })
+    .filter(t => t.type === "income" && t.accountId === selectedAccountId)
     .forEach(transaction => {
       const goal = data.savingsGoals.find(item => item.id === transaction.linkedSavingsGoalId);
       const name = goal?.name || "Unassigned savings";
@@ -595,6 +581,11 @@ export function getBudgetWarnings(data, monthKey, accountId = null) {
     .sort((a, b) => b.usedPercent - a.usedPercent);
 }
 
+// A transfer is two independently-real transactions, each already living in
+// its own account - there is no separate transfer term to add on top of an
+// account's own income/expense rows, unlike the old fromAccountId/
+// toAccountId model where a transfer's amount had to be added or subtracted
+// on top of two different accounts from one shared record.
 export function calculateAccountBalance(data, accountId) {
   const account = data.accounts.find(acc => acc.id === accountId);
   if (!account) return 0;
@@ -612,15 +603,7 @@ export function calculateAccountBalance(data, accountId) {
     .filter(t => t.type === "expense" && t.accountId === accountId)
     .map(t => t.amount));
 
-  const transfersIn = sum(data.transactions
-    .filter(t => t.type === "transfer" && t.toAccountId === accountId)
-    .map(t => t.amount));
-
-  const transfersOut = sum(data.transactions
-    .filter(t => t.type === "transfer" && t.fromAccountId === accountId)
-    .map(t => t.amount));
-
-  return openingBalance + adjustments + income - expenses + transfersIn - transfersOut;
+  return openingBalance + adjustments + income - expenses;
 }
 
 export function calculateAccountBalanceAtDate(data, accountId, cutoffDate) {
@@ -640,20 +623,12 @@ export function calculateAccountBalanceAtDate(data, accountId, cutoffDate) {
     .filter(t => t.type === "expense" && t.accountId === accountId && t.date <= cutoffDate)
     .map(t => t.amount));
 
-  const transfersIn = sum(data.transactions
-    .filter(t => t.type === "transfer" && t.toAccountId === accountId && t.date <= cutoffDate)
-    .map(t => t.amount));
-
-  const transfersOut = sum(data.transactions
-    .filter(t => t.type === "transfer" && t.fromAccountId === accountId && t.date <= cutoffDate)
-    .map(t => t.amount));
-
-  return openingBalance + adjustments + income - expenses + transfersIn - transfersOut;
+  return openingBalance + adjustments + income - expenses;
 }
 
 export function getSavingsGoalProgress(data, goal) {
   const linkedTransfers = sum(data.transactions
-    .filter(t => t.type === "transfer" && t.linkedSavingsGoalId === goal.id)
+    .filter(t => t.type === "income" && t.linkedSavingsGoalId === goal.id)
     .map(t => t.amount));
 
   const saved = Number(goal.currentManualAmount || 0) + linkedTransfers;
