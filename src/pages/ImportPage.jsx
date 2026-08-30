@@ -37,6 +37,7 @@ const emptyAccountForm = {
 const previewFilters = [
   ["all", "All"],
   ["needs_review", "Needs review"],
+  ["unticked", "Unticked"],
   ["duplicates", "Duplicates"],
   ["transfers", "Transfers"],
   ["matched", "Matched"],
@@ -88,6 +89,7 @@ function rowMatchesFilter(row, rowEdits, filter) {
 
   if (filter === "all") return true;
   if (filter === "needs_review") return Boolean(row.warning) || row.confidence === "Needs review" || (type === "transfer" && action !== "match_existing_transfer" && !(getRowEdit(rowEdits, row).linkedAccountId || row.linkedAccountId));
+  if (filter === "unticked") return !(getRowEdit(rowEdits, row).include ?? row.defaultInclude);
   if (filter === "duplicates") return action === "duplicate";
   if (filter === "transfers") return type === "transfer";
   if (filter === "matched") return action === "match_planned" || action === "match_existing_transfer";
