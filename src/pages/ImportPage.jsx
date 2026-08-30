@@ -7,6 +7,7 @@ import {
   undoCsvImport,
   findSavedCsvColumnMapping,
   forgetTransferGuess,
+  describeTextMatch,
   minutesBetween
 } from "../services/csvImportService.js";
 import { calculateAccountBalance, calculateAccountBalanceAtDate } from "../utils/calculations.js";
@@ -527,34 +528,55 @@ export default function ImportPage({ appData, actions }) {
         if (Math.abs(Number(a.signedAmount) + Number(b.signedAmount)) > 0.005) continue;
         const gapMinutes = minutesBetween(a.date, a.time, b.date, b.time);
         if (gapMinutes > 3 * 24 * 60) continue;
-        candidatePairs.push({ a, b, gapMinutes });
+        candidatePairs.push({ a, b, gapMinutes, ...describeTextMatch(a.description, b.description) });
       }
     }
-    candidatePairs.sort((first, second) => first.gapMinutes - second.gapMinutes);
+    // Prefer pairs with actual wording evidence over same-amount coincidences,
+    // then break ties by closeness in time — a coincidental same-amount pair
+    // must never steal a row from a pair that genuinely shares wording.
+    candidatePairs.sort((first, second) => {
+      const firstScore = first.exactText ? 2 : first.similarity >= 0.25 ? 1 : 0;
+      const secondScore = second.exactText ? 2 : second.similarity >= 0.25 ? 1 : 0;
+      if (firstScore !== secondScore) return secondScore - firstScore;
+      return first.gapMinutes - second.gapMinutes;
+    });
 
     const matchedRowIds = new Set();
-    candidatePairs.forEach(({ a, b, gapMinutes }) => {
+    candidatePairs.forEach(({ a, b, gapMinutes, exactText, similarity }) => {
       if (matchedRowIds.has(a.id) || matchedRowIds.has(b.id)) return;
       matchedRowIds.add(a.id);
       matchedRowIds.add(b.id);
 
       const describeWhen = row => row.time ? `${row.date} ${row.time}` : row.date;
+      // Same amount, opposite sign, and close together in time is not on its
+      // own evidence that two rows from different accounts are the same
+      // transfer — it also matches two completely unrelated transactions
+      // that happen to share a common amount (rent, a subscription, a round
+      // number). Only auto-include when the wording actually overlaps too;
+      // otherwise still show the possible pairing, but require the user to
+      // confirm it so an unrelated expense/income pair is never silently
+      // merged into a phantom transfer.
+      const hasEvidence = exactText || similarity >= 0.25;
 
       a.type = "transfer";
       a.action = "new_transfer";
       a.actionLabel = "Cross-file transfer";
       a.linkedAccountId = b.sourceAccountId;
-      a.defaultInclude = true;
-      a.warning = `Likely transfer matched with ${b.sourceFileName} (${describeWhen(b)}, ${formatMoney(b.amount)} opposite sign).`;
-      a.confidence = gapMinutes <= 60 ? "High" : "Medium";
+      a.defaultInclude = hasEvidence;
+      a.warning = hasEvidence
+        ? `Likely transfer matched with ${b.sourceFileName} (${describeWhen(b)}, ${formatMoney(b.amount)} opposite sign).`
+        : `Unconfirmed possible transfer: same amount as a row in ${b.sourceFileName} (${describeWhen(b)}), but the descriptions don't match — could be a coincidence. Review before importing — not auto-selected.`;
+      a.confidence = hasEvidence ? (gapMinutes <= 60 ? "High" : "Medium") : "Needs review";
 
       b.type = "transfer";
       b.action = "new_transfer";
       b.actionLabel = "Cross-file transfer";
       b.linkedAccountId = a.sourceAccountId;
-      b.defaultInclude = true;
-      b.warning = `Likely transfer matched with ${a.sourceFileName} (${describeWhen(a)}, ${formatMoney(a.amount)} opposite sign).`;
-      b.confidence = gapMinutes <= 60 ? "High" : "Medium";
+      b.defaultInclude = hasEvidence;
+      b.warning = hasEvidence
+        ? `Likely transfer matched with ${a.sourceFileName} (${describeWhen(a)}, ${formatMoney(a.amount)} opposite sign).`
+        : `Unconfirmed possible transfer: same amount as a row in ${a.sourceFileName} (${describeWhen(a)}), but the descriptions don't match — could be a coincidence. Review before importing — not auto-selected.`;
+      b.confidence = hasEvidence ? (gapMinutes <= 60 ? "High" : "Medium") : "Needs review";
 
       a.crossFileMatchId = b.id;
       b.crossFileMatchId = a.id;
@@ -636,20 +658,71 @@ export default function ImportPage({ appData, actions }) {
     }));
   }
 
-  // If a cross-file transfer match was actually wrong (e.g. it's really just
-  // an income that happens to share an amount/date with something in another
-  // account), resetting only this row leaves the other half still expecting
-  // to be linked to a transfer that no longer exists. Refresh both sides back
-  // to their own best guess so nothing is left half-matched.
-  function refreshCrossFileMatch(row) {
-    const pair = analysis?.rows.find(item => item.id === row.crossFileMatchId);
-    [row, pair].filter(Boolean).forEach(target => {
-      updateRow(target.id, "action", "new");
-      updateRow(target.id, "type", target.baseType);
-      updateRow(target.id, "linkedAccountId", "");
-      updateRow(target.id, "categoryId", target.categoryId || "");
-    });
-    setStatus("Unlinked that transfer match — both rows have been reset to their own best guess. Double check them below.");
+  // Same amount + opposite sign can have more than one candidate (e.g. three
+  // £300 rows: one income, two possible expense matches) — the greedy pairing
+  // pass only ever picks one. When the user says a specific pairing is wrong,
+  // look for another still-available row before giving up on the survivor,
+  // rather than assuming it must be a standalone transaction too.
+  function findAlternativeCrossFileMatch(survivor, rejectedPartnerId) {
+    return (analysis?.rows || []).find(candidate => (
+      candidate.id !== survivor.id
+      && candidate.id !== rejectedPartnerId
+      && candidate.sourceAccountId !== survivor.sourceAccountId
+      && Math.abs(Number(candidate.signedAmount) + Number(survivor.signedAmount)) <= 0.005
+      && minutesBetween(survivor.date, survivor.time, candidate.date, candidate.time) <= 3 * 24 * 60
+      // Don't poach a row that's already confidently paired with someone else.
+      && (!candidate.crossFileMatchId || candidate.crossFileMatchId === rejectedPartnerId)
+    )) || null;
+  }
+
+  // The user is saying this specific row is not part of a transfer. Reset it
+  // to its own best guess, then give the other half of the pair a chance to
+  // find a different match instead of assuming it's wrong too — only fall
+  // back to making it a standalone transaction if nothing else fits.
+  function rejectCrossFileMatch(row) {
+    const partner = analysis?.rows.find(item => item.id === row.crossFileMatchId);
+
+    updateRow(row.id, "action", "new");
+    updateRow(row.id, "type", row.baseType);
+    updateRow(row.id, "linkedAccountId", "");
+    updateRow(row.id, "categoryId", row.categoryId || "");
+    updateRow(row.id, "include", true);
+    // row is now confirmed not part of a transfer — clear the raw pairing
+    // pointer too, not just the edit, so it doesn't keep showing this button
+    // (which reads row.crossFileMatchId directly, not the edit) after it's
+    // already resolved.
+    row.crossFileMatchId = null;
+
+    if (!partner) {
+      setStatus("Marked that row as not a transfer.");
+      return;
+    }
+
+    const alternative = findAlternativeCrossFileMatch(partner, row.id);
+
+    if (alternative) {
+      partner.crossFileMatchId = alternative.id;
+      alternative.crossFileMatchId = partner.id;
+      const { exactText, similarity } = describeTextMatch(partner.description, alternative.description);
+      const hasEvidence = exactText || similarity >= 0.25;
+
+      [[partner, alternative], [alternative, partner]].forEach(([target, other]) => {
+        updateRow(target.id, "action", "new_transfer");
+        updateRow(target.id, "type", "transfer");
+        updateRow(target.id, "linkedAccountId", other.sourceAccountId);
+        updateRow(target.id, "include", hasEvidence);
+      });
+
+      setStatus(`"${row.description}" marked as not a transfer. Found another possible match for "${partner.description}" (${alternative.sourceFileName}) — check it before importing.`);
+    } else {
+      partner.crossFileMatchId = null;
+      updateRow(partner.id, "action", "new");
+      updateRow(partner.id, "type", partner.baseType);
+      updateRow(partner.id, "linkedAccountId", "");
+      updateRow(partner.id, "categoryId", partner.categoryId || "");
+      updateRow(partner.id, "include", true);
+      setStatus(`"${row.description}" marked as not a transfer. No other match was found for "${partner.description}", so it's now a standalone transaction — check it below.`);
+    }
   }
 
   // A guessed transfer with no matching transaction on the other side only
@@ -1225,10 +1298,10 @@ export default function ImportPage({ appData, actions }) {
                               <button
                                 type="button"
                                 className="secondary-button small"
-                                onClick={() => refreshCrossFileMatch(row)}
-                                title="If this isn't really a transfer, use this to reset both sides so neither is left half-matched."
+                                onClick={() => rejectCrossFileMatch(row)}
+                                title="Mark this row as not a transfer. The other side will look for a different match before falling back to a standalone transaction."
                               >
-                                ↻ Not a match? Refresh both sides
+                                ↻ Not this match
                               </button>
                             )}
                           </div>

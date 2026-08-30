@@ -1184,6 +1184,20 @@ function parseTime(value) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
+// Shared with ImportPage's cross-file transfer pairing (which compares two
+// fresh CSV rows from different statements against each other) so that both
+// places use the exact same evidence bar for calling two rows "the same
+// transfer" instead of drifting apart. Same amount + close date alone is not
+// evidence — it also matches two unrelated transactions that happen to share
+// a common amount — so this is what actually decides "confirmed" vs "guess".
+export function describeTextMatch(descriptionA, descriptionB) {
+  const textA = normaliseText(descriptionA);
+  const textB = normaliseText(descriptionB);
+  const exactText = Boolean(textA) && Boolean(textB) && (textA === textB || textA.includes(textB) || textB.includes(textA));
+  const similarity = textA && textB ? getTextSimilarity(textA, textB) : 0;
+  return { exactText, similarity };
+}
+
 function normaliseText(value) {
   return String(value || "")
     .toLowerCase()
