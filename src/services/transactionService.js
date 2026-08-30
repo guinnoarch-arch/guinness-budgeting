@@ -4,7 +4,17 @@ import { removeLoanEventsForTransaction, syncLoanEventsForTransaction } from "..
 
 export function upsertTransaction(data, formValues, existingId = null) {
   const now = new Date().toISOString();
-  const shouldCreateRecurring = Boolean(formValues.isRecurring) && formValues.type !== "transfer";
+
+  // "Transfer" is a creation-time shortcut, not a stored shape: it always
+  // produces two independent, already-linked income/expense transactions
+  // rather than one record spanning two accounts. It only ever applies to
+  // creating something new — editing an existing (already income/expense)
+  // transaction never routes through here.
+  if (formValues.type === "transfer" && !existingId) {
+    return createTransferPair(data, formValues, now);
+  }
+
+  const shouldCreateRecurring = Boolean(formValues.isRecurring);
   const recurringItemId = formValues.recurringItemId || (shouldCreateRecurring ? createId("rec") : null);
   const existingTransaction = existingId
     ? data.transactions.find(item => item.id === existingId)
@@ -21,11 +31,9 @@ export function upsertTransaction(data, formValues, existingId = null) {
     amount: Number(formValues.amount || 0),
     title: formValues.title || "Untitled transaction",
     note: formValues.note || "",
-    categoryId: formValues.type === "transfer" ? null : formValues.categoryId,
-    accountId: formValues.type === "transfer" ? null : formValues.accountId,
-    fromAccountId: formValues.type === "transfer" ? formValues.fromAccountId : null,
-    toAccountId: formValues.type === "transfer" ? formValues.toAccountId : null,
-    linkedSavingsGoalId: formValues.type === "transfer" ? formValues.linkedSavingsGoalId || null : null,
+    categoryId: formValues.categoryId,
+    accountId: formValues.accountId,
+    linkedSavingsGoalId: formValues.type === "income" ? formValues.linkedSavingsGoalId || null : null,
     linkedLoanId,
     linkedHouseId,
     linkedHouseContributionId: formValues.linkedHouseContributionId || existingTransaction?.linkedHouseContributionId || null,
@@ -82,6 +90,79 @@ export function upsertTransaction(data, formValues, existingId = null) {
 
   const withTransaction = { ...data, transactions, recurringItems };
   return syncHouseContributionForTransaction(syncLoanEventsForTransaction(withTransaction, transaction), transaction);
+}
+
+// Builds both legs of a manually-entered transfer at once, already linked to
+// each other. After creation the two legs are edited independently, exactly
+// like a CSV-imported pair — there is no ongoing two-way sync, only the
+// unlink invariant (see unlinkTransferPair) that guarantees neither side is
+// ever left pointing at a partner that no longer reciprocates.
+function createTransferPair(data, formValues, now) {
+  const amount = Number(formValues.amount || 0);
+  const fromId = formValues.id || createId("txn");
+  const toId = createId("txn");
+
+  const shared = {
+    date: formValues.date,
+    amount,
+    title: formValues.title || "Transfer",
+    note: formValues.note || "",
+    categoryId: null,
+    linkedLoanId: null,
+    linkedHouseId: null,
+    linkedHouseContributionId: null,
+    houseContributionType: null,
+    housePersonId: null,
+    housePersonName: "",
+    houseContributionNotes: "",
+    loanInterestAmount: null,
+    loanPrincipalAmount: null,
+    isLoanOverpayment: false,
+    loanOverpaymentAmount: 0,
+    recurringItemId: null,
+    isRecurring: false,
+    isExample: false,
+    status: "manual",
+    importSource: null,
+    matchedBankRows: [],
+    linkedAccountId: null,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  const fromLeg = {
+    ...shared,
+    id: fromId,
+    type: "expense",
+    accountId: formValues.fromAccountId,
+    excludeFromBudget: false,
+    linkedSavingsGoalId: null,
+    transferLinkId: toId,
+    receiptId: formValues.receiptId || null,
+    receiptFileName: formValues.receiptFileName || null,
+    receiptMimeType: formValues.receiptMimeType || null,
+    receiptSizeBytes: Number(formValues.receiptSizeBytes || 0),
+    receiptUploadedAt: formValues.receiptUploadedAt || null
+  };
+
+  const toLeg = {
+    ...shared,
+    id: toId,
+    type: "income",
+    accountId: formValues.toAccountId,
+    linkedSavingsGoalId: formValues.linkedSavingsGoalId || null,
+    transferLinkId: fromId,
+    receiptId: null,
+    receiptFileName: null,
+    receiptMimeType: null,
+    receiptSizeBytes: 0,
+    receiptUploadedAt: null
+  };
+
+  return {
+    ...data,
+    transactions: [fromLeg, toLeg, ...data.transactions]
+  };
 }
 
 export function deleteTransaction(data, transactionId) {
