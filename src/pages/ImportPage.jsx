@@ -6,6 +6,7 @@ import {
   suggestColumnMap,
   undoCsvImport,
   findSavedCsvColumnMapping,
+  forgetTransferGuess,
   minutesBetween
 } from "../services/csvImportService.js";
 import { calculateAccountBalance, calculateAccountBalanceAtDate } from "../utils/calculations.js";
@@ -182,6 +183,35 @@ function ReconciliationPreview({ appData, analysis, rowEdits, createAdjustment, 
           />
           Create a dated reconciliation adjustment after import if the final imported balance still does not match the CSV balance.
         </label>
+      )}
+    </div>
+  );
+}
+
+function BalanceChainCheckBox({ check, label }) {
+  if (!check?.checked) {
+    return (
+      <div className="import-reconciliation-box muted-box">
+        <strong>{label ? `${label}: running balance not checked` : "Running balance not checked"}</strong>
+        <span>{check?.message || "Map a balance column to have the app verify its own maths against the bank's running balance."}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`import-reconciliation-box ${check.reconciled ? "ok" : "warning"}`}>
+      <div>
+        <strong>{label ? `${label}: ` : ""}{check.reconciled ? "Running balance reconciles" : "Running balance doesn't add up"}</strong>
+        <span>{check.message}</span>
+      </div>
+      {!check.reconciled && check.mismatches?.length > 0 && (
+        <ul className="import-balance-chain-mismatches">
+          {check.mismatches.map(mismatch => (
+            <li key={`${mismatch.rowIndex}_${mismatch.date}`}>
+              {mismatch.date} · {mismatch.description} — expected {formatMoney(mismatch.expectedBalance)}, CSV shows {formatMoney(mismatch.actualBalance)} ({mismatch.difference >= 0 ? "+" : ""}{formatMoney(mismatch.difference)})
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -622,6 +652,33 @@ export default function ImportPage({ appData, actions }) {
     setStatus("Unlinked that transfer match — both rows have been reset to their own best guess. Double check them below.");
   }
 
+  // A guessed transfer with no matching transaction on the other side only
+  // got its linked account from a keyword or a previously learned rule — if
+  // it's wrong, reset this row back to its own best guess AND forget the
+  // rule/mapping that caused it, so the same wrong guess doesn't keep
+  // resurfacing on every future import that mentions this payee.
+  function markRowNotATransfer(row) {
+    updateRow(row.id, "action", "new");
+    updateRow(row.id, "type", row.baseType);
+    updateRow(row.id, "categoryId", row.categoryId || "");
+    updateRow(row.id, "linkedAccountId", "");
+    updateRow(row.id, "include", true);
+
+    const uploadedAccountId = row.sourceAccountId || selectedAccountId;
+    const { data: nextData, removedRuleCount, removedMappingCount } = forgetTransferGuess(appData, {
+      accountId: uploadedAccountId,
+      description: row.description,
+      externalAccountName: row.externalAccountName
+    });
+
+    if (removedRuleCount > 0 || removedMappingCount > 0) {
+      actions.updateAppData(nextData, { reason: "Forgot a learned transfer rule that was matching wrongly" });
+      setStatus(`"${row.description}" won't be auto-suggested as a transfer again.`);
+    } else {
+      setStatus(`Marked "${row.description}" as not a transfer for this import.`);
+    }
+  }
+
   function openDuplicateReview(row) {
     setDuplicateReviewRowId(row.id);
   }
@@ -966,18 +1023,26 @@ export default function ImportPage({ appData, actions }) {
               </div>
             </div>
             {analysis.isMulti ? (
-              <div className="import-reconciliation-box muted-box">
-                <strong>Combined statement review</strong>
-                <span>Balance reconciliation is performed separately for each statement. The transaction review below combines all files and orders every row by date so transfers between accounts are easy to spot.</span>
-              </div>
+              <>
+                <div className="import-reconciliation-box muted-box">
+                  <strong>Combined statement review</strong>
+                  <span>Balance reconciliation is performed separately for each statement. The transaction review below combines all files and orders every row by date so transfers between accounts are easy to spot.</span>
+                </div>
+                {analysis.files.map(fileAnalysis => (
+                  <BalanceChainCheckBox key={fileAnalysis.id} check={fileAnalysis.balanceChainCheck} label={fileAnalysis.fileName} />
+                ))}
+              </>
             ) : (
-              <ReconciliationPreview
-                appData={appData}
-                analysis={analysis}
-                rowEdits={rowEdits}
-                createAdjustment={createAdjustment}
-                setCreateAdjustment={setCreateAdjustment}
-              />
+              <>
+                <BalanceChainCheckBox check={analysis.balanceChainCheck} />
+                <ReconciliationPreview
+                  appData={appData}
+                  analysis={analysis}
+                  rowEdits={rowEdits}
+                  createAdjustment={createAdjustment}
+                  setCreateAdjustment={setCreateAdjustment}
+                />
+              </>
             )}
           </section>
 
@@ -1091,6 +1156,16 @@ export default function ImportPage({ appData, actions }) {
                               <option value={ADD_ACCOUNT_VALUE}>+ Add new account</option>
                             </select>
                             {transferText && <small>{transferText}</small>}
+                            {!row.crossFileMatchId && (
+                              <button
+                                type="button"
+                                className="secondary-button small"
+                                onClick={() => markRowNotATransfer(row)}
+                                title="Reset this row to an ordinary transaction and forget any learned rule that guessed it as a transfer."
+                              >
+                                Not a transfer
+                              </button>
+                            )}
                           </div>
                         ) : (
                           <span className="muted">—</span>
