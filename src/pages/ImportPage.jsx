@@ -7,6 +7,9 @@ import {
   undoCsvImport,
   findSavedCsvColumnMapping,
   forgetTransferGuess,
+  describeTextMatch,
+  combineCsvAnalyses,
+  applyMultiCsvImport,
   minutesBetween
 } from "../services/csvImportService.js";
 import { calculateAccountBalance, calculateAccountBalanceAtDate } from "../utils/calculations.js";
@@ -480,104 +483,11 @@ export default function ImportPage({ appData, actions }) {
       accountId: item.accountId
     }));
 
-    // Give every preview row a globally unique id, then identify likely cross-file
-    // transfers. The actual import re-checks these pairs against the transactions
-    // created by earlier files, so only one transfer record is created.
-    const combinedRows = [];
-    analyses.forEach(fileAnalysis => {
-      fileAnalysis.rows.forEach(row => {
-        combinedRows.push({
-          ...row,
-          id: files.length > 1 ? `${fileAnalysis.fileId}__${row.id}` : row.id,
-          fileId: fileAnalysis.fileId,
-          sourceRowId: row.id,
-          sourceFileName: fileAnalysis.fileName,
-          sourceAccountId: fileAnalysis.accountId
-        });
-      });
-    });
-
-    // Score every plausible opposite-sign, different-account pair by how close
-    // together (in time, using the Time column when it's mapped) they
-    // happened, then accept the closest pairs first. A naive "first match
-    // found" loop mis-pairs money that hops through more than one account
-    // close together (pay -> account A -> account B -> account C); scoring
-    // every candidate pair up front and taking the tightest ones first copes
-    // with that far better.
-    const pairablePool = combinedRows.filter(row => (
-      row.date
-      && Number.isFinite(Number(row.signedAmount))
-      && row.action !== "duplicate"
-      && row.action !== "match_planned"
-      // Rows already linked to a real, already-saved transaction (via the
-      // single-file matching above) are excluded — they're already handled.
-      // A row merely *guessed* to be a transfer by its wording (action
-      // "new_transfer", no confirmed match yet) must stay eligible here,
-      // since that guess is exactly what cross-file pairing is meant to
-      // confirm or correct.
-      && row.action !== "match_existing_transfer"
-    ));
-
-    const candidatePairs = [];
-    for (let i = 0; i < pairablePool.length; i += 1) {
-      for (let j = i + 1; j < pairablePool.length; j += 1) {
-        const a = pairablePool[i];
-        const b = pairablePool[j];
-        if (a.sourceAccountId === b.sourceAccountId) continue;
-        if (Math.abs(Number(a.signedAmount) + Number(b.signedAmount)) > 0.005) continue;
-        const gapMinutes = minutesBetween(a.date, a.time, b.date, b.time);
-        if (gapMinutes > 3 * 24 * 60) continue;
-        candidatePairs.push({ a, b, gapMinutes });
-      }
-    }
-    candidatePairs.sort((first, second) => first.gapMinutes - second.gapMinutes);
-
-    const matchedRowIds = new Set();
-    candidatePairs.forEach(({ a, b, gapMinutes }) => {
-      if (matchedRowIds.has(a.id) || matchedRowIds.has(b.id)) return;
-      matchedRowIds.add(a.id);
-      matchedRowIds.add(b.id);
-
-      const describeWhen = row => row.time ? `${row.date} ${row.time}` : row.date;
-
-      a.type = "transfer";
-      a.action = "new_transfer";
-      a.actionLabel = "Cross-file transfer";
-      a.linkedAccountId = b.sourceAccountId;
-      a.defaultInclude = true;
-      a.warning = `Likely transfer matched with ${b.sourceFileName} (${describeWhen(b)}, ${formatMoney(b.amount)} opposite sign).`;
-      a.confidence = gapMinutes <= 60 ? "High" : "Medium";
-
-      b.type = "transfer";
-      b.action = "new_transfer";
-      b.actionLabel = "Cross-file transfer";
-      b.linkedAccountId = a.sourceAccountId;
-      b.defaultInclude = true;
-      b.warning = `Likely transfer matched with ${a.sourceFileName} (${describeWhen(a)}, ${formatMoney(a.amount)} opposite sign).`;
-      b.confidence = gapMinutes <= 60 ? "High" : "Medium";
-
-      a.crossFileMatchId = b.id;
-      b.crossFileMatchId = a.id;
-    });
-
-    combinedRows.sort((a, b) => a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || "") || a.sourceFileName.localeCompare(b.sourceFileName) || a.rowIndex - b.rowIndex);
-
-    // Keep matched pairs sitting right next to each other in the table (even
-    // though each side comes from a different file) so they can be shown
-    // visually linked, rather than possibly landing rows apart once sorted.
-    const orderedRows = [];
-    const placedRowIds = new Set();
-    const rowsById = new Map(combinedRows.map(row => [row.id, row]));
-    combinedRows.forEach(row => {
-      if (placedRowIds.has(row.id)) return;
-      orderedRows.push(row);
-      placedRowIds.add(row.id);
-      const pair = row.crossFileMatchId ? rowsById.get(row.crossFileMatchId) : null;
-      if (pair && !placedRowIds.has(pair.id)) {
-        orderedRows.push(pair);
-        placedRowIds.add(pair.id);
-      }
-    });
+    // Give every preview row a globally unique id, identify likely cross-file
+    // transfers, and order matched pairs next to each other for review. The
+    // actual import re-checks these pairs against the transactions created by
+    // earlier files, so only one transfer record is created.
+    const orderedRows = combineCsvAnalyses(analyses);
 
     const initialEdits = {};
     orderedRows.forEach(row => {
@@ -636,20 +546,71 @@ export default function ImportPage({ appData, actions }) {
     }));
   }
 
-  // If a cross-file transfer match was actually wrong (e.g. it's really just
-  // an income that happens to share an amount/date with something in another
-  // account), resetting only this row leaves the other half still expecting
-  // to be linked to a transfer that no longer exists. Refresh both sides back
-  // to their own best guess so nothing is left half-matched.
-  function refreshCrossFileMatch(row) {
-    const pair = analysis?.rows.find(item => item.id === row.crossFileMatchId);
-    [row, pair].filter(Boolean).forEach(target => {
-      updateRow(target.id, "action", "new");
-      updateRow(target.id, "type", target.baseType);
-      updateRow(target.id, "linkedAccountId", "");
-      updateRow(target.id, "categoryId", target.categoryId || "");
-    });
-    setStatus("Unlinked that transfer match — both rows have been reset to their own best guess. Double check them below.");
+  // Same amount + opposite sign can have more than one candidate (e.g. three
+  // £300 rows: one income, two possible expense matches) — the greedy pairing
+  // pass only ever picks one. When the user says a specific pairing is wrong,
+  // look for another still-available row before giving up on the survivor,
+  // rather than assuming it must be a standalone transaction too.
+  function findAlternativeCrossFileMatch(survivor, rejectedPartnerId) {
+    return (analysis?.rows || []).find(candidate => (
+      candidate.id !== survivor.id
+      && candidate.id !== rejectedPartnerId
+      && candidate.sourceAccountId !== survivor.sourceAccountId
+      && Math.abs(Number(candidate.signedAmount) + Number(survivor.signedAmount)) <= 0.005
+      && minutesBetween(survivor.date, survivor.time, candidate.date, candidate.time) <= 3 * 24 * 60
+      // Don't poach a row that's already confidently paired with someone else.
+      && (!candidate.crossFileMatchId || candidate.crossFileMatchId === rejectedPartnerId)
+    )) || null;
+  }
+
+  // The user is saying this specific row is not part of a transfer. Reset it
+  // to its own best guess, then give the other half of the pair a chance to
+  // find a different match instead of assuming it's wrong too — only fall
+  // back to making it a standalone transaction if nothing else fits.
+  function rejectCrossFileMatch(row) {
+    const partner = analysis?.rows.find(item => item.id === row.crossFileMatchId);
+
+    updateRow(row.id, "action", "new");
+    updateRow(row.id, "type", row.baseType);
+    updateRow(row.id, "linkedAccountId", "");
+    updateRow(row.id, "categoryId", row.categoryId || "");
+    updateRow(row.id, "include", true);
+    // row is now confirmed not part of a transfer — clear the raw pairing
+    // pointer too, not just the edit, so it doesn't keep showing this button
+    // (which reads row.crossFileMatchId directly, not the edit) after it's
+    // already resolved.
+    row.crossFileMatchId = null;
+
+    if (!partner) {
+      setStatus("Marked that row as not a transfer.");
+      return;
+    }
+
+    const alternative = findAlternativeCrossFileMatch(partner, row.id);
+
+    if (alternative) {
+      partner.crossFileMatchId = alternative.id;
+      alternative.crossFileMatchId = partner.id;
+      const { exactText, similarity } = describeTextMatch(partner.description, alternative.description);
+      const hasEvidence = exactText || similarity >= 0.25;
+
+      [[partner, alternative], [alternative, partner]].forEach(([target, other]) => {
+        updateRow(target.id, "action", "new_transfer");
+        updateRow(target.id, "type", "transfer");
+        updateRow(target.id, "linkedAccountId", other.sourceAccountId);
+        updateRow(target.id, "include", hasEvidence);
+      });
+
+      setStatus(`"${row.description}" marked as not a transfer. Found another possible match for "${partner.description}" (${alternative.sourceFileName}) — check it before importing.`);
+    } else {
+      partner.crossFileMatchId = null;
+      updateRow(partner.id, "action", "new");
+      updateRow(partner.id, "type", partner.baseType);
+      updateRow(partner.id, "linkedAccountId", "");
+      updateRow(partner.id, "categoryId", partner.categoryId || "");
+      updateRow(partner.id, "include", true);
+      setStatus(`"${row.description}" marked as not a transfer. No other match was found for "${partner.description}", so it's now a standalone transaction — check it below.`);
+    }
   }
 
   // A guessed transfer with no matching transaction on the other side only
@@ -742,83 +703,15 @@ export default function ImportPage({ appData, actions }) {
     if (!analysis) return;
 
     if (analysis.isMulti) {
-      let workingData = appData;
-      const aggregate = {
-        importedTransactionIds: [],
-        linkedTransactionIds: [],
-        skippedRows: [],
-        batches: []
-      };
+      const validFileIds = new Set(uploadItems.map(item => item.id));
+      const { data: workingData, result: aggregate, missingTransferFileName } = applyMultiCsvImport(
+        appData, analysis.files, analysis.rows, multiRowEdits, validFileIds
+      );
 
-      // Import each statement in upload order. Before each file is applied, re-run
-      // its analysis against the transactions already created by earlier files.
-      // This is what turns an opposite-sign pair from two CSVs into one transfer.
-      for (const fileAnalysis of analysis.files) {
-        const currentItem = uploadItems.find(item => item.id === fileAnalysis.fileId);
-        if (!currentItem) continue;
-
-        const refreshed = analyseCsvImport(workingData, {
-          accountId: fileAnalysis.accountId,
-          fileName: fileAnalysis.fileName,
-          headers: fileAnalysis.headers,
-          rows: fileAnalysis.rows.map(row => row.raw),
-          columnMap: fileAnalysis.columnMap
-        });
-
-        const edits = {};
-        refreshed.rows.forEach(row => {
-          const combinedId = `${fileAnalysis.fileId}__${row.id}`;
-          const originalEdit = multiRowEdits[combinedId] || {};
-          edits[row.id] = { ...originalEdit };
-
-          // Preserve the user's cross-file transfer/account decision when possible.
-          const previewCombined = analysis.rows.find(item => item.id === combinedId);
-          if (previewCombined?.linkedAccountId && !edits[row.id].linkedAccountId) {
-            edits[row.id].linkedAccountId = previewCombined.linkedAccountId;
-          }
-          if (previewCombined?.type === "transfer" && !edits[row.id].type) {
-            edits[row.id].type = "transfer";
-          }
-
-          // Files are applied one at a time. When the preview was first built,
-          // neither side of a cross-file transfer existed yet, so both rows
-          // were only ever marked "create a new transfer". By the time a
-          // later file is actually applied, the earlier file's half may now
-          // really exist in the data — and this fresh re-analysis just found
-          // it. If we don't switch to linking against it here, this row goes
-          // on to create its *own* separate transfer instead of completing
-          // the existing one, and the amount gets double-counted in both
-          // accounts' balances. Only do this while the row is still on its
-          // untouched default guess, so an explicit user choice (e.g. after
-          // using "Refresh both sides") is always respected.
-          if (edits[row.id].action === "new_transfer" && row.action === "match_existing_transfer" && row.matchTransactionId) {
-            edits[row.id].action = "match_existing_transfer";
-            edits[row.id].type = "transfer";
-            edits[row.id].matchTransactionId = row.matchTransactionId;
-            if (!edits[row.id].linkedAccountId) edits[row.id].linkedAccountId = row.linkedAccountId;
-          }
-        });
-
-        const missingTransfer = refreshed.rows.some(row => {
-          const edit = edits[row.id] || {};
-          const include = edit.include ?? row.defaultInclude;
-          const type = edit.type || row.type;
-          const action = edit.action || row.action;
-          const linkedAccountId = edit.linkedAccountId || row.linkedAccountId;
-          return include && type === "transfer" && action !== "match_existing_transfer" && !linkedAccountId;
-        });
-        if (missingTransfer) {
-          setStatus(`Choose the other account for every selected transfer in "${fileAnalysis.fileName}".`);
-          setActiveFilter("needs_review");
-          return;
-        }
-
-        const result = applyCsvImport(workingData, refreshed, edits, { createReconciliationAdjustment: false });
-        workingData = result.data;
-        aggregate.importedTransactionIds.push(...result.result.importedTransactionIds);
-        aggregate.linkedTransactionIds.push(...result.result.linkedTransactionIds);
-        aggregate.skippedRows.push(...result.result.skippedRows);
-        aggregate.batches.push(result.result.importBatch);
+      if (missingTransferFileName) {
+        setStatus(`Choose the other account for every selected transfer in "${missingTransferFileName}".`);
+        setActiveFilter("needs_review");
+        return;
       }
 
       actions.updateAppData(workingData, { major: true, reason: "Multiple CSV imports completed" });
@@ -1225,10 +1118,10 @@ export default function ImportPage({ appData, actions }) {
                               <button
                                 type="button"
                                 className="secondary-button small"
-                                onClick={() => refreshCrossFileMatch(row)}
-                                title="If this isn't really a transfer, use this to reset both sides so neither is left half-matched."
+                                onClick={() => rejectCrossFileMatch(row)}
+                                title="Mark this row as not a transfer. The other side will look for a different match before falling back to a standalone transaction."
                               >
-                                ↻ Not a match? Refresh both sides
+                                ↻ Not this match
                               </button>
                             )}
                           </div>
