@@ -1276,9 +1276,105 @@ th {
   color: var(--muted, #6b7280);
 }
 
+.import-matched-transaction-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted, #6b7280);
+}
+
+.import-matched-transaction-edit select {
+  font-size: 12px;
+}
+
+.import-matched-transaction-box .secondary-button.small {
+  margin-top: 4px;
+  align-self: flex-start;
+}
+
+.import-linked-row {
+  background: rgba(99, 102, 241, 0.03);
+}
+
+.import-verification-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #f9fafb;
+}
+
+.import-verification-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.import-verification-row.ok {
+  color: #15803d;
+}
+
+.import-verification-row.mismatch {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .import-verification-panel {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.account-multiselect-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.account-multiselect {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.account-multiselect-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+}
+
+.import-linked-connector-row td {
+  padding: 0 !important;
+  border: none !important;
+}
+
+.import-linked-connector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px;
+  padding: 4px 12px;
+  border-left: 4px solid;
+  border-top: 1px dashed var(--line);
+  font-size: 11px;
+  color: var(--muted, #6b7280);
+}
+
 [data-theme="dark"] .import-matched-transaction-box {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="dark"] .import-linked-row {
+  background: rgba(129, 140, 248, 0.08);
 }
 
 .import-balance-grid {

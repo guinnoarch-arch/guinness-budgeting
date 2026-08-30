@@ -260,6 +260,14 @@ export function validateCurrentAppData(rawData) {
         repairDescription: "Clear the missing account link."
       }));
     }
+    if (Array.isArray(budget.accountIds) && budget.accountIds.some(id => id && !accountIds.has(id))) {
+      issues.push(createIssue("warning", "budget_missing_account", "Budget linked to missing account", `Budget ${budget.id || "without ID"} links to one or more accounts that no longer exist.`, {
+        affectedType: "budgets",
+        affectedId: budget.id,
+        repairable: true,
+        repairDescription: "Remove the missing account(s) from this budget's account selection."
+      }));
+    }
     if (!Number.isFinite(Number(budget.limit))) {
       issues.push(createIssue("warning", "budget_bad_limit", "Budget limit is invalid", `Budget ${budget.id || "without ID"} has an unreadable limit.`, {
         affectedType: "budgets",

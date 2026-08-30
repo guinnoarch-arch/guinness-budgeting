@@ -6,6 +6,7 @@ export default function TransactionsPage({ appData, actions }) {
     month: actions.selectedMonth,
     categoryId: "all",
     type: "all",
+    accountId: "all",
     search: ""
   });
 
@@ -14,6 +15,7 @@ export default function TransactionsPage({ appData, actions }) {
       .filter(txn => txn.date.startsWith(filters.month))
       .filter(txn => filters.categoryId === "all" || (filters.categoryId === "__excluded__" ? txn.type === "expense" && txn.excludeFromBudget : txn.categoryId === filters.categoryId))
       .filter(txn => filters.type === "all" || txn.type === filters.type)
+      .filter(txn => filters.accountId === "all" || txn.accountId === filters.accountId || txn.fromAccountId === filters.accountId || txn.toAccountId === filters.accountId)
       .filter(txn => {
         const query = filters.search.trim().toLowerCase();
         if (!query) return true;
@@ -63,12 +65,22 @@ export default function TransactionsPage({ appData, actions }) {
         </label>
 
         <label>
+          Account
+          <select value={filters.accountId} onChange={e => update("accountId", e.target.value)}>
+            <option value="all">All accounts</option>
+            {appData.accounts.map(account => (
+              <option key={account.id} value={account.id}>{account.name}</option>
+            ))}
+          </select>
+        </label>
+
+        <label>
           Search
           <input placeholder="Search title/note" value={filters.search} onChange={e => update("search", e.target.value)} />
         </label>
       </section>
 
-      <TransactionTable appData={appData} actions={actions} transactions={filteredTransactions} />
+      <TransactionTable appData={appData} actions={actions} transactions={filteredTransactions} viewAccountId={filters.accountId === "all" ? null : filters.accountId} />
     </div>
   );
 }

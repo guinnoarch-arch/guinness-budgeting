@@ -11,13 +11,16 @@ export default function BudgetCard({
 }) {
   const capped = Math.min(item.usedPercent, 100);
   const tone = item.limit === 0 ? "" : item.usedPercent > 100 ? "red" : item.usedPercent >= 75 ? "orange" : "green";
+  const accountsLabel = (item.accounts && item.accounts.length > 0)
+    ? item.accounts.map(account => account.name).join(", ")
+    : item.account?.name || "";
 
   return (
     <section className={`budget-card ${tone}`}>
       <button type="button" className="budget-card-header" onClick={onToggle} aria-expanded={isOpen}>
         <div>
           <strong>{item.category.name.toUpperCase()}</strong>
-          <small>{item.account?.name ? `${item.account.name} · ` : ""}{item.limit ? `${formatMoney(item.remaining)} left` : "No budget set"}</small>
+          <small>{accountsLabel ? `${accountsLabel} · ` : ""}{item.limit ? `${formatMoney(item.remaining)} left` : "No budget set"}</small>
         </div>
         <div className="budget-card-header-right">
           <span>{formatMoney(item.spent)} / {item.limit ? formatMoney(item.limit) : "No limit"}</span>
@@ -36,7 +39,7 @@ export default function BudgetCard({
             <p>Excluded spend: <strong>{formatMoney(item.excludedSpent || 0)}</strong></p>
             <p>Total category spend: <strong>{formatMoney(item.totalSpent ?? item.spent)}</strong></p>
             <p>Budget: <strong>{item.limit ? formatMoney(item.limit) : "No budget"}</strong></p>
-            <p>Linked account: <strong>{item.account?.name || "All accounts"}</strong></p>
+            <p>Linked account{(item.accounts?.length || 0) > 1 ? "s" : ""}: <strong>{accountsLabel || "All accounts"}</strong></p>
             <p>Used: <strong>{item.limit ? `${item.usedPercent.toFixed(0)}%` : "-"}</strong></p>
           </div>
 

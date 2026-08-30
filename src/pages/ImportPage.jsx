@@ -1,13 +1,14 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   analyseCsvImport,
   applyCsvImport,
   parseCsvText,
   suggestColumnMap,
   undoCsvImport,
-  findSavedCsvColumnMapping
+  findSavedCsvColumnMapping,
+  minutesBetween
 } from "../services/csvImportService.js";
-import { calculateAccountBalanceAtDate } from "../utils/calculations.js";
+import { calculateAccountBalance, calculateAccountBalanceAtDate } from "../utils/calculations.js";
 import { createId } from "../utils/ids.js";
 import { formatMoney } from "../utils/money.js";
 
@@ -15,6 +16,7 @@ const ADD_ACCOUNT_VALUE = "__add_account__";
 
 const emptyColumnMap = {
   date: "",
+  time: "",
   description: "",
   amount: "",
   paidIn: "",
@@ -230,6 +232,7 @@ export default function ImportPage({ appData, actions }) {
   const [createAdjustment, setCreateAdjustment] = useState(false);
   const [activeFilter, setActiveFilter] = useState("all");
   const [status, setStatus] = useState("");
+  const [importVerification, setImportVerification] = useState(null);
   const [accountModal, setAccountModal] = useState(null);
   const [accountForm, setAccountForm] = useState(emptyAccountForm);
   const [detailBatchId, setDetailBatchId] = useState(null);
@@ -464,45 +467,90 @@ export default function ImportPage({ appData, actions }) {
       });
     });
 
-    for (let i = 0; i < combinedRows.length; i += 1) {
-      const a = combinedRows[i];
-      if (!a.date || !Number.isFinite(Number(a.signedAmount))) continue;
-      const aAction = a.action;
-      if (aAction === "duplicate" || aAction === "match_planned" || a.type === "transfer") continue;
+    // Score every plausible opposite-sign, different-account pair by how close
+    // together (in time, using the Time column when it's mapped) they
+    // happened, then accept the closest pairs first. A naive "first match
+    // found" loop mis-pairs money that hops through more than one account
+    // close together (pay -> account A -> account B -> account C); scoring
+    // every candidate pair up front and taking the tightest ones first copes
+    // with that far better.
+    const pairablePool = combinedRows.filter(row => (
+      row.date
+      && Number.isFinite(Number(row.signedAmount))
+      && row.action !== "duplicate"
+      && row.action !== "match_planned"
+      // Rows already linked to a real, already-saved transaction (via the
+      // single-file matching above) are excluded — they're already handled.
+      // A row merely *guessed* to be a transfer by its wording (action
+      // "new_transfer", no confirmed match yet) must stay eligible here,
+      // since that guess is exactly what cross-file pairing is meant to
+      // confirm or correct.
+      && row.action !== "match_existing_transfer"
+    ));
 
-      for (let j = i + 1; j < combinedRows.length; j += 1) {
-        const b = combinedRows[j];
+    const candidatePairs = [];
+    for (let i = 0; i < pairablePool.length; i += 1) {
+      for (let j = i + 1; j < pairablePool.length; j += 1) {
+        const a = pairablePool[i];
+        const b = pairablePool[j];
         if (a.sourceAccountId === b.sourceAccountId) continue;
-        if (b.action === "duplicate" || b.action === "match_planned" || b.type === "transfer") continue;
         if (Math.abs(Number(a.signedAmount) + Number(b.signedAmount)) > 0.005) continue;
-        const dayGap = Math.abs((new Date(`${a.date}T00:00:00`) - new Date(`${b.date}T00:00:00`)) / 86400000);
-        if (dayGap > 3) continue;
-
-        a.type = "transfer";
-        a.action = "new_transfer";
-        a.actionLabel = "Cross-file transfer";
-        a.linkedAccountId = b.sourceAccountId;
-        a.defaultInclude = true;
-        a.warning = `Likely transfer matched with ${b.sourceFileName} (${b.date}, ${formatMoney(b.amount)} opposite sign).`;
-        a.confidence = "High";
-
-        b.type = "transfer";
-        b.action = "new_transfer";
-        b.actionLabel = "Cross-file transfer";
-        b.linkedAccountId = a.sourceAccountId;
-        b.defaultInclude = true;
-        b.warning = `Likely transfer matched with ${a.sourceFileName} (${a.date}, ${formatMoney(a.amount)} opposite sign).`;
-        b.confidence = "High";
-        a.crossFileMatchId = b.id;
-        b.crossFileMatchId = a.id;
-        break;
+        const gapMinutes = minutesBetween(a.date, a.time, b.date, b.time);
+        if (gapMinutes > 3 * 24 * 60) continue;
+        candidatePairs.push({ a, b, gapMinutes });
       }
     }
+    candidatePairs.sort((first, second) => first.gapMinutes - second.gapMinutes);
 
-    combinedRows.sort((a, b) => a.date.localeCompare(b.date) || a.sourceFileName.localeCompare(b.sourceFileName) || a.rowIndex - b.rowIndex);
+    const matchedRowIds = new Set();
+    candidatePairs.forEach(({ a, b, gapMinutes }) => {
+      if (matchedRowIds.has(a.id) || matchedRowIds.has(b.id)) return;
+      matchedRowIds.add(a.id);
+      matchedRowIds.add(b.id);
+
+      const describeWhen = row => row.time ? `${row.date} ${row.time}` : row.date;
+
+      a.type = "transfer";
+      a.action = "new_transfer";
+      a.actionLabel = "Cross-file transfer";
+      a.linkedAccountId = b.sourceAccountId;
+      a.defaultInclude = true;
+      a.warning = `Likely transfer matched with ${b.sourceFileName} (${describeWhen(b)}, ${formatMoney(b.amount)} opposite sign).`;
+      a.confidence = gapMinutes <= 60 ? "High" : "Medium";
+
+      b.type = "transfer";
+      b.action = "new_transfer";
+      b.actionLabel = "Cross-file transfer";
+      b.linkedAccountId = a.sourceAccountId;
+      b.defaultInclude = true;
+      b.warning = `Likely transfer matched with ${a.sourceFileName} (${describeWhen(a)}, ${formatMoney(a.amount)} opposite sign).`;
+      b.confidence = gapMinutes <= 60 ? "High" : "Medium";
+
+      a.crossFileMatchId = b.id;
+      b.crossFileMatchId = a.id;
+    });
+
+    combinedRows.sort((a, b) => a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || "") || a.sourceFileName.localeCompare(b.sourceFileName) || a.rowIndex - b.rowIndex);
+
+    // Keep matched pairs sitting right next to each other in the table (even
+    // though each side comes from a different file) so they can be shown
+    // visually linked, rather than possibly landing rows apart once sorted.
+    const orderedRows = [];
+    const placedRowIds = new Set();
+    const rowsById = new Map(combinedRows.map(row => [row.id, row]));
+    combinedRows.forEach(row => {
+      if (placedRowIds.has(row.id)) return;
+      orderedRows.push(row);
+      placedRowIds.add(row.id);
+      const pair = row.crossFileMatchId ? rowsById.get(row.crossFileMatchId) : null;
+      if (pair && !placedRowIds.has(pair.id)) {
+        orderedRows.push(pair);
+        placedRowIds.add(pair.id);
+      }
+    });
 
     const initialEdits = {};
-    combinedRows.forEach(row => {
+    orderedRows.forEach(row => {
       initialEdits[row.id] = {
         include: row.defaultInclude,
         action: row.action,
@@ -524,12 +572,13 @@ export default function ImportPage({ appData, actions }) {
       headers: [],
       columnMap: null,
       createdAt: new Date().toISOString(),
-      rows: combinedRows,
-      totals: summariseCombinedAnalyses(analyses, combinedRows),
-      reconciliation: null,
+      rows: orderedRows,
+      totals: summariseCombinedAnalyses(analyses, orderedRows),
+      reconciliation: files.length === 1 ? analyses[0].reconciliation : null,
       files: analyses,
       isMulti: files.length > 1
     });
+    setImportVerification(null);
     if (files.length > 1) {
       setMultiRowEdits(initialEdits);
       setRowEdits({});
@@ -540,7 +589,7 @@ export default function ImportPage({ appData, actions }) {
     setIsMultiAnalysis(files.length > 1);
     setCreateAdjustment(false);
     setActiveFilter("all");
-    setStatus(`Analysed ${combinedRows.length} transaction row(s) across ${files.length} CSV file(s). Transactions are ordered by date. Review transfers and duplicates before importing.`);
+    setStatus(`Analysed ${orderedRows.length} transaction row(s) across ${files.length} CSV file(s). Transactions are ordered by date. Review transfers and duplicates before importing.`);
   }
 
   function updateRow(rowId, field, value) {
@@ -555,6 +604,22 @@ export default function ImportPage({ appData, actions }) {
       ...prev,
       [rowId]: { ...(prev[rowId] || {}), [field]: value }
     }));
+  }
+
+  // If a cross-file transfer match was actually wrong (e.g. it's really just
+  // an income that happens to share an amount/date with something in another
+  // account), resetting only this row leaves the other half still expecting
+  // to be linked to a transfer that no longer exists. Refresh both sides back
+  // to their own best guess so nothing is left half-matched.
+  function refreshCrossFileMatch(row) {
+    const pair = analysis?.rows.find(item => item.id === row.crossFileMatchId);
+    [row, pair].filter(Boolean).forEach(target => {
+      updateRow(target.id, "action", "new");
+      updateRow(target.id, "type", target.baseType);
+      updateRow(target.id, "linkedAccountId", "");
+      updateRow(target.id, "categoryId", target.categoryId || "");
+    });
+    setStatus("Unlinked that transfer match — both rows have been reset to their own best guess. Double check them below.");
   }
 
   function openDuplicateReview(row) {
@@ -657,6 +722,24 @@ export default function ImportPage({ appData, actions }) {
           if (previewCombined?.type === "transfer" && !edits[row.id].type) {
             edits[row.id].type = "transfer";
           }
+
+          // Files are applied one at a time. When the preview was first built,
+          // neither side of a cross-file transfer existed yet, so both rows
+          // were only ever marked "create a new transfer". By the time a
+          // later file is actually applied, the earlier file's half may now
+          // really exist in the data — and this fresh re-analysis just found
+          // it. If we don't switch to linking against it here, this row goes
+          // on to create its *own* separate transfer instead of completing
+          // the existing one, and the amount gets double-counted in both
+          // accounts' balances. Only do this while the row is still on its
+          // untouched default guess, so an explicit user choice (e.g. after
+          // using "Refresh both sides") is always respected.
+          if (edits[row.id].action === "new_transfer" && row.action === "match_existing_transfer" && row.matchTransactionId) {
+            edits[row.id].action = "match_existing_transfer";
+            edits[row.id].type = "transfer";
+            edits[row.id].matchTransactionId = row.matchTransactionId;
+            if (!edits[row.id].linkedAccountId) edits[row.id].linkedAccountId = row.linkedAccountId;
+          }
         });
 
         const missingTransfer = refreshed.rows.some(row => {
@@ -682,6 +765,11 @@ export default function ImportPage({ appData, actions }) {
       }
 
       actions.updateAppData(workingData, { major: true, reason: "Multiple CSV imports completed" });
+      const verification = verifyImportBalances(
+        workingData,
+        analysis.files.map(fileAnalysis => ({ accountId: fileAnalysis.accountId, reconciliation: fileAnalysis.reconciliation }))
+      );
+      setImportVerification(verification.length > 0 ? verification : null);
       setStatus(`Import complete: ${aggregate.batches.length} statement(s), ${aggregate.importedTransactionIds.length} new, ${aggregate.linkedTransactionIds.length} linked, ${aggregate.skippedRows.length} skipped.`);
       setAnalysis(null);
       setRows([]);
@@ -715,6 +803,8 @@ export default function ImportPage({ appData, actions }) {
     });
 
     actions.updateAppData(result.data, { major: true, reason: "CSV import completed" });
+    const verification = verifyImportBalances(result.data, [{ accountId: analysis.accountId, reconciliation: analysis.reconciliation }]);
+    setImportVerification(verification.length > 0 ? verification : null);
     setStatus(`Import complete: ${result.result.importedTransactionIds.length} new, ${result.result.linkedTransactionIds.length} linked, ${result.result.skippedRows.length} skipped.`);
     setAnalysis(null);
     setRows([]);
@@ -799,6 +889,7 @@ export default function ImportPage({ appData, actions }) {
                       <p className="muted-text">Mapping for this statement. Saved mappings are applied automatically but can be changed here.</p>
                       <div className="form-grid import-map-grid">
                         <ColumnSelect label="Date" field="date" value={item.columnMap.date} headers={item.headers} update={(field, value) => updateUploadItemMap(item.id, field, value)} required />
+                        <ColumnSelect label="Time" field="time" value={item.columnMap.time} headers={item.headers} update={(field, value) => updateUploadItemMap(item.id, field, value)} />
                         <ColumnSelect label="Description" field="description" value={item.columnMap.description} headers={item.headers} update={(field, value) => updateUploadItemMap(item.id, field, value)} required />
                         <ColumnSelect label="Signed amount" field="amount" value={item.columnMap.amount} headers={item.headers} update={(field, value) => updateUploadItemMap(item.id, field, value)} />
                         <ColumnSelect label="Paid in" field="paidIn" value={item.columnMap.paidIn} headers={item.headers} update={(field, value) => updateUploadItemMap(item.id, field, value)} />
@@ -815,6 +906,20 @@ export default function ImportPage({ appData, actions }) {
 
         {fileName && !uploadItems.length && <p className="muted-text">Loaded file: <strong>{fileName}</strong> · {rows.length} raw row(s)</p>}
         {status && <div className="import-status-box">{status}</div>}
+        {importVerification && (
+          <div className="import-verification-panel">
+            <strong>Balance check against the CSV{importVerification.length > 1 ? "s" : ""}</strong>
+            {importVerification.map(item => (
+              <div key={item.accountId} className={`import-verification-row ${item.matches ? "ok" : "mismatch"}`}>
+                <span>{item.matches ? "✓" : "✗"} {item.accountName}</span>
+                <span>{formatMoney(item.calculatedBalance)} calculated{item.matches ? "" : ` vs ${formatMoney(item.csvBalance)} on the CSV (as of ${item.asOfDate})`}</span>
+              </div>
+            ))}
+            {importVerification.some(item => !item.matches) && (
+              <small>A mismatch usually means a transaction on the statement wasn't imported, was imported twice, or an opening balance needs adjusting. Check the account's transaction list against the raw CSV for that date.</small>
+            )}
+          </div>
+        )}
         {uploadItems.length > 0 && <div className="modal-actions"><button type="button" className="primary-button" onClick={analyseImport}>Analyse all CSVs</button></div>}
       </section>
 
@@ -830,6 +935,7 @@ export default function ImportPage({ appData, actions }) {
 
           <div className="form-grid import-map-grid">
             <ColumnSelect label="Date" field="date" value={columnMap.date} headers={headers} update={updateColumnMap} required />
+            <ColumnSelect label="Time" field="time" value={columnMap.time} headers={headers} update={updateColumnMap} />
             <ColumnSelect label="Description" field="description" value={columnMap.description} headers={headers} update={updateColumnMap} required />
             <ColumnSelect label="Signed amount" field="amount" value={columnMap.amount} headers={headers} update={updateColumnMap} />
             <ColumnSelect label="Paid in" field="paidIn" value={columnMap.paidIn} headers={headers} update={updateColumnMap} />
@@ -913,7 +1019,7 @@ export default function ImportPage({ appData, actions }) {
                 </tr>
               </thead>
               <tbody>
-                {visibleRows.map(row => {
+                {visibleRows.map((row, rowPosition) => {
                   const edit = getRowEdit(effectiveRowEdits, row);
                   const type = edit.type || row.type;
                   const action = edit.action || row.action;
@@ -924,9 +1030,17 @@ export default function ImportPage({ appData, actions }) {
                   const displayDescription = edit.description || row.description;
                   const displayAmount = Number(edit.amount ?? row.amount);
                   const displaySignedAmount = displayAmount * (row.signedAmount < 0 ? -1 : 1);
+                  const pairColor = (row.crossFileMatchId && type === "transfer") ? getPairAccentColor(row.id, row.crossFileMatchId) : null;
+                  const nextVisibleRow = visibleRows[rowPosition + 1];
+                  const isFirstOfVisiblePair = Boolean(pairColor) && nextVisibleRow?.id === row.crossFileMatchId;
+                  const mergeSelected = action === "match_existing_transfer";
 
                   return (
-                    <tr key={row.id} className={row.warning ? "import-row-warning" : ""}>
+                    <Fragment key={row.id}>
+                      <tr
+                        className={`${row.warning ? "import-row-warning" : ""} ${pairColor ? "import-linked-row" : ""}`}
+                        style={pairColor ? { borderLeft: `4px solid ${pairColor}` } : undefined}
+                      >
                       <td>
                         <input
                           type="checkbox"
@@ -934,7 +1048,7 @@ export default function ImportPage({ appData, actions }) {
                           onChange={event => updateRow(row.id, "include", event.target.checked)}
                         />
                       </td>
-                      <td>{displayDate}</td>
+                      <td>{displayDate}{row.time && <small>{row.time}</small>}</td>
                       {analysis.isMulti && <td><small>{row.sourceFileName}</small><small>{appData.accounts.find(account => account.id === row.sourceAccountId)?.name || "Unknown account"}</small></td>}
                       <td>
                         <strong>{displayDescription}</strong>
@@ -977,13 +1091,6 @@ export default function ImportPage({ appData, actions }) {
                               <option value={ADD_ACCOUNT_VALUE}>+ Add new account</option>
                             </select>
                             {transferText && <small>{transferText}</small>}
-                            {matchedTransaction && (
-                              <div className="import-matched-transaction-box">
-                                <strong>Matched transaction</strong>
-                                <span>{matchedTransaction.date} · {matchedTransaction.description}</span>
-                                <span>{matchedTransaction.signedAmount >= 0 ? "+" : "-"}{formatMoney(Math.abs(matchedTransaction.signedAmount))} · {matchedTransaction.accountName}</span>
-                              </div>
-                            )}
                           </div>
                         ) : (
                           <span className="muted">—</span>
@@ -1014,8 +1121,55 @@ export default function ImportPage({ appData, actions }) {
                           <button type="button" className="secondary-button small" onClick={() => openDuplicateReview(row)}>Compare duplicate</button>
                         )}
                         {row.externalAccountName && <small>External account text: {row.externalAccountName}</small>}
+                        {matchedTransaction && (
+                          <div className="import-matched-transaction-box" style={pairColor ? { borderColor: pairColor } : undefined}>
+                            <strong>Matched transaction</strong>
+                            <span>{matchedTransaction.date} · {matchedTransaction.description}</span>
+                            <span>{matchedTransaction.signedAmount >= 0 ? "+" : "-"}{formatMoney(Math.abs(matchedTransaction.signedAmount))} · {matchedTransaction.accountName}</span>
+                            {matchedTransaction.originalType && matchedTransaction.originalType !== "transfer" && (
+                              <label className="import-matched-transaction-edit">
+                                Currently saved as {matchedTransaction.originalType}.
+                                <select
+                                  value={mergeSelected ? "merge" : "keep"}
+                                  onChange={event => {
+                                    if (event.target.value === "keep") {
+                                      updateRow(row.id, "action", "new");
+                                      updateRow(row.id, "type", row.baseType);
+                                    } else {
+                                      updateRow(row.id, "action", "match_existing_transfer");
+                                      updateRow(row.id, "type", "transfer");
+                                    }
+                                  }}
+                                >
+                                  <option value="merge">Merge into one transfer (recommended)</option>
+                                  <option value="keep">Keep as {matchedTransaction.originalType}, don't merge</option>
+                                </select>
+                              </label>
+                            )}
+                            {row.crossFileMatchId && (
+                              <button
+                                type="button"
+                                className="secondary-button small"
+                                onClick={() => refreshCrossFileMatch(row)}
+                                title="If this isn't really a transfer, use this to reset both sides so neither is left half-matched."
+                              >
+                                ↻ Not a match? Refresh both sides
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </td>
-                    </tr>
+                      </tr>
+                      {isFirstOfVisiblePair && (
+                        <tr className="import-linked-connector-row">
+                          <td colSpan={analysis.isMulti ? 10 : 9}>
+                            <div className="import-linked-connector" style={{ borderColor: pairColor }}>
+                              <span aria-hidden="true">⇅</span> Linked transfer — matched with the row below
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -1329,22 +1483,27 @@ function ImportBatchDetailModal({ batch, appData, close, undoImport }) {
 
 function getMatchedTransactionInfo(row, edit, analysis, appData, accounts) {
   const action = edit.action || row.action;
+  const type = edit.type || row.type;
 
   // Two CSVs uploaded together: the opposite-sign row already sitting in the
-  // combined preview (before anything is saved).
-  if (row.crossFileMatchId) {
+  // combined preview (before anything is saved). Only show this while the
+  // row is still actually being treated as a transfer — once refreshed/
+  // unlinked, this row stopped claiming the match, so don't keep showing it.
+  if (row.crossFileMatchId && type === "transfer") {
     const other = (analysis.rows || []).find(item => item.id === row.crossFileMatchId);
     if (other) {
       const accountName = accounts.find(account => account.id === other.sourceAccountId)?.name
         || other.sourceFileName
         || "Other account";
-      return { date: other.date, description: other.description, signedAmount: other.signedAmount, accountName };
+      return { date: other.date, description: other.description, signedAmount: other.signedAmount, accountName, originalType: null };
     }
   }
 
   // A transfer already saved in this account (e.g. from an earlier CSV import)
-  // that this row is being linked to.
-  if (action === "match_existing_transfer" && row.matchTransactionId) {
+  // that this row is being linked to. If it was originally saved as a plain
+  // income/expense (nobody realised it was actually a transfer until now),
+  // surface that so it can be edited/kept as-is instead of silently merged.
+  if ((action === "match_existing_transfer" || (row.action === "match_existing_transfer" && action === "new")) && row.matchTransactionId) {
     const existing = (appData.transactions || []).find(transaction => transaction.id === row.matchTransactionId);
     if (existing) {
       const linkedAccountId = edit.linkedAccountId || row.linkedAccountId;
@@ -1354,11 +1513,45 @@ function getMatchedTransactionInfo(row, edit, analysis, appData, accounts) {
       const signedAmount = existing.type === "transfer"
         ? (existing.toAccountId === linkedAccountId ? Number(existing.amount || 0) : -Number(existing.amount || 0))
         : (existing.type === "income" ? Number(existing.amount || 0) : -Number(existing.amount || 0));
-      return { date: existing.date, description: existing.title || "Matched transaction", signedAmount, accountName };
+      return { date: existing.date, description: existing.title || "Matched transaction", signedAmount, accountName, originalType: existing.type };
     }
   }
 
   return null;
+}
+
+// After an import actually lands, check the real math rather than trusting
+// the preview: recompute each account's balance as of the CSV's own latest
+// date and compare it to the closing balance the bank's CSV itself reported.
+// This catches mistakes the preview-time projection could miss (e.g. a
+// transfer that quietly got double-counted) because it's checking the
+// transactions that actually got saved, not a forecast of what should happen.
+function verifyImportBalances(finalData, targets) {
+  return targets
+    .filter(target => target.reconciliation?.available && target.reconciliation.csvClosingBalance !== null)
+    .map(target => {
+      const account = finalData.accounts.find(item => item.id === target.accountId);
+      const calculatedBalance = calculateAccountBalanceAtDate(finalData, target.accountId, target.reconciliation.latestCsvDate);
+      const csvBalance = Number(target.reconciliation.csvClosingBalance);
+      const difference = Math.round((calculatedBalance - csvBalance) * 100) / 100;
+      return {
+        accountId: target.accountId,
+        accountName: account?.name || "Account",
+        asOfDate: target.reconciliation.latestCsvDate,
+        calculatedBalance,
+        csvBalance,
+        difference,
+        matches: Math.abs(difference) < 0.005
+      };
+    });
+}
+
+function getPairAccentColor(idA, idB) {
+  const key = [idA, idB].sort().join("|");
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) hash = (hash * 31 + key.charCodeAt(index)) >>> 0;
+  const hue = hash % 360;
+  return `hsl(${hue}, 62%, 52%)`;
 }
 
 function getTransferText(row, edit, selectedAccountId, accounts) {

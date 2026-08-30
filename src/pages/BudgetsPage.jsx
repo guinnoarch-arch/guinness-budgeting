@@ -1,6 +1,6 @@
 import { useState } from "react";
 import BudgetCard from "../components/budgets/BudgetCard.jsx";
-import { getCategorySpend } from "../utils/calculations.js";
+import { getCategorySpend, getBudgetAccountIds } from "../utils/calculations.js";
 import { createId } from "../utils/ids.js";
 import { formatMoney } from "../utils/money.js";
 
@@ -23,7 +23,7 @@ export default function BudgetsPage({ appData, actions }) {
   const [editingBudget, setEditingBudget] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
   const [budgetLimit, setBudgetLimit] = useState("");
-  const [budgetAccountId, setBudgetAccountId] = useState("acc_current");
+  const [budgetAccountIds, setBudgetAccountIds] = useState(["acc_current"]);
   const [categoryName, setCategoryName] = useState("");
   const [openBudgetKey, setOpenBudgetKey] = useState(null);
   const [showBudgetManager, setShowBudgetManager] = useState(false);
@@ -32,7 +32,7 @@ export default function BudgetsPage({ appData, actions }) {
     type: "expense",
     group: "Other",
     limit: "",
-    accountId: "acc_current"
+    accountIds: ["acc_current"]
   });
 
   const activeAccounts = (appData.accounts || []).filter(account => account.isActive !== false);
@@ -44,7 +44,7 @@ export default function BudgetsPage({ appData, actions }) {
     .map(budget => ({
       ...budget,
       category: appData.categories.find(category => category.id === budget.categoryId),
-      account: appData.accounts.find(account => account.id === (budget.accountId || "acc_current"))
+      accounts: getBudgetAccountIds(budget).map(id => appData.accounts.find(account => account.id === id)).filter(Boolean)
     }))
     .sort((a, b) => String(b.archivedAt || b.month).localeCompare(String(a.archivedAt || a.month)));
 
@@ -77,6 +77,21 @@ export default function BudgetsPage({ appData, actions }) {
     setNewCategoryDraft(prev => ({ ...prev, [field]: value }));
   }
 
+  function toggleNewCategoryAccount(accountId) {
+    setNewCategoryDraft(prev => {
+      const has = prev.accountIds.includes(accountId);
+      const nextIds = has ? prev.accountIds.filter(id => id !== accountId) : [...prev.accountIds, accountId];
+      return { ...prev, accountIds: nextIds };
+    });
+  }
+
+  function toggleBudgetAccount(accountId) {
+    setBudgetAccountIds(prev => {
+      const has = prev.includes(accountId);
+      return has ? prev.filter(id => id !== accountId) : [...prev, accountId];
+    });
+  }
+
   function addCategoryFromManager(event) {
     event.preventDefault();
     const name = newCategoryDraft.name.trim();
@@ -98,10 +113,11 @@ export default function BudgetsPage({ appData, actions }) {
 
     const nextBudgets = [...(appData.budgets || [])];
     if (nextCategory.type === "expense" && limit > 0) {
+      const accountIds = newCategoryDraft.accountIds.length > 0 ? newCategoryDraft.accountIds : [activeAccounts[0]?.id || "acc_current"];
       nextBudgets.push({
         id: createId("bud"),
         categoryId,
-        accountId: newCategoryDraft.accountId || activeAccounts[0]?.id || "acc_current",
+        accountIds,
         month: actions.selectedMonth,
         limit,
         isEnabled: true,
@@ -118,7 +134,7 @@ export default function BudgetsPage({ appData, actions }) {
       budgets: nextBudgets
     }, { reason: "Category and budget added" });
 
-    setNewCategoryDraft({ name: "", type: "expense", group: "Other", limit: "", accountId: activeAccounts[0]?.id || "acc_current" });
+    setNewCategoryDraft({ name: "", type: "expense", group: "Other", limit: "", accountIds: [activeAccounts[0]?.id || "acc_current"] });
   }
 
   function openBudgetEditorFromManager(category) {
@@ -128,7 +144,7 @@ export default function BudgetsPage({ appData, actions }) {
       category,
       budget,
       limit: Number(budget?.limit || 0),
-      accountId: budget?.accountId || activeAccounts[0]?.id || "acc_current"
+      accountIds: budget ? getBudgetAccountIds(budget) : [activeAccounts[0]?.id || "acc_current"]
     });
   }
 
@@ -140,7 +156,10 @@ export default function BudgetsPage({ appData, actions }) {
   function handleEditBudget(budgetItem) {
     setEditingBudget(budgetItem);
     setBudgetLimit(budgetItem.limit?.toString() || "");
-    setBudgetAccountId(budgetItem.accountId || budgetItem.budget?.accountId || "acc_current");
+    const seededIds = budgetItem.accountIds
+      || (budgetItem.budget ? getBudgetAccountIds(budgetItem.budget) : null)
+      || ["acc_current"];
+    setBudgetAccountIds(seededIds);
   }
 
   function handleEditCategory(category) {
@@ -151,12 +170,14 @@ export default function BudgetsPage({ appData, actions }) {
   function saveBudget() {
     if (!editingBudget) return;
     const limit = parseFloat(budgetLimit) || 0;
+    const accountIds = budgetAccountIds.length > 0 ? budgetAccountIds : ["acc_current"];
+    const accountIdsKey = [...accountIds].sort().join("+");
     const existingBudget = editingBudget.budget
       ? appData.budgets.find(b => b.id === editingBudget.budget.id)
       : appData.budgets.find(
           b => b.categoryId === editingBudget.category.id &&
             b.month === actions.selectedMonth &&
-            (b.accountId || "acc_current") === budgetAccountId &&
+            [...getBudgetAccountIds(b)].sort().join("+") === accountIdsKey &&
             !b.isArchived &&
             !b.archivedAt
         );
@@ -168,7 +189,8 @@ export default function BudgetsPage({ appData, actions }) {
           b.id === existingBudget.id
             ? {
                 ...b,
-                accountId: budgetAccountId,
+                accountIds,
+                accountId: accountIds[0],
                 limit,
                 isEnabled: limit > 0,
                 isArchived: false,
@@ -186,7 +208,8 @@ export default function BudgetsPage({ appData, actions }) {
           {
             id: createId("bud"),
             categoryId: editingBudget.category.id,
-            accountId: budgetAccountId,
+            accountIds,
+            accountId: accountIds[0],
             month: actions.selectedMonth,
             limit,
             isEnabled: limit > 0,
@@ -200,7 +223,7 @@ export default function BudgetsPage({ appData, actions }) {
     }
     setEditingBudget(null);
     setBudgetLimit("");
-    setBudgetAccountId("acc_current");
+    setBudgetAccountIds(["acc_current"]);
   }
 
   function archiveBudget(budgetItem) {
@@ -359,10 +382,10 @@ export default function BudgetsPage({ appData, actions }) {
 
       <div className="budget-grid">
         {categorySpend.map(item => {
-          const budgetKey = item.id || `${item.category.id}_${item.accountId || "all"}`;
+          const budgetKey = item.id || `${item.category.id}_${(item.accountIds || []).join("+") || "all"}`;
           const recentTransactions = appData.transactions
             .filter(txn => txn.categoryId === item.category.id && txn.type === "expense")
-            .filter(txn => !item.accountId || txn.accountId === item.accountId)
+            .filter(txn => !(item.accountIds?.length) || item.accountIds.includes(txn.accountId))
             .sort((a, b) => b.date.localeCompare(a.date));
 
           return (
@@ -396,7 +419,7 @@ export default function BudgetsPage({ appData, actions }) {
               <div key={budget.id} className="archive-row">
                 <div>
                   <strong>{budget.category?.name || "Unknown category"}</strong>
-                  <small>{budget.month} · {budget.account?.name || "Current Account"} · archived {budget.archivedAt ? budget.archivedAt.slice(0, 10) : ""}</small>
+                  <small>{budget.month} · {(budget.accounts || []).map(account => account.name).join(", ") || "Current Account"} · archived {budget.archivedAt ? budget.archivedAt.slice(0, 10) : ""}</small>
                 </div>
                 <div className="row-actions archive-row-actions">
                   <strong>{formatMoney(budget.limit)}</strong>
@@ -493,15 +516,22 @@ export default function BudgetsPage({ appData, actions }) {
                   disabled={newCategoryDraft.type !== "expense"}
                 />
               </label>
-              <label>
-                Account
-                <select
-                  value={newCategoryDraft.accountId}
-                  onChange={event => updateNewCategoryDraft("accountId", event.target.value)}
-                  disabled={newCategoryDraft.type !== "expense"}
-                >
-                  {activeAccounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
-                </select>
+              <label className="account-multiselect-label">
+                Account(s)
+                <div className="account-multiselect">
+                  {activeAccounts.map(account => (
+                    <label key={account.id} className="checkbox-label account-multiselect-option">
+                      <input
+                        type="checkbox"
+                        checked={newCategoryDraft.accountIds.includes(account.id)}
+                        onChange={() => toggleNewCategoryAccount(account.id)}
+                        disabled={newCategoryDraft.type !== "expense"}
+                      />
+                      <span>{account.name}</span>
+                    </label>
+                  ))}
+                </div>
+                <small>Pick one or more accounts this budget should track spending across.</small>
               </label>
               <button className="primary-button">Add</button>
             </form>
@@ -509,7 +539,7 @@ export default function BudgetsPage({ appData, actions }) {
             <div className="budget-manager-list">
               {activeManagerCategories.map(category => {
                 const budget = getCurrentBudgetForCategory(category.id);
-                const account = activeAccounts.find(item => item.id === (budget?.accountId || "acc_current"));
+                const accountNames = budget ? getBudgetAccountIds(budget).map(id => activeAccounts.find(item => item.id === id)?.name).filter(Boolean).join(", ") : "";
                 return (
                   <div key={category.id} className="budget-manager-row">
                     <div>
@@ -520,7 +550,7 @@ export default function BudgetsPage({ appData, actions }) {
                       {category.type === "expense" ? (
                         <>
                           <strong>{budget ? formatMoney(budget.limit) : "No budget"}</strong>
-                          <small>{budget ? `${actions.selectedMonth} · ${account?.name || "Current Account"}` : "Tracked, but no warning limit"}</small>
+                          <small>{budget ? `${actions.selectedMonth} · ${accountNames || "Current Account"}` : "Tracked, but no warning limit"}</small>
                         </>
                       ) : (
                         <>
@@ -563,14 +593,21 @@ export default function BudgetsPage({ appData, actions }) {
                 />
               </label>
 
-              <label>
-                Linked account
-                <select value={budgetAccountId} onChange={e => setBudgetAccountId(e.target.value)}>
+              <label className="account-multiselect-label">
+                Linked account(s)
+                <div className="account-multiselect">
                   {activeAccounts.map(account => (
-                    <option key={account.id} value={account.id}>{account.name}</option>
+                    <label key={account.id} className="checkbox-label account-multiselect-option">
+                      <input
+                        type="checkbox"
+                        checked={budgetAccountIds.includes(account.id)}
+                        onChange={() => toggleBudgetAccount(account.id)}
+                      />
+                      <span>{account.name}</span>
+                    </label>
                   ))}
-                </select>
-                <small>This budget only appears for this account, plus the All accounts view.</small>
+                </div>
+                <small>Spending across every selected account counts toward this one budget. This budget appears on each selected account's view, plus the All accounts view.</small>
               </label>
             </div>
 

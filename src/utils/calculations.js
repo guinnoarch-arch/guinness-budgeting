@@ -28,16 +28,26 @@ export function transactionMatchesAccount(transaction, accountId) {
   return transaction.accountId === selectedAccountId;
 }
 
+export function getBudgetAccountIds(budget) {
+  // Newer budgets can be linked to a selection of accounts (accountIds).
+  // Older saved data only ever had a single budget.accountId (or nothing at
+  // all) — treat those as a one-account selection so they behave exactly as
+  // before.
+  if (Array.isArray(budget?.accountIds) && budget.accountIds.length > 0) return budget.accountIds;
+  return [budget?.accountId || "acc_current"];
+}
+
+// Kept for any old call sites that only ever need a single representative
+// account (e.g. sorting/display fallbacks) — prefer getBudgetAccountIds for
+// anything that actually needs to know every account a budget covers.
 function getBudgetAccountId(budget) {
-  // Older saved V1 data did not have budget.accountId.
-  // Treat those old budgets as current-account budgets so they do not appear as zero in savings/cash views.
-  return budget?.accountId || "acc_current";
+  return getBudgetAccountIds(budget)[0];
 }
 
 function budgetMatchesAccount(budget, accountId) {
   const selectedAccountId = normaliseAccountFilter(accountId);
   if (!selectedAccountId) return true;
-  return getBudgetAccountId(budget) === selectedAccountId;
+  return getBudgetAccountIds(budget).includes(selectedAccountId);
 }
 
 function expenseMatchesAccount(transaction, accountId) {
@@ -65,7 +75,7 @@ function getSpendableAccountIds(data, activeBudgets, accountId = null) {
   if (selectedAccountId) return [selectedAccountId];
 
   const budgetAccountIds = [...new Set((activeBudgets || [])
-    .map(budget => getBudgetAccountId(budget))
+    .flatMap(budget => getBudgetAccountIds(budget))
     .filter(Boolean))];
 
   if (budgetAccountIds.length > 0) return budgetAccountIds;
@@ -91,7 +101,7 @@ export function getBudgetLeftSummary(data, monthKey, accountId = null) {
     .filter(budget => budget.month === monthKey && budget.isEnabled && !budget.isArchived && !budget.archivedAt)
     .filter(budget => budgetMatchesAccount(budget, selectedAccountId));
 
-  const budgetKeys = new Set(activeBudgets.map(budget => `${budget.categoryId}_${getBudgetAccountId(budget)}`));
+  const budgetKeys = new Set(activeBudgets.flatMap(budget => getBudgetAccountIds(budget).map(id => `${budget.categoryId}_${id}`)));
   const totalBudgetLimit = sum(activeBudgets.map(budget => budget.limit));
   const countedSpending = sum(monthExpenses
     .filter(isBudgetCountedExpense)
@@ -277,7 +287,7 @@ export function calculateMonthSummary(data, monthKey, options = {}) {
         excludedSpent: Number(item.excludedSpent || 0),
         limit: Number(item.limit || 0),
         remaining: Number(item.remaining || 0),
-        accountName: item.account?.name || ""
+        accountName: (item.accounts || []).map(account => account.name).join(", ") || item.account?.name || ""
       }));
 
   const savingsRate = income > 0 ? (savingsTransfers / income) * 100 : 0;
@@ -494,30 +504,32 @@ export function getCategorySpend(data, monthKey, accountId = null) {
       const category = getCategoryById(data.categories, budget.categoryId);
       if (!category || category.type !== "expense" || category.isActive === false) return null;
 
-      const budgetAccountId = getBudgetAccountId(budget);
+      const budgetAccountIds = getBudgetAccountIds(budget);
       const spent = sum(countedMonthExpenses
         .filter(t => t.categoryId === category.id)
-        .filter(t => !budgetAccountId || t.accountId === budgetAccountId)
+        .filter(t => budgetAccountIds.includes(t.accountId))
         .map(t => t.amount));
 
       const excludedSpent = sum(excludedMonthExpenses
         .filter(t => t.categoryId === category.id)
-        .filter(t => !budgetAccountId || t.accountId === budgetAccountId)
+        .filter(t => budgetAccountIds.includes(t.accountId))
         .map(t => t.amount));
 
       const limit = Number(budget.limit || 0);
       const usedPercent = limit > 0 ? (spent / limit) * 100 : 0;
-      const account = getAccountById(data.accounts, budgetAccountId);
+      const accounts = budgetAccountIds.map(id => getAccountById(data.accounts, id)).filter(Boolean);
 
       return {
-        id: `${category.id}_${budgetAccountId}`,
+        id: `${category.id}_${[...budgetAccountIds].sort().join("+")}`,
         category,
-        account,
-        accountId: budgetAccountId,
+        account: accounts[0] || null,
+        accounts,
+        accountId: budgetAccountIds[0] || null,
+        accountIds: budgetAccountIds,
         spent,
         excludedSpent,
         totalSpent: spent + excludedSpent,
-        budget: { ...budget, accountId: budgetAccountId },
+        budget: { ...budget, accountIds: budgetAccountIds },
         limit,
         remaining: limit - spent,
         usedPercent
@@ -525,7 +537,7 @@ export function getCategorySpend(data, monthKey, accountId = null) {
     })
     .filter(Boolean);
 
-  const budgetKeys = new Set(budgetItems.map(item => `${item.category.id}_${item.accountId}`));
+  const budgetKeys = new Set(budgetItems.flatMap(item => item.accountIds.map(id => `${item.category.id}_${id}`)));
 
   const extraSpendItems = data.categories
     .filter(category => category.type === "expense" && category.isActive !== false)

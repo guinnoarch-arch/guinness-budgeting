@@ -3,6 +3,7 @@ import { calculateAccountBalanceAtDate } from "../utils/calculations.js";
 import { formatIsoDateLocal, todayIsoDate } from "../utils/dates.js";
 
 const DATE_CANDIDATES = ["date", "transaction date", "posted date", "booking date", "value date"];
+const TIME_CANDIDATES = ["time", "transaction time", "posted time", "booking time"];
 const DESCRIPTION_CANDIDATES = ["description", "transaction description", "transaction details", "transaction narrative", "transaction 2", "transaction", "details", "narrative", "merchant", "name", "reference", "payee", "memo"];
 const AMOUNT_CANDIDATES = ["amount", "transaction amount", "value", "paid", "money in/out", "money in out", "net", "signed amount"];
 const PAID_IN_CANDIDATES = ["paid in", "credit", "money in", "in", "deposit", "received"];
@@ -175,6 +176,7 @@ function scoreHeaderRow(row) {
 
   const candidateGroups = [
     DATE_CANDIDATES,
+    TIME_CANDIDATES,
     DESCRIPTION_CANDIDATES,
     AMOUNT_CANDIDATES,
     PAID_IN_CANDIDATES,
@@ -230,6 +232,7 @@ function isUsableDataRow(values, headers) {
 export function suggestColumnMap(headers) {
   return {
     date: findHeader(headers, DATE_CANDIDATES),
+    time: findHeader(headers, TIME_CANDIDATES),
     description: findHeader(headers, DESCRIPTION_CANDIDATES),
     amount: findHeader(headers, AMOUNT_CANDIDATES),
     paidIn: findHeader(headers, PAID_IN_CANDIDATES),
@@ -564,6 +567,7 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
   const rawDescription = getCell(row, columnMap.description);
   const description = rawDescription || `CSV row ${rowIndex + 2}`;
   const date = parseDate(rawDate);
+  const time = columnMap.time ? parseTime(getCell(row, columnMap.time)) : null;
   const amountInfo = parseAmountFromRow(row, columnMap);
   const amount = amountInfo.amount;
   const balance = columnMap.balance ? parseMoney(getCell(row, columnMap.balance)) : null;
@@ -576,19 +580,24 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
   const normalisedDescription = normaliseText(description);
   const sourceRowHash = createSourceRowHash({ accountId, date, amount: signedAmount, description });
 
-  const oppositeAccountMatch = findOppositeSignAccountMatch(data, accountId, date, signedAmount, description);
+  const oppositeAccountMatch = findOppositeSignAccountMatch(data, accountId, date, time, signedAmount, description);
   const existingDuplicate = oppositeAccountMatch ? null : findExistingImportedRow(data, sourceRowHash, accountId, date, signedAmount, description);
   const mappedExternalAccount = findExternalAccountMatch(normalisedMappings, description);
   const transferRule = findTransferRule(transferRules, accountId, description);
   const likelyTransfer = Boolean(transferRule || mappedExternalAccount || isLikelyTransferDescription(description));
   let linkedAccountId = transferRule?.linkedAccountId || mappedExternalAccount?.gbAccountId || null;
+  // Never let a row link "to itself" — this can only mean a learned rule or
+  // mapping was mis-formed (e.g. from a coincidental text match), and using
+  // it would make the transfer-matching below silently fail, which then
+  // falls through to being misread as a duplicate instead.
+  if (linkedAccountId === accountId) linkedAccountId = null;
   // Always check for an existing transfer once we know the account/date/amount.
   // This is important for multi-CSV imports: the first statement may create the
   // one-sided transfer, and a later statement must be able to attach its
   // opposite-sign row even when the bank description is just the user's name.
   const existingTransferMatch = oppositeAccountMatch
     ? oppositeAccountMatch
-    : findExistingTransferMatch(data, accountId, linkedAccountId, date, signedAmount);
+    : findExistingTransferMatch(data, accountId, linkedAccountId, date, time, signedAmount);
   const plannedMatch = !existingTransferMatch && !existingDuplicate
     ? findPlannedMatch(data, accountId, date, signedAmount, description, likelyTransfer)
     : null;
@@ -657,6 +666,7 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
     raw: row,
     sourceRowHash,
     date,
+    time,
     description,
     normalisedDescription,
     signedAmount,
@@ -816,6 +826,7 @@ function buildMatchedBankRow(previewRow, importBatchId, accountId) {
     sourceRowHash: previewRow.sourceRowHash,
     rowIndex: previewRow.rowIndex,
     date: previewRow.date,
+    time: previewRow.time || null,
     amount: previewRow.signedAmount,
     absoluteAmount: previewRow.amount,
     description: previewRow.description,
@@ -1009,6 +1020,24 @@ function parseDate(value) {
   return formatIsoDateLocal(parsed);
 }
 
+function parseTime(value) {
+  if (!value) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const match = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?/i);
+  if (!match) return null;
+
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const meridiem = match[4]?.toLowerCase();
+  if (meridiem === "pm" && hours < 12) hours += 12;
+  if (meridiem === "am" && hours === 12) hours = 0;
+  if (hours > 23 || minutes > 59) return null;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
 function normaliseText(value) {
   return String(value || "")
     .toLowerCase()
@@ -1026,7 +1055,11 @@ function findExternalAccountMatch(mappings, description) {
   const text = normaliseText(description);
   return mappings.find(mapping => {
     const external = normaliseText(mapping.externalName);
-    return external && text.includes(external);
+    if (!external) return false;
+    // Word-boundary match, not a raw substring check — otherwise a short
+    // external name like "A" would match inside an unrelated word (e.g.
+    // hidden inside "trAnsfer"), producing a bogus account link.
+    return new RegExp(`(^|\\s)${escapeRegExp(external)}(\\s|$)`).test(text);
   }) || null;
 }
 
@@ -1045,8 +1078,22 @@ function extractExternalAccountName(description, accounts, mappedExternalAccount
   const fromToMatch = text.match(/(?:from|to)\s+([a-z0-9\s\-_.]{3,45})/i);
   if (fromToMatch) return fromToMatch[1].trim().replace(/\s+/g, " ");
 
-  const account = accounts.find(item => item.name && normaliseText(text).includes(normaliseText(item.name)));
+  // Word-boundary match only — a plain substring check would let a short
+  // account name like "A" or "ISA" match inside unrelated words (e.g. "A"
+  // inside "TRANSFER", or "ISA" inside "VISA"), producing a nonsensical
+  // external-account mapping.
+  const normalisedText = normaliseText(text);
+  const account = accounts.find(item => {
+    if (!item.name) return false;
+    const normalisedName = normaliseText(item.name);
+    if (!normalisedName) return false;
+    return new RegExp(`(^|\\s)${escapeRegExp(normalisedName)}(\\s|$)`).test(normalisedText);
+  });
   return account?.name || "";
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function findExistingImportedRow(data, sourceRowHash, accountId, date, signedAmount, description) {
@@ -1066,7 +1113,7 @@ function findExistingImportedRow(data, sourceRowHash, accountId, date, signedAmo
   }) || null;
 }
 
-function findOppositeSignAccountMatch(data, uploadedAccountId, date, signedAmount, description) {
+function findOppositeSignAccountMatch(data, uploadedAccountId, date, time, signedAmount, description) {
   const amount = Math.abs(Number(signedAmount || 0));
   const text = normaliseText(description);
   if (!uploadedAccountId || !amount || !text) return null;
@@ -1084,13 +1131,25 @@ function findOppositeSignAccountMatch(data, uploadedAccountId, date, signedAmoun
       const similarity = getTextSimilarity(candidateText, text);
       const exactText = candidateText === text || candidateText.includes(text) || text.includes(candidateText);
       const opposite = getSignedAmountForAccount(transaction, transaction.accountId) * signedAmount < 0;
-      const transferSignal = exactText || similarity >= 0.25 || isLikelyTransferDescription(description) || isLikelyTransferDescription(transaction.title || "");
+      // Only the presence of shared wording (e.g. the same person's name on
+      // both sides) is a real signal that this is genuinely the same
+      // transfer. Checking whether *either* description merely contains a
+      // generic word like "transfer" is far too weak on its own — bank CSVs
+      // say things like "TRANSFER TO SAVINGS" constantly, and on its own
+      // that would match this row to any unrelated same-amount transaction
+      // in another account that happens to land on a nearby date (e.g. an
+      // unrelated salary payment sharing a round amount).
+      const transferSignal = exactText || similarity >= 0.25;
       if (!opposite || !transferSignal) return null;
+      const transactionTime = transaction.matchedBankRows?.[0]?.time || null;
+      const timeBonus = time && transactionTime
+        ? Math.max(0, 10 - minutesBetween(transaction.date, transactionTime, date, time) / 60)
+        : 0;
       return {
         ...transaction,
         matchKind: "opposite_sign_account",
         accountName: (data.accounts || []).find(account => account.id === transaction.accountId)?.name || "Another account",
-        matchScore: (exactText ? 70 : 0) + similarity * 30 + Math.max(0, 10 - daysBetween(transaction.date, date) * 3)
+        matchScore: (exactText ? 70 : 0) + similarity * 30 + Math.max(0, 10 - daysBetween(transaction.date, date) * 3) + timeBonus
       };
     })
     .filter(Boolean)
@@ -1099,25 +1158,37 @@ function findOppositeSignAccountMatch(data, uploadedAccountId, date, signedAmoun
   return candidates[0] || null;
 }
 
-function findExistingTransferMatch(data, uploadedAccountId, linkedAccountId, date, signedAmount) {
+function findExistingTransferMatch(data, uploadedAccountId, linkedAccountId, date, time, signedAmount) {
   const amount = Math.abs(signedAmount);
   const isMoneyIntoUploaded = signedAmount > 0;
 
-  return (data.transactions || []).find(transaction => {
-    if (transaction.type !== "transfer") return false;
-    if (Math.abs(Number(transaction.amount || 0) - amount) > 0.005) return false;
-    if (daysBetween(transaction.date, date) > 3) return false;
+  const candidates = (data.transactions || [])
+    .filter(transaction => {
+      if (transaction.type !== "transfer") return false;
+      if (Math.abs(Number(transaction.amount || 0) - amount) > 0.005) return false;
+      if (daysBetween(transaction.date, date) > 3) return false;
 
-    if (linkedAccountId) {
+      if (linkedAccountId) {
+        return isMoneyIntoUploaded
+          ? transaction.toAccountId === uploadedAccountId && transaction.fromAccountId === linkedAccountId
+          : transaction.fromAccountId === uploadedAccountId && transaction.toAccountId === linkedAccountId;
+      }
+
       return isMoneyIntoUploaded
-        ? transaction.toAccountId === uploadedAccountId && transaction.fromAccountId === linkedAccountId
-        : transaction.fromAccountId === uploadedAccountId && transaction.toAccountId === linkedAccountId;
-    }
+        ? transaction.toAccountId === uploadedAccountId
+        : transaction.fromAccountId === uploadedAccountId;
+    })
+    .map(transaction => {
+      const transactionTime = transaction.matchedBankRows?.[0]?.time || null;
+      // When several similar transfers are close together (e.g. money hopping
+      // through more than one account), pick whichever candidate is actually
+      // closest in time rather than just the first one found.
+      const gapMinutes = minutesBetween(transaction.date, transactionTime, date, time);
+      return { transaction, gapMinutes };
+    })
+    .sort((a, b) => a.gapMinutes - b.gapMinutes);
 
-    return isMoneyIntoUploaded
-      ? transaction.toAccountId === uploadedAccountId
-      : transaction.fromAccountId === uploadedAccountId;
-  }) || null;
+  return candidates[0]?.transaction || null;
 }
 
 function findPlannedMatch(data, accountId, date, signedAmount, description, likelyTransfer) {
@@ -1202,6 +1273,15 @@ function daysBetween(a, b) {
   if (Number.isNaN(da.getTime()) || Number.isNaN(db.getTime())) return 999;
   return Math.abs(Math.round((da.getTime() - db.getTime()) / (1000 * 60 * 60 * 24)));
 }
+
+function minutesBetween(dateA, timeA, dateB, timeB) {
+  const a = new Date(`${dateA}T${timeA || "12:00"}:00`);
+  const b = new Date(`${dateB}T${timeB || "12:00"}:00`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return Infinity;
+  return Math.abs(a.getTime() - b.getTime()) / 60000;
+}
+
+export { minutesBetween };
 
 function getDateTolerance(transaction, type) {
   const title = normaliseText(transaction.title || "");

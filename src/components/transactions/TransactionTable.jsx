@@ -11,7 +11,18 @@ function formatFileSize(bytes) {
   return `${value} B`;
 }
 
-export default function TransactionTable({ appData, actions, transactions }) {
+// The transaction is stored once, but reads differently depending on which
+// account you're looking at it from: "Transferred to X" when you're viewing
+// the sending account, "Transferred from X" when you're viewing the
+// receiving account, and the plain A → B form when there's no account
+// context (e.g. the "all accounts" view).
+function getTransferAccountText(txn, from, to, viewAccountId) {
+  if (viewAccountId && txn.fromAccountId === viewAccountId) return `Transferred to ${to?.name || "another account"}`;
+  if (viewAccountId && txn.toAccountId === viewAccountId) return `Transferred from ${from?.name || "another account"}`;
+  return `${from?.name} → ${to?.name}`;
+}
+
+export default function TransactionTable({ appData, actions, transactions, viewAccountId = null }) {
   const [receiptViewer, setReceiptViewer] = useState(null);
   const [receiptError, setReceiptError] = useState("");
 
@@ -107,7 +118,7 @@ export default function TransactionTable({ appData, actions, transactions }) {
                     )}
                   </td>
                   <td>{txn.type === "expense" && txn.excludeFromBudget ? <span className="pill excluded">Excluded</span> : category?.name || "-"}</td>
-                  <td>{txn.type === "transfer" ? `${from?.name} → ${to?.name}` : account?.name}</td>
+                  <td>{txn.type === "transfer" ? getTransferAccountText(txn, from, to, viewAccountId) : account?.name}</td>
                   <td className={`amount ${txn.type}`}>{signedMoney(txn.amount, txn.type)}</td>
                   <td>{txn.isRecurring ? "Yes" : "No"}</td>
                   <td>
