@@ -14,8 +14,8 @@ export default function TransactionsPage({ appData, actions }) {
     return appData.transactions
       .filter(txn => txn.date.startsWith(filters.month))
       .filter(txn => filters.categoryId === "all" || (filters.categoryId === "__excluded__" ? txn.type === "expense" && txn.excludeFromBudget : txn.categoryId === filters.categoryId))
-      .filter(txn => filters.type === "all" || txn.type === filters.type)
-      .filter(txn => filters.accountId === "all" || txn.accountId === filters.accountId || txn.fromAccountId === filters.accountId || txn.toAccountId === filters.accountId)
+      .filter(txn => filters.type === "all" || (filters.type === "transfer" ? Boolean(txn.transferLinkId) : txn.type === filters.type))
+      .filter(txn => filters.accountId === "all" || txn.accountId === filters.accountId)
       .filter(txn => {
         const query = filters.search.trim().toLowerCase();
         if (!query) return true;
@@ -80,7 +80,7 @@ export default function TransactionsPage({ appData, actions }) {
         </label>
       </section>
 
-      <TransactionTable appData={appData} actions={actions} transactions={filteredTransactions} viewAccountId={filters.accountId === "all" ? null : filters.accountId} />
+      <TransactionTable appData={appData} actions={actions} transactions={filteredTransactions} />
     </div>
   );
 }

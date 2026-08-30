@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { todayIsoDate } from "../../utils/dates.js";
 import { HOUSE_CONTRIBUTION_TYPES } from "../../utils/houseTracking.js";
 import { createId } from "../../utils/ids.js";
-import { upsertTransaction } from "../../services/transactionService.js";
+import { unlinkTransferPair, upsertTransaction } from "../../services/transactionService.js";
 import { estimateLoanPaymentSplit } from "../../utils/loanLinking.js";
 import { deleteStoredReceipt, getStoredReceipt, saveTransactionReceipt } from "../../services/receiptStorageService.js";
 
@@ -31,8 +31,8 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     note: editingTransaction?.note || "",
     categoryId: editingTransaction?.categoryId || "",
     accountId: editingTransaction?.accountId || "acc_current",
-    fromAccountId: editingTransaction?.fromAccountId || "acc_current",
-    toAccountId: editingTransaction?.toAccountId || "acc_savings",
+    fromAccountId: "acc_current",
+    toAccountId: "acc_savings",
     linkedSavingsGoalId: editingTransaction?.linkedSavingsGoalId || "",
     linkedLoanId: editingTransaction?.linkedLoanId || "",
     linkedHouseId: editingTransaction?.linkedHouseId || "",
@@ -93,6 +93,21 @@ export default function TransactionModal({ appData, actions, editingTransaction 
   const largeExpenseThreshold = Number(appData.settings?.largeExpenseThreshold || 200);
   const amountValue = Number(form.amount || 0);
   const isLargeExpense = form.type === "expense" && amountValue >= largeExpenseThreshold;
+
+  const linkedTransferPartner = editingTransaction?.transferLinkId
+    ? (appData.transactions || []).find(item => item.id === editingTransaction.transferLinkId)
+    : null;
+  const linkedTransferPartnerAccount = linkedTransferPartner
+    ? (appData.accounts || []).find(account => account.id === linkedTransferPartner.accountId)
+    : null;
+
+  function unlinkFromTransfer() {
+    if (!editingTransaction?.transferLinkId) return;
+    if (!confirm("Unlink this from its transfer partner? Both transactions stay, but they'll no longer be shown as a linked transfer.")) return;
+    const nextData = unlinkTransferPair(appData, editingTransaction.id);
+    actions.updateAppData(nextData, { reason: "Transfer link removed" });
+    actions.closeTransactionModal();
+  }
 
   useEffect(() => {
     let objectUrl = null;
@@ -275,9 +290,16 @@ export default function TransactionModal({ appData, actions, editingTransaction 
             <select value={form.type} onChange={e => update("type", e.target.value)}>
               <option value="expense">Expense</option>
               <option value="income">Income</option>
-              <option value="transfer">Transfer</option>
+              {!isEditing && <option value="transfer">Transfer</option>}
             </select>
           </label>
+
+          {linkedTransferPartner && (
+            <div className="full-width receipt-warning-box">
+              Linked transfer with {linkedTransferPartnerAccount?.name || "another account"}.{" "}
+              <button type="button" className="secondary-button small" onClick={unlinkFromTransfer}>Unlink transfer</button>
+            </div>
+          )}
 
           <label>
             Amount
@@ -333,6 +355,21 @@ export default function TransactionModal({ appData, actions, editingTransaction 
                     onChange={e => update("excludeFromBudget", e.target.checked)}
                   />
                   <span>Exclude from monthly budget</span>
+                </label>
+              )}
+
+              {form.type === "income" && (
+                <label>
+                  Linked savings goal
+                  <select value={form.linkedSavingsGoalId} onChange={e => update("linkedSavingsGoalId", e.target.value)}>
+                    <option value="">None</option>
+                    {linkedArchivedSavingsGoal && (
+                      <option value={linkedArchivedSavingsGoal.id}>{linkedArchivedSavingsGoal.name || "Archived savings goal"} (archived)</option>
+                    )}
+                    {activeSavingsGoals.map(goal => (
+                      <option key={goal.id} value={goal.id}>{goal.name}</option>
+                    ))}
+                  </select>
                 </label>
               )}
 

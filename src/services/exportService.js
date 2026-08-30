@@ -16,12 +16,12 @@ function escapeHtml(value) {
 }
 
 export function exportTransactionsCsv(data) {
-  const headers = ["Date", "Type", "Title", "Category", "Account", "From Account", "To Account", "Amount", "Excluded From Budget", "Linked Loan", "Linked House", "House Contribution Type", "House Paid By", "Loan Interest", "Loan Principal", "Loan Overpayment", "Receipt", "Note"];
+  const headers = ["Date", "Type", "Title", "Category", "Account", "Linked Transfer Account", "Amount", "Excluded From Budget", "Linked Loan", "Linked House", "House Contribution Type", "House Paid By", "Loan Interest", "Loan Principal", "Loan Overpayment", "Receipt", "Note"];
   const rows = data.transactions.map(txn => {
     const category = data.categories.find(cat => cat.id === txn.categoryId)?.name || "";
     const account = data.accounts.find(acc => acc.id === txn.accountId)?.name || "";
-    const from = data.accounts.find(acc => acc.id === txn.fromAccountId)?.name || "";
-    const to = data.accounts.find(acc => acc.id === txn.toAccountId)?.name || "";
+    const transferPartner = txn.transferLinkId ? data.transactions.find(item => item.id === txn.transferLinkId) : null;
+    const linkedTransferAccount = transferPartner ? data.accounts.find(acc => acc.id === transferPartner.accountId)?.name || "" : "";
     const linkedLoan = getLoanById(data, getLinkedLoanId(txn));
     const linkedHouse = (data.houses || []).find(house => house.id === txn.linkedHouseId);
 
@@ -31,8 +31,7 @@ export function exportTransactionsCsv(data) {
       txn.title,
       category,
       account,
-      from,
-      to,
+      linkedTransferAccount,
       txn.amount,
       txn.excludeFromBudget ? "Yes" : "No",
       linkedLoan?.name || "",

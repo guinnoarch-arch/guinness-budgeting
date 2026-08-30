@@ -124,9 +124,9 @@ export default function DashboardPage({ appData, actions }) {
         { label: "Raw budget left", value: formatMoney(summary.budgetLeftRaw) },
         { label: "Final displayed value", value: formatMoney(summary.moneyLeft) }
       ],
-      "Income": [...base, { label: "Income rows counted", value: String(summary.monthTransactions.filter(t => t.type === "income").length) }, { label: "Final income", value: formatMoney(summary.income) }],
-      "Spent": [...base, { label: "Expense rows counted", value: String(summary.monthTransactions.filter(t => t.type === "expense").length) }, { label: "Excluded rows", value: String(summary.monthTransactions.filter(t => t.type === "expense" && t.excludeFromBudget).length) }, { label: "Final spent", value: formatMoney(summary.expenses) }],
-      "Saved": [...base, { label: "Savings transfer rows", value: String(summary.monthTransactions.filter(t => t.type === "transfer").length) }, { label: "Final saved", value: formatMoney(summary.savingsTransfers || summary.accountMoneyIn) }],
+      "Income": [...base, { label: "Income rows counted", value: String(summary.monthTransactions.filter(t => t.type === "income" && !t.transferLinkId).length) }, { label: "Final income", value: formatMoney(summary.income) }],
+      "Spent": [...base, { label: "Expense rows counted", value: String(summary.monthTransactions.filter(t => t.type === "expense" && !t.transferLinkId).length) }, { label: "Excluded rows", value: String(summary.monthTransactions.filter(t => t.type === "expense" && t.excludeFromBudget).length) }, { label: "Final spent", value: formatMoney(summary.expenses) }],
+      "Saved": [...base, { label: "Savings transfer rows", value: String(summary.monthTransactions.filter(t => t.type === "income" && t.transferLinkId).length) }, { label: "Final saved", value: formatMoney(summary.savingsTransfers || summary.accountMoneyIn) }],
       "Available Balance": [...base, { label: "Included accounts", value: includedAccounts }, { label: "Final available balance", value: formatMoney(summary.spendableBalance) }],
       "Excluded Spending": [...base, { label: "Excluded expense rows", value: String(summary.monthTransactions.filter(t => t.type === "expense" && t.excludeFromBudget).length) }, { label: "Excluded total", value: formatMoney(summary.excludedSpending) }],
       "Carry-forward": [...base, { label: "Previous closed month record", value: summary.carryForward ? "Found" : "None" }, { label: "Carry-forward", value: formatMoney(summary.carryForward) }]

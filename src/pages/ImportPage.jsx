@@ -138,12 +138,9 @@ function getProjectedBalanceAtDate(appData, analysis, rowEdits) {
 
 function getSignedAmountForAccount(transaction, accountId, cutoffDate) {
   if (!transaction || !accountId || !transaction.date || transaction.date > cutoffDate) return 0;
-  if (transaction.type === "income" && transaction.accountId === accountId) return Number(transaction.amount || 0);
-  if (transaction.type === "expense" && transaction.accountId === accountId) return -Number(transaction.amount || 0);
-  if (transaction.type === "transfer") {
-    if (transaction.toAccountId === accountId) return Number(transaction.amount || 0);
-    if (transaction.fromAccountId === accountId) return -Number(transaction.amount || 0);
-  }
+  if (transaction.accountId !== accountId) return 0;
+  if (transaction.type === "income") return Number(transaction.amount || 0);
+  if (transaction.type === "expense") return -Number(transaction.amount || 0);
   return 0;
 }
 
@@ -717,7 +714,7 @@ export default function ImportPage({ appData, actions }) {
       title: importedValues.description || existing.title,
       type: importedValues.type,
       categoryId: importedValues.type === "expense" || importedValues.type === "income" ? importedValues.categoryId || existing.categoryId : null,
-      accountId: existing.type === "transfer" ? existing.accountId : existing.accountId,
+      accountId: existing.accountId,
       updatedAt: now
     };
 
@@ -1365,7 +1362,7 @@ function DuplicateReviewModal({ row, rowEdit, existingTransaction, appData, clos
       title: existing.title,
       amount: Number(existing.amount),
       type: existing.type,
-      categoryId: existing.type === "transfer" ? null : existing.categoryId
+      categoryId: existing.categoryId
     });
   }
 
@@ -1413,11 +1410,11 @@ function DuplicateReviewModal({ row, rowEdit, existingTransaction, appData, clos
               <label>Description<input value={existing.title} onChange={event => setExisting(prev => ({ ...prev, title: event.target.value }))} /></label>
               <label>Amount<input type="number" step="0.01" value={existing.amount} onChange={event => setExisting(prev => ({ ...prev, amount: event.target.value }))} /></label>
               <label>Type<select value={existing.type} onChange={event => setExisting(prev => ({ ...prev, type: event.target.value, categoryId: "" }))}>
-                <option value="expense">Expense</option><option value="income">Income</option><option value="transfer">Transfer</option>
+                <option value="expense">Expense</option><option value="income">Income</option>
               </select></label>
-              {existing.type !== "transfer" && <label>Category<select value={existing.categoryId} onChange={event => setExisting(prev => ({ ...prev, categoryId: event.target.value }))}>
+              <label>Category<select value={existing.categoryId} onChange={event => setExisting(prev => ({ ...prev, categoryId: event.target.value }))}>
                 {existingCategories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
-              </select></label>}
+              </select></label>
             </div>
             <button type="button" className="secondary-button small" onClick={saveExisting}>Save existing edits</button>
           </section>
@@ -1551,9 +1548,7 @@ function getMatchedTransactionInfo(row, edit, analysis, appData, accounts) {
       const accountName = accounts.find(account => account.id === linkedAccountId)?.name
         || accounts.find(account => account.id === existing.accountId)?.name
         || "Other account";
-      const signedAmount = existing.type === "transfer"
-        ? (existing.toAccountId === linkedAccountId ? Number(existing.amount || 0) : -Number(existing.amount || 0))
-        : (existing.type === "income" ? Number(existing.amount || 0) : -Number(existing.amount || 0));
+      const signedAmount = existing.type === "income" ? Number(existing.amount || 0) : -Number(existing.amount || 0);
       return { date: existing.date, description: existing.title || "Matched transaction", signedAmount, accountName, originalType: existing.type };
     }
   }

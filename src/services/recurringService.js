@@ -29,8 +29,6 @@ function buildRecurringTransaction(item, dueDate, now) {
     note: "Auto-added fixed recurring payment",
     categoryId: item.categoryId || null,
     accountId: item.accountId || null,
-    fromAccountId: null,
-    toAccountId: null,
     linkedSavingsGoalId: null,
     linkedLoanId: null,
     loanInterestAmount: null,

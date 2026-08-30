@@ -497,21 +497,24 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
     // the time the second row is actually applied, the first row has
     // already completed it. Blindly merging would silently absorb this row
     // into an unrelated match instead of it becoming its own transaction.
-    const matchIsStale = existingMatch?.type === "transfer" && existingMatch.status === "matched";
-    const plannedMatchIsStale = Boolean(existingMatch) && existingMatch.type !== "transfer" && (existingMatch.matchedBankRows || []).length > 0;
+    const matchIsStale = Boolean(existingMatch?.transferLinkId);
+    const plannedMatchIsStale = Boolean(existingMatch) && (existingMatch.matchedBankRows || []).length > 0;
 
     if (rowAction === "match_existing_transfer" && matchTransactionId && !matchIsStale) {
-      if (existingMatch?.type !== "transfer" && linkedAccountId && linkedAccountId !== accountId) {
-        nextData.transactions = nextData.transactions.map(transaction => {
-          if (transaction.id !== matchTransactionId) return transaction;
-          return convertToLinkedTransfer(transaction, effectivePreviewRow, bankRow, accountId, linkedAccountId, now);
-        });
-      } else {
-        nextData.transactions = nextData.transactions.map(transaction => {
-          if (transaction.id !== matchTransactionId) return transaction;
-          return mergeImportedTransaction(transaction, effectivePreviewRow, bankRow, now, true);
-        });
-      }
+      // Both the "already a transfer guess" case (existingMatch.status is
+      // "one_side_imported") and the "recognised via opposite-sign wording"
+      // case (an ordinary transaction nobody had flagged yet) resolve the
+      // same way now: this CSV row becomes its own transaction in its own
+      // account, and the two get linked — never merged into one record.
+      const newLeg = buildStandardTransaction(effectivePreviewRow, accountId, previewRow.baseType, null, bankRow, now, false, {
+        transferLinkId: matchTransactionId,
+        status: "matched"
+      });
+      nextData.transactions = nextData.transactions.map(transaction => (
+        transaction.id === matchTransactionId ? linkTransferPair(transaction, newLeg.id, now) : transaction
+      ));
+      nextData.transactions = [newLeg, ...nextData.transactions];
+      importedTransactionIds.push(newLeg.id);
       linkedTransactionIds.push(matchTransactionId);
       rememberTransferMappings(nextData, effectivePreviewRow, accountId, linkedAccountId, now);
       return;
@@ -521,7 +524,7 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
       const finalCategoryIdForPlanned = edit.categoryId || previewRow.categoryId || getFallbackCategoryId(nextData, edit.type || previewRow.type);
       nextData.transactions = nextData.transactions.map(transaction => {
         if (transaction.id !== matchTransactionId) return transaction;
-        return mergeImportedTransaction(transaction, effectivePreviewRow, bankRow, now, false, Boolean(edit.excludeFromBudget ?? false));
+        return mergeImportedTransaction(transaction, effectivePreviewRow, bankRow, now, Boolean(edit.excludeFromBudget ?? false));
       });
       linkedTransactionIds.push(matchTransactionId);
       rememberCategoryRule(nextData, effectivePreviewRow, finalCategoryIdForPlanned, edit.type || previewRow.type, now);
@@ -538,24 +541,26 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
     // just hasn't been imported yet because that statement comes later in
     // this batch), that's independent evidence worth keeping — only the
     // specific stale link is being distrusted, not everything this row knows.
-    const existingMatchCounterpart = existingMatch?.type === "transfer"
-      ? (existingMatch.fromAccountId === accountId ? existingMatch.toAccountId : existingMatch.fromAccountId)
-      : null;
+    const existingMatchCounterpart = matchIsStale ? existingMatch.accountId : null;
     const staleMatchTargetsSameAccount = (matchIsStale || plannedMatchIsStale)
       && (!linkedAccountId || linkedAccountId === existingMatchCounterpart);
     const finalType = staleMatchTargetsSameAccount ? previewRow.baseType : (edit.type || previewRow.type);
-    const finalCategoryId = finalType === "transfer" ? null : (edit.categoryId || previewRow.categoryId || getFallbackCategoryId(nextData, finalType));
+    const isTransferGuess = finalType === "transfer";
+    const finalCategoryId = isTransferGuess ? null : (edit.categoryId || previewRow.categoryId || getFallbackCategoryId(nextData, finalType));
     const finalExcludeFromBudget = finalType === "expense" ? Boolean(edit.excludeFromBudget ?? false) : false;
 
-    if (finalType === "transfer") {
+    if (isTransferGuess) {
       if (!linkedAccountId || linkedAccountId === accountId) {
         skippedRows.push({ rowIndex: previewRow.rowIndex, reason: "transfer_missing_other_account" });
         return;
       }
 
-      const transfer = buildTransferTransaction(effectivePreviewRow, accountId, linkedAccountId, bankRow, now);
-      nextData.transactions = [transfer, ...nextData.transactions];
-      importedTransactionIds.push(transfer.id);
+      const guessTransaction = buildStandardTransaction(effectivePreviewRow, accountId, previewRow.baseType, null, bankRow, now, false, {
+        linkedAccountId,
+        status: "one_side_imported"
+      });
+      nextData.transactions = [guessTransaction, ...nextData.transactions];
+      importedTransactionIds.push(guessTransaction.id);
       rememberTransferMappings(nextData, effectivePreviewRow, accountId, linkedAccountId, now);
       return;
     }
@@ -669,7 +674,7 @@ export function undoCsvImport(data, importBatchId) {
         return {
           ...transaction,
           matchedBankRows: nextBankRows,
-          status: transaction.type === "transfer" && nextBankRows.length < 2 ? "one_side_imported" : "matched",
+          status: "matched",
           updatedAt: new Date().toISOString()
         };
       }
@@ -687,6 +692,22 @@ export function undoCsvImport(data, importBatchId) {
       };
     });
 
+  // Undoing this batch may have deleted one side of a transfer pair (the
+  // batch that created the newly-linked leg) while leaving the other side's
+  // transferLinkId still pointing at it. That must never survive — clear it
+  // and let the surviving side fall back to whatever its own bank evidence
+  // (just its own matchedBankRows) actually supports.
+  const survivingIds = new Set(transactions.map(transaction => transaction.id));
+  const reconciledTransactions = transactions.map(transaction => {
+    if (!transaction.transferLinkId || survivingIds.has(transaction.transferLinkId)) return transaction;
+    return {
+      ...transaction,
+      transferLinkId: null,
+      status: (transaction.matchedBankRows || []).length >= 2 ? "matched" : "one_side_imported",
+      updatedAt: new Date().toISOString()
+    };
+  });
+
   const beforeAdjustments = (data.accountAdjustments || []).length;
   const accountAdjustments = (data.accountAdjustments || []).filter(adjustment => adjustment.importBatchId !== importBatchId);
   const removedAdjustments = beforeAdjustments - accountAdjustments.length;
@@ -694,7 +715,7 @@ export function undoCsvImport(data, importBatchId) {
   return {
     data: {
       ...data,
-      transactions,
+      transactions: reconciledTransactions,
       accountAdjustments,
       importBatches: (data.importBatches || []).filter(item => item.id !== importBatchId)
     },
@@ -787,8 +808,7 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
     actionLabel = "Link to existing transfer";
     type = "transfer";
     matchTransactionId = existingTransferMatch.id;
-    linkedAccountId = linkedAccountId
-      || (existingTransferMatch.fromAccountId === accountId ? existingTransferMatch.toAccountId : existingTransferMatch.fromAccountId);
+    linkedAccountId = linkedAccountId || existingTransferMatch.accountId;
   } else if (existingDuplicate) {
     action = "duplicate";
     actionLabel = "Already imported / duplicate";
@@ -871,24 +891,33 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
   };
 }
 
-function buildStandardTransaction(previewRow, accountId, type, categoryId, bankRow, now, excludeFromBudget = false) {
+// Every CSV row becomes its own income/expense transaction in its own
+// account, whether or not it looks like a transfer — a bad transfer guess
+// then only ever affects a reporting label (transferLinkId), never the
+// account balance the row actually belongs to. `options.linkedAccountId`
+// records an unconfirmed transfer guess (still looking for its other side);
+// `options.transferLinkId`/`options.status` are set once this row is
+// created already paired with an existing transaction (see linkTransferPair).
+function buildStandardTransaction(previewRow, accountId, type, categoryId, bankRow, now, excludeFromBudget = false, options = {}) {
   return {
     id: createId("txn"),
     type,
     date: previewRow.date,
     amount: previewRow.amount,
     title: cleanTitle(previewRow.description),
-    note: `Imported from CSV. Bank description: ${previewRow.description}`,
+    note: options.transferLinkId
+      ? `Imported transfer from CSV. Bank description: ${previewRow.description}`
+      : `Imported from CSV. Bank description: ${previewRow.description}`,
     categoryId,
     accountId,
-    fromAccountId: null,
-    toAccountId: null,
+    linkedAccountId: options.linkedAccountId || null,
+    transferLinkId: options.transferLinkId || null,
     linkedSavingsGoalId: null,
     recurringItemId: null,
     isRecurring: false,
     excludeFromBudget: type === "expense" ? Boolean(excludeFromBudget) : false,
     isExample: false,
-    status: "imported",
+    status: options.status || "imported",
     importSource: "csv",
     matchedBankRows: [bankRow],
     plannedDate: null,
@@ -900,68 +929,24 @@ function buildStandardTransaction(previewRow, accountId, type, categoryId, bankR
   };
 }
 
-function buildTransferTransaction(previewRow, uploadedAccountId, linkedAccountId, bankRow, now) {
-  const isMoneyIntoUploadedAccount = previewRow.signedAmount > 0;
-  const fromAccountId = isMoneyIntoUploadedAccount ? linkedAccountId : uploadedAccountId;
-  const toAccountId = isMoneyIntoUploadedAccount ? uploadedAccountId : linkedAccountId;
-
+// The single path for pairing two independently-real transactions as a
+// transfer. Never merges bank rows or account data between them — each
+// keeps its own accountId, amount and matchedBankRows, and is just labelled
+// as the other's partner. Symmetric with unlinkTransferPair in
+// transactionService.js: exactly one of the two sides is "existing" here
+// (the other, brand-new side already carries transferLinkId from
+// buildStandardTransaction), so only the existing side needs updating.
+function linkTransferPair(existingTransaction, newTransactionId, now) {
   return {
-    id: createId("txn"),
-    type: "transfer",
-    date: previewRow.date,
-    amount: previewRow.amount,
-    title: cleanTitle(previewRow.description),
-    note: `Imported transfer from CSV. Bank description: ${previewRow.description}`,
-    categoryId: null,
-    accountId: null,
-    fromAccountId,
-    toAccountId,
-    linkedSavingsGoalId: null,
-    recurringItemId: null,
-    isRecurring: false,
-    isExample: false,
-    status: "one_side_imported",
-    importSource: "csv",
-    matchedBankRows: [bankRow],
-    plannedDate: null,
-    plannedAmount: null,
-    actualDate: previewRow.date,
-    actualAmount: previewRow.amount,
-    createdAt: now,
+    ...existingTransaction,
+    status: "matched",
+    linkedAccountId: null,
+    transferLinkId: newTransactionId,
     updatedAt: now
   };
 }
 
-function convertToLinkedTransfer(transaction, previewRow, bankRow, uploadedAccountId, linkedAccountId, now) {
-  const existingWasIncoming = getSignedAmountForAccount(transaction, transaction.accountId) > 0;
-  const fromAccountId = existingWasIncoming ? transaction.accountId : uploadedAccountId;
-  const toAccountId = existingWasIncoming ? uploadedAccountId : transaction.accountId;
-  const existingBankRows = Array.isArray(transaction.matchedBankRows) ? transaction.matchedBankRows : [];
-  const nextBankRows = existingBankRows.some(row => row.sourceRowHash === bankRow.sourceRowHash)
-    ? existingBankRows
-    : [bankRow, ...existingBankRows];
-
-  return {
-    ...transaction,
-    type: "transfer",
-    accountId: null,
-    fromAccountId,
-    toAccountId,
-    categoryId: null,
-    date: transaction.date || previewRow.date,
-    amount: previewRow.amount,
-    status: nextBankRows.length >= 2 ? "matched" : "one_side_imported",
-    importSource: transaction.importSource || "csv",
-    actualDate: previewRow.date,
-    actualAmount: previewRow.amount,
-    excludeFromBudget: false,
-    matchedBankRows: nextBankRows,
-    note: `${transaction.note || ""}${transaction.note ? "\n" : ""}Converted to transfer after opposite-sign CSV match: ${previewRow.description}`,
-    updatedAt: now
-  };
-}
-
-function mergeImportedTransaction(transaction, previewRow, bankRow, now, isTransferMatch, excludeFromBudget = transaction.excludeFromBudget) {
+function mergeImportedTransaction(transaction, previewRow, bankRow, now, excludeFromBudget = transaction.excludeFromBudget) {
   const existingBankRows = Array.isArray(transaction.matchedBankRows) ? transaction.matchedBankRows : [];
   const alreadyLinked = existingBankRows.some(row => row.sourceRowHash === bankRow.sourceRowHash);
   const nextBankRows = alreadyLinked ? existingBankRows : [bankRow, ...existingBankRows];
@@ -972,9 +957,9 @@ function mergeImportedTransaction(transaction, previewRow, bankRow, now, isTrans
     plannedAmount: transaction.plannedAmount ?? transaction.amount,
     actualDate: previewRow.date,
     actualAmount: previewRow.amount,
-    date: isTransferMatch ? transaction.date : previewRow.date,
+    date: previewRow.date,
     amount: previewRow.amount,
-    status: isTransferMatch && nextBankRows.length < 2 ? "one_side_imported" : "matched",
+    status: "matched",
     excludeFromBudget: transaction.type === "expense" ? Boolean(excludeFromBudget) : false,
     importSource: transaction.importSource || "csv",
     matchedBankRows: nextBankRows,
@@ -1644,7 +1629,10 @@ function findOppositeSignAccountMatch(matchIndex, uploadedAccountId, date, time,
 
   const candidates = getAmountCandidates(matchIndex, amount)
     .filter(transaction => {
-      if (!transaction || transaction.type === "transfer") return false;
+      // Only match against a transaction nobody has flagged as a transfer
+      // yet — one already carrying a guess or a confirmed link is handled by
+      // findExistingTransferMatch instead, never claimed a second time here.
+      if (!transaction || transaction.transferLinkId || transaction.status === "one_side_imported") return false;
       if (transaction.accountId === uploadedAccountId) return false;
       if (daysBetween(transaction.date, date) > 3) return false;
       return true;
@@ -1688,25 +1676,26 @@ function findExistingTransferMatch(matchIndex, uploadedAccountId, linkedAccountI
 
   const candidates = getAmountCandidates(matchIndex, amount)
     .filter(transaction => {
-      if (transaction.type !== "transfer") return false;
-      // A transfer only ever has two real legs. Once both sides are already
-      // present (status "matched"), it must never accept a third bank row —
-      // otherwise an unrelated same-amount, nearby-date transfer (e.g. an
-      // internal savings-pot move that happens to also be, say, £1500 a day
-      // later) gets silently absorbed into an already-complete transfer,
-      // vanishing from the ledger instead of becoming its own transaction.
-      if (transaction.status === "matched") return false;
+      // A transfer only ever has two real legs. status "one_side_imported"
+      // means exactly one side has real bank evidence and it's still
+      // looking for its pair — once linked, status flips to "matched" and it
+      // must never accept a second row, or an unrelated same-amount,
+      // nearby-date transfer (e.g. an internal savings-pot move that
+      // happens to also be, say, £1500 a day later) could get silently
+      // absorbed into an already-complete transfer.
+      if (transaction.status !== "one_side_imported") return false;
+      if (transaction.accountId === uploadedAccountId) return false;
       if (daysBetween(transaction.date, date) > 3) return false;
 
-      if (linkedAccountId) {
-        return isMoneyIntoUploaded
-          ? transaction.toAccountId === uploadedAccountId && transaction.fromAccountId === linkedAccountId
-          : transaction.fromAccountId === uploadedAccountId && transaction.toAccountId === linkedAccountId;
-      }
+      // Opposite direction: if money is arriving in the uploaded account,
+      // the existing guess must be money that left its own account, and
+      // vice versa — otherwise both rows would be recording the same
+      // direction of movement, which can never be one real transfer.
+      const isOppositeDirection = isMoneyIntoUploaded ? transaction.type === "expense" : transaction.type === "income";
+      if (!isOppositeDirection) return false;
 
-      return isMoneyIntoUploaded
-        ? transaction.toAccountId === uploadedAccountId
-        : transaction.fromAccountId === uploadedAccountId;
+      if (linkedAccountId) return transaction.accountId === linkedAccountId;
+      return true;
     })
     .map(transaction => {
       const transactionTime = transaction.matchedBankRows?.[0]?.time || null;
@@ -1789,17 +1778,13 @@ function createSourceRowHash({ accountId, date, amount, description }) {
 
 function transactionTouchesAccount(transaction, accountId) {
   if (!transaction || !accountId) return false;
-  if (transaction.type === "transfer") return transaction.fromAccountId === accountId || transaction.toAccountId === accountId;
   return transaction.accountId === accountId;
 }
 
 function getSignedAmountForAccount(transaction, accountId) {
-  if (transaction.type === "income" && transaction.accountId === accountId) return Number(transaction.amount || 0);
-  if (transaction.type === "expense" && transaction.accountId === accountId) return -Number(transaction.amount || 0);
-  if (transaction.type === "transfer") {
-    if (transaction.toAccountId === accountId) return Number(transaction.amount || 0);
-    if (transaction.fromAccountId === accountId) return -Number(transaction.amount || 0);
-  }
+  if (transaction.accountId !== accountId) return 0;
+  if (transaction.type === "income") return Number(transaction.amount || 0);
+  if (transaction.type === "expense") return -Number(transaction.amount || 0);
   return 0;
 }
 

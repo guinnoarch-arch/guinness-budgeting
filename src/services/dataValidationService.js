@@ -1,7 +1,7 @@
 import { normaliseAppData } from "./storageService.js";
 import { createId } from "../utils/ids.js";
 
-const VALID_TRANSACTION_TYPES = new Set(["income", "expense", "transfer"]);
+const VALID_TRANSACTION_TYPES = new Set(["income", "expense"]);
 const VALID_LOAN_TYPES = new Set(["studentLoan", "mortgage", "personalLoan", "otherLoan"]);
 
 function isObject(value) {
@@ -76,6 +76,7 @@ export function validateCurrentAppData(rawData) {
   const budgetIds = new Set(data.budgets.map(budget => budget.id).filter(Boolean));
   const recurringIds = new Set(data.recurringItems.map(item => item.id).filter(Boolean));
   const transactionIds = new Set(data.transactions.map(transaction => transaction.id).filter(Boolean));
+  const transactionsById = new Map(data.transactions.map(transaction => [transaction.id, transaction]));
   const loanIds = new Set((data.loans || []).map(loan => loan.id).filter(Boolean));
   const savingsGoalIds = new Set((data.savingsGoals || []).map(goal => goal.id).filter(Boolean));
 
@@ -179,56 +180,57 @@ export function validateCurrentAppData(rawData) {
       }));
     }
 
-    if (type === "transfer") {
-      if (!transaction.fromAccountId || !accountIds.has(transaction.fromAccountId)) {
-        issues.push(createIssue("error", "transfer_missing_from_account", "Transfer missing source account", `${transaction.title || transaction.id || "A transfer"} has no valid from account.`, {
-          affectedType: "transactions",
-          affectedId: transaction.id
-        }));
-      }
-      if (!transaction.toAccountId || !accountIds.has(transaction.toAccountId)) {
-        issues.push(createIssue("error", "transfer_missing_to_account", "Transfer missing destination account", `${transaction.title || transaction.id || "A transfer"} has no valid to account.`, {
-          affectedType: "transactions",
-          affectedId: transaction.id
-        }));
-      }
-      if (transaction.fromAccountId && transaction.toAccountId && transaction.fromAccountId === transaction.toAccountId) {
-        issues.push(createIssue("error", "transfer_same_account", "Transfer uses the same account twice", `${transaction.title || transaction.id || "A transfer"} transfers from and to the same account.`, {
-          affectedType: "transactions",
-          affectedId: transaction.id
-        }));
-      }
-      if (transaction.linkedSavingsGoalId && !savingsGoalIds.has(transaction.linkedSavingsGoalId)) {
-        issues.push(createIssue("warning", "transfer_missing_goal", "Transfer linked to missing savings goal", `${transaction.title || transaction.id || "A transfer"} links to a savings goal that no longer exists.`, {
-          affectedType: "transactions",
-          affectedId: transaction.id,
-          repairable: true,
-          repairDescription: "Clear the missing savings goal link."
-        }));
-      }
-    } else {
-      if (!transaction.accountId || !accountIds.has(transaction.accountId)) {
-        issues.push(createIssue("error", "transaction_missing_account", "Transaction missing account", `${transaction.title || transaction.id || "A transaction"} has no valid account.`, {
-          affectedType: "transactions",
-          affectedId: transaction.id,
-          repairable: activeAccountIds.size > 0,
-          repairDescription: activeAccountIds.size > 0 ? "Move it to the first active account." : null
-        }));
-      }
-      if (transaction.categoryId && !categoryIds.has(transaction.categoryId)) {
-        issues.push(createIssue("warning", "transaction_missing_category", "Transaction linked to missing category", `${transaction.title || transaction.id || "A transaction"} links to a category that no longer exists.`, {
-          affectedType: "transactions",
-          affectedId: transaction.id,
-          repairable: true,
-          repairDescription: "Move it to an Other category if available, otherwise clear the category."
-        }));
-      }
-      if (transaction.linkedLoanId && !loanIds.has(transaction.linkedLoanId)) {
-        issues.push(createIssue("warning", "transaction_missing_loan", "Transaction linked to missing loan", `${transaction.title || transaction.id || "A transaction"} links to a loan that no longer exists.`, {
+    if (!transaction.accountId || !accountIds.has(transaction.accountId)) {
+      issues.push(createIssue("error", "transaction_missing_account", "Transaction missing account", `${transaction.title || transaction.id || "A transaction"} has no valid account.`, {
+        affectedType: "transactions",
+        affectedId: transaction.id,
+        repairable: activeAccountIds.size > 0,
+        repairDescription: activeAccountIds.size > 0 ? "Move it to the first active account." : null
+      }));
+    }
+    if (transaction.categoryId && !categoryIds.has(transaction.categoryId)) {
+      issues.push(createIssue("warning", "transaction_missing_category", "Transaction linked to missing category", `${transaction.title || transaction.id || "A transaction"} links to a category that no longer exists.`, {
+        affectedType: "transactions",
+        affectedId: transaction.id,
+        repairable: true,
+        repairDescription: "Move it to an Other category if available, otherwise clear the category."
+      }));
+    }
+    if (transaction.linkedLoanId && !loanIds.has(transaction.linkedLoanId)) {
+      issues.push(createIssue("warning", "transaction_missing_loan", "Transaction linked to missing loan", `${transaction.title || transaction.id || "A transaction"} links to a loan that no longer exists.`, {
+        affectedType: "transactions",
+        affectedId: transaction.id,
+        repairable: true,
+        repairDescription: "Clear the missing loan link and loan split fields."
+      }));
+    }
+    if (transaction.linkedSavingsGoalId && !savingsGoalIds.has(transaction.linkedSavingsGoalId)) {
+      issues.push(createIssue("warning", "transaction_missing_goal", "Transaction linked to missing savings goal", `${transaction.title || transaction.id || "A transaction"} links to a savings goal that no longer exists.`, {
+        affectedType: "transactions",
+        affectedId: transaction.id,
+        repairable: true,
+        repairDescription: "Clear the missing savings goal link."
+      }));
+    }
+
+    // A transferLinkId only ever means something as a reciprocal pair - if
+    // the partner it names doesn't exist, or exists but doesn't point back,
+    // the label is stale and must never be trusted for reporting.
+    if (transaction.transferLinkId) {
+      const partner = transactionsById.get(transaction.transferLinkId);
+      if (!partner) {
+        issues.push(createIssue("error", "transfer_link_missing_partner", "Transfer link points to a missing transaction", `${transaction.title || transaction.id || "A transaction"} is linked to a transfer partner that no longer exists.`, {
           affectedType: "transactions",
           affectedId: transaction.id,
           repairable: true,
-          repairDescription: "Clear the missing loan link and loan split fields."
+          repairDescription: "Clear the dangling transfer link."
+        }));
+      } else if (partner.transferLinkId !== transaction.id) {
+        issues.push(createIssue("error", "transfer_link_not_reciprocal", "Transfer link is not reciprocal", `${transaction.title || transaction.id || "A transaction"} and its transfer partner no longer point at each other.`, {
+          affectedType: "transactions",
+          affectedId: transaction.id,
+          repairable: true,
+          repairDescription: "Clear the transfer link on both sides."
         }));
       }
     }
@@ -460,32 +462,29 @@ export function repairSafeAppDataIssues(rawData, validationReport = null) {
     if (Number(transaction.amount) < 0) repairs.push(`Converted negative amount to positive for ${item.title}.`);
     if (!isValidDateString(transaction.date)) repairs.push(`Set invalid date to today for ${item.title}.`);
 
-    if (type === "transfer") {
-      if (item.linkedSavingsGoalId && !savingsGoalIds.has(item.linkedSavingsGoalId)) {
-        item = { ...item, linkedSavingsGoalId: null };
-        repairs.push(`Cleared missing savings goal link for transfer ${item.title}.`);
-      }
-    } else {
-      if ((!item.accountId || !nextAccountIds.has(item.accountId)) && fallbackAccountId) {
-        item = { ...item, accountId: fallbackAccountId };
-        repairs.push(`Moved ${item.title} to fallback account.`);
-      }
-      if (item.categoryId && !nextCategoryIds.has(item.categoryId)) {
-        const fallbackCategoryId = findFallbackCategoryId(next, type === "income" ? "income" : "expense");
-        item = { ...item, categoryId: fallbackCategoryId };
-        repairs.push(`Moved ${item.title} to fallback category.`);
-      }
-      if (item.linkedLoanId && !loanIds.has(item.linkedLoanId)) {
-        item = {
-          ...item,
-          linkedLoanId: null,
-          loanInterestAmount: null,
-          loanPrincipalAmount: null,
-          isLoanOverpayment: false,
-          loanOverpaymentAmount: 0
-        };
-        repairs.push(`Cleared missing loan link for ${item.title}.`);
-      }
+    if ((!item.accountId || !nextAccountIds.has(item.accountId)) && fallbackAccountId) {
+      item = { ...item, accountId: fallbackAccountId };
+      repairs.push(`Moved ${item.title} to fallback account.`);
+    }
+    if (item.categoryId && !nextCategoryIds.has(item.categoryId)) {
+      const fallbackCategoryId = findFallbackCategoryId(next, type === "income" ? "income" : "expense");
+      item = { ...item, categoryId: fallbackCategoryId };
+      repairs.push(`Moved ${item.title} to fallback category.`);
+    }
+    if (item.linkedLoanId && !loanIds.has(item.linkedLoanId)) {
+      item = {
+        ...item,
+        linkedLoanId: null,
+        loanInterestAmount: null,
+        loanPrincipalAmount: null,
+        isLoanOverpayment: false,
+        loanOverpaymentAmount: 0
+      };
+      repairs.push(`Cleared missing loan link for ${item.title}.`);
+    }
+    if (item.linkedSavingsGoalId && !savingsGoalIds.has(item.linkedSavingsGoalId)) {
+      item = { ...item, linkedSavingsGoalId: null };
+      repairs.push(`Cleared missing savings goal link for ${item.title}.`);
     }
 
     if (item.recurringItemId && !recurringIds.has(item.recurringItemId)) {
@@ -494,6 +493,18 @@ export function repairSafeAppDataIssues(rawData, validationReport = null) {
     }
 
     return item;
+  });
+
+  // A transferLinkId is only ever trustworthy as a reciprocal pair - clear it
+  // on both sides if the partner is missing or doesn't point back, rather
+  // than leaving a stale half-link for reporting code to misread.
+  const repairedById = new Map(next.transactions.map(item => [item.id, item]));
+  next.transactions = next.transactions.map(item => {
+    if (!item.transferLinkId) return item;
+    const partner = repairedById.get(item.transferLinkId);
+    if (partner && partner.transferLinkId === item.id) return item;
+    repairs.push(`Cleared broken transfer link for ${item.title}.`);
+    return { ...item, transferLinkId: null };
   });
 
   next.budgets = data.budgets.map((budget, index) => {
