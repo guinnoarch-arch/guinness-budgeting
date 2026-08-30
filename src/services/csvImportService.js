@@ -711,7 +711,12 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
   const rawDescription = getCell(row, columnMap.description);
   const description = rawDescription || `CSV row ${rowIndex + 2}`;
   const date = parseDate(rawDate);
-  const time = columnMap.time ? parseTime(getCell(row, columnMap.time)) : null;
+  // Fall back to pulling a time out of the date column itself when there's
+  // no separate Time column mapped — some banks (Revolut among them) only
+  // export a single combined date+time column, and without this the time
+  // information in it was simply discarded, weakening same-day match
+  // precision for every row from that file.
+  const time = columnMap.time ? parseTime(getCell(row, columnMap.time)) : parseTime(rawDate);
   const amountInfo = parseAmountFromRow(row, columnMap);
   const amount = amountInfo.amount;
   const balance = columnMap.balance ? parseMoney(getCell(row, columnMap.balance)) : null;
@@ -1213,7 +1218,12 @@ function parseTime(value) {
   const text = String(value).trim();
   if (!text) return null;
 
-  const match = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?/i);
+  // Not anchored to the start: a dedicated Time column always has the time
+  // right at the start anyway, so this is unchanged for that case — but it
+  // also lets the same parser pull a time out of a combined date+time value
+  // like "2026-06-02 13:29:00" (e.g. Revolut's "Completed Date" column),
+  // rather than only ever reading a time from its own separate column.
+  const match = text.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?/i);
   if (!match) return null;
 
   let hours = Number(match[1]);
