@@ -1,4 +1,5 @@
 import { defaultCategories } from "../data/defaultCategories.js";
+import { createId } from "../utils/ids.js";
 import {
   ensureHousesFromMortgageLoans,
   normaliseHouseContributionRecord,
@@ -768,6 +769,111 @@ function normaliseLoanRecord(loanRecord) {
   return baseLoan;
 }
 
+// Legacy data stored a transfer as one record with fromAccountId/toAccountId,
+// which merged two independently-real bank movements into a single balance
+// term. That made a single-sided CSV match silently corrupt the untouched
+// account's balance. This one-time migration splits every legacy transfer
+// into two plain income/expense transactions (one per account), linked by
+// transferLinkId, so each account's balance is only ever its own rows.
+export function migrateTransferTransactions(transactions, importBatches) {
+  const source = Array.isArray(transactions) ? transactions : [];
+  if (!source.some(transaction => transaction && transaction.type === "transfer")) {
+    return { transactions: source, importBatches: Array.isArray(importBatches) ? importBatches : [] };
+  }
+
+  const idReplacements = new Map();
+  const nextTransactions = [];
+
+  source.forEach(transaction => {
+    if (!transaction || transaction.type !== "transfer") {
+      if (transaction) nextTransactions.push(transaction);
+      return;
+    }
+
+    const legs = splitLegacyTransferTransaction(transaction);
+    if (legs.length > 0) {
+      idReplacements.set(transaction.id, legs.map(leg => leg.id));
+    }
+    nextTransactions.push(...legs);
+  });
+
+  const nextImportBatches = (Array.isArray(importBatches) ? importBatches : []).map(batch => {
+    if (!Array.isArray(batch?.transactionIds) || batch.transactionIds.length === 0) return batch;
+    let changed = false;
+    const nextIds = [];
+    batch.transactionIds.forEach(id => {
+      const replacement = idReplacements.get(id);
+      if (replacement) {
+        changed = true;
+        nextIds.push(...replacement);
+      } else {
+        nextIds.push(id);
+      }
+    });
+    return changed ? { ...batch, transactionIds: nextIds } : batch;
+  });
+
+  return { transactions: nextTransactions, importBatches: nextImportBatches };
+}
+
+function splitLegacyTransferTransaction(transaction) {
+  const bankRows = Array.isArray(transaction.matchedBankRows) ? transaction.matchedBankRows : [];
+  const isManualTransfer = bankRows.length === 0;
+  const fromBankRows = bankRows.filter(row => row?.accountId === transaction.fromAccountId);
+  const toBankRows = bankRows.filter(row => row?.accountId === transaction.toAccountId);
+
+  const keepFromLeg = Boolean(transaction.fromAccountId) && (isManualTransfer || fromBankRows.length > 0);
+  const keepToLeg = Boolean(transaction.toAccountId) && (isManualTransfer || toBankRows.length > 0);
+
+  if (!keepFromLeg && !keepToLeg) return [];
+
+  const fromId = transaction.id;
+  const toId = keepFromLeg ? createId("txn") : transaction.id;
+
+  const shared = {
+    date: transaction.date,
+    amount: Math.abs(Number(transaction.amount || 0)),
+    title: transaction.title || "Transfer",
+    isRecurring: false,
+    recurringItemId: null,
+    isExample: Boolean(transaction.isExample),
+    status: transaction.status === "matched" ? "matched" : (isManualTransfer ? "manual" : "imported"),
+    importSource: transaction.importSource || null,
+    plannedDate: transaction.plannedDate || null,
+    plannedAmount: transaction.plannedAmount ?? null,
+    actualDate: transaction.actualDate || transaction.date,
+    actualAmount: transaction.actualAmount ?? Math.abs(Number(transaction.amount || 0)),
+    createdAt: transaction.createdAt || new Date().toISOString(),
+    updatedAt: transaction.updatedAt || new Date().toISOString()
+  };
+
+  const fromLeg = keepFromLeg ? {
+    ...shared,
+    id: fromId,
+    type: "expense",
+    accountId: transaction.fromAccountId,
+    categoryId: null,
+    excludeFromBudget: false,
+    note: transaction.note || "",
+    matchedBankRows: fromBankRows,
+    transferLinkId: keepToLeg ? toId : null
+  } : null;
+
+  const toLeg = keepToLeg ? {
+    ...shared,
+    id: toId,
+    type: "income",
+    accountId: transaction.toAccountId,
+    categoryId: null,
+    note: transaction.note || "",
+    matchedBankRows: toBankRows,
+    linkedSavingsGoalId: transaction.linkedSavingsGoalId || null,
+    transferLinkId: keepFromLeg ? fromId : null
+  } : null;
+
+  return [fromLeg, toLeg].filter(Boolean);
+}
+
 export function normaliseAppData(data) {
   const base = data && typeof data === "object" ? data : {};
   const next = { ...base };
@@ -806,6 +912,10 @@ export function normaliseAppData(data) {
       isActive: category.isActive !== false && !category.isArchived && !category.archivedAt
     };
   });
+
+  const migratedTransfers = migrateTransferTransactions(next.transactions, next.importBatches);
+  next.transactions = migratedTransfers.transactions;
+  next.importBatches = migratedTransfers.importBatches;
 
   next.savingsGoals = next.savingsGoals.map(normaliseSavingsGoalRecord);
   next.loans = next.loans.map(normaliseLoanRecord);

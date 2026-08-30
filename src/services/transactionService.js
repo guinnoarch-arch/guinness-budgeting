@@ -85,10 +85,32 @@ export function upsertTransaction(data, formValues, existingId = null) {
 }
 
 export function deleteTransaction(data, transactionId) {
+  const unlinked = unlinkTransferPair(data, transactionId);
   return removeHouseContributionForTransaction(removeLoanEventsForTransaction({
-    ...data,
-    transactions: data.transactions.filter(transaction => transaction.id !== transactionId)
+    ...unlinked,
+    transactions: unlinked.transactions.filter(transaction => transaction.id !== transactionId)
   }, transactionId), transactionId);
+}
+
+// A transferLinkId only ever means something as a reciprocal pair: A points at
+// B and B points at A. Any operation that breaks that pairing (deleting one
+// side, marking it "not a transfer", editing it enough to invalidate the
+// match) must go through here so the other side is never left pointing at a
+// transaction that no longer reciprocates.
+export function unlinkTransferPair(data, transactionId) {
+  const transaction = data.transactions.find(item => item.id === transactionId);
+  const partnerId = transaction?.transferLinkId;
+  if (!partnerId) return data;
+
+  const idsToClear = new Set([transactionId, partnerId]);
+
+  return {
+    ...data,
+    transactions: data.transactions.map(item => {
+      if (!idsToClear.has(item.id) || !item.transferLinkId) return item;
+      return { ...item, transferLinkId: null };
+    })
+  };
 }
 
 function nullableNumber(value) {
