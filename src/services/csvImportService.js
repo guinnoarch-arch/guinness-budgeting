@@ -326,7 +326,105 @@ export function analyseCsvImport(data, { accountId, fileName, headers, rows, col
     createdAt: now,
     rows: previewRows,
     totals: summarisePreviewRows(previewRows),
-    reconciliation
+    reconciliation,
+    balanceChainCheck: checkCsvBalanceChain(csvBalanceRows)
+  };
+}
+
+// The bank's own running-balance column is ground truth for whether we parsed
+// this file correctly — independent of anything already in the app. Walking
+// balance[i-1] + signedAmount[i] === balance[i] catches parsing mistakes
+// (wrong column mapped, inverted sign, a skipped or duplicated row) before
+// they ever reach the transaction-matching logic, which has no way to tell a
+// correctly-parsed row from a wrongly-signed one on its own.
+//
+// Statements aren't always listed oldest-first, so if the file's own row
+// order doesn't reconcile, this retries once against the reverse order
+// before giving up — that's a normal "newest first" export, not an error.
+function checkCsvBalanceChain(csvBalanceRows) {
+  if (csvBalanceRows.length < 2) {
+    return {
+      checked: false,
+      reason: csvBalanceRows.length === 0 ? "no_balance_column" : "not_enough_balance_rows",
+      message: csvBalanceRows.length === 0
+        ? "No balance column was mapped, so the running-balance check can't run."
+        : "Only one row has a balance value, so there isn't a chain to check."
+    };
+  }
+
+  const fileOrder = csvBalanceRows;
+  const reversedOrder = [...csvBalanceRows].reverse();
+
+  const forward = runBalanceChain(fileOrder);
+  if (forward.mismatchCount === 0) {
+    return {
+      checked: true,
+      reconciled: true,
+      order: "file_order",
+      ...forward,
+      message: `Running balance reconciles: ${formatAmountForNote(forward.openingBalance)} on ${forward.firstDate} to ${formatAmountForNote(forward.closingBalance)} on ${forward.lastDate} across ${forward.rowsChecked} row(s).`
+    };
+  }
+
+  const reversed = runBalanceChain(reversedOrder);
+  if (reversed.mismatchCount === 0) {
+    return {
+      checked: true,
+      reconciled: true,
+      order: "reversed",
+      ...reversed,
+      message: `Running balance reconciles once read newest-first-to-oldest: ${formatAmountForNote(reversed.openingBalance)} to ${formatAmountForNote(reversed.closingBalance)} across ${reversed.rowsChecked} row(s).`
+    };
+  }
+
+  const best = forward.mismatchCount <= reversed.mismatchCount ? forward : reversed;
+  const bestOrder = best === forward ? "file_order" : "reversed";
+  const worstMismatch = [...best.mismatches].sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference))[0];
+
+  return {
+    checked: true,
+    reconciled: false,
+    order: bestOrder,
+    ...best,
+    message: worstMismatch
+      ? `Running balance doesn't add up: ${best.mismatchCount} row(s) break the chain, largest gap ${formatAmountForNote(worstMismatch.difference)} at "${worstMismatch.description}" on ${worstMismatch.date}. Check the column mapping (amount / paid in / paid out) is correct for this file.`
+      : `Running balance doesn't add up by ${formatAmountForNote(best.finalDifference)} from ${best.openingBalance !== null ? formatAmountForNote(best.openingBalance) : "the opening balance"} to ${best.closingBalance !== null ? formatAmountForNote(best.closingBalance) : "the closing balance"}. Check the column mapping for this file.`
+  };
+}
+
+function runBalanceChain(list) {
+  let expected = list[0].balance;
+  const mismatches = [];
+
+  for (let index = 1; index < list.length; index += 1) {
+    const row = list[index];
+    expected = roundMoney(expected + row.signedAmount);
+    const difference = roundMoney(expected - row.balance);
+
+    if (Math.abs(difference) > 0.01) {
+      mismatches.push({
+        rowIndex: row.rowIndex,
+        date: row.date,
+        description: row.description,
+        expectedBalance: expected,
+        actualBalance: row.balance,
+        difference
+      });
+      // Resync to this row's actual balance so one bad row doesn't cascade
+      // false mismatches through every row after it.
+      expected = row.balance;
+    }
+  }
+
+  return {
+    firstDate: list[0].date,
+    lastDate: list[list.length - 1].date,
+    openingBalance: list[0].balance,
+    closingBalance: list[list.length - 1].balance,
+    rowsChecked: list.length,
+    mismatchCount: mismatches.length,
+    mismatches: mismatches.slice(0, 10),
+    finalDifference: roundMoney(expected - list[list.length - 1].balance)
   };
 }
 
@@ -890,6 +988,33 @@ function rememberTransferMappings(data, previewRow, uploadedAccountId, linkedAcc
       ...(data.externalAccountMappings || [])
     ];
   }
+}
+
+// Inverse of rememberTransferMappings — used when the user says a guessed
+// transfer was wrong. Removes every learned rule/mapping that would still
+// fire on this same description for this account, so the same wrong guess
+// doesn't keep coming back on the next import. Uses the exact same
+// selection predicates as findTransferRule/findExternalAccountMatch so
+// "forget" removes precisely what "remember" would apply.
+export function forgetTransferGuess(data, { accountId, description, externalAccountName }) {
+  const text = normaliseText(description);
+
+  const transferRules = (data.transferRules || []).filter(rule => {
+    if (rule.uploadedAccountId !== accountId) return true;
+    const match = normaliseText(rule.matchText);
+    return !(match && text.includes(match));
+  });
+
+  const externalAccountMappings = (data.externalAccountMappings || []).filter(mapping => {
+    if (!externalAccountName) return true;
+    return normaliseText(mapping.externalName) !== normaliseText(externalAccountName);
+  });
+
+  return {
+    data: { ...data, transferRules, externalAccountMappings },
+    removedRuleCount: (data.transferRules || []).length - transferRules.length,
+    removedMappingCount: (data.externalAccountMappings || []).length - externalAccountMappings.length
+  };
 }
 
 function rememberCategoryRule(data, previewRow, categoryId, type, now) {
