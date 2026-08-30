@@ -585,7 +585,7 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
   const sourceRowHash = createSourceRowHash({ accountId, date, amount: signedAmount, description });
 
   const oppositeAccountMatch = findOppositeSignAccountMatch(matchIndex, accountId, date, time, signedAmount, description);
-  const existingDuplicate = oppositeAccountMatch ? null : findExistingImportedRow(matchIndex, sourceRowHash, accountId, date, signedAmount, description);
+  const existingDuplicate = oppositeAccountMatch ? null : findExistingImportedRow(matchIndex, sourceRowHash, accountId, date, time, signedAmount, description);
   const mappedExternalAccount = findExternalAccountMatch(normalisedMappings, description);
   const transferRule = findTransferRule(transferRules, accountId, description);
   const likelyTransfer = Boolean(transferRule || mappedExternalAccount || isLikelyTransferDescription(description));
@@ -662,8 +662,17 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
     action = "new_transfer";
     actionLabel = linkedAccountId ? "New transfer" : "Choose transfer account";
     type = "transfer";
-    defaultInclude = Boolean(linkedAccountId);
-    warning = linkedAccountId ? "" : "Choose the other GB account before importing this transfer.";
+    // A "new transfer" here means no matching transaction was found on the
+    // other side — the linked account (if any) came only from a keyword or a
+    // previously learned text rule, never from real corroborating data. A
+    // learned rule keeps firing on every future row with similar wording
+    // even if the original match that taught it was wrong, so it must never
+    // silently create a transfer (which removes the row from income/expense
+    // totals) without the user confirming it first.
+    defaultInclude = false;
+    warning = linkedAccountId
+      ? `Guessed transfer to ${getAccountName(data, linkedAccountId)} based on wording, but no matching transaction was found on that side. Review before importing — not auto-selected.`
+      : "Choose the other GB account before importing this transfer.";
   }
 
   if (suggestedExcludeFromBudget) {
@@ -1147,25 +1156,41 @@ function getAmountCandidates(matchIndex, amount) {
   return matchIndex.amountIndex.get(roundMoney(Math.abs(Number(amount || 0)))) || [];
 }
 
-function findExistingImportedRow(matchIndex, sourceRowHash, accountId, date, signedAmount, description) {
+function findExistingImportedRow(matchIndex, sourceRowHash, accountId, date, time, signedAmount, description) {
   const directMatch = matchIndex.sourceRowHashIndex.get(sourceRowHash);
   if (directMatch) return directMatch;
 
   const text = normaliseText(description);
-  return getAmountCandidates(matchIndex, signedAmount).find(transaction => {
-    const touchesAccount = transactionTouchesAccount(transaction, accountId);
-    // A one-day tolerance instead of an exact match: the same transaction can
-    // carry a slightly different posted/value date across overlapping bank
-    // statement exports, and treating that shift as "not a duplicate" is what
-    // lets it get imported a second time, double-counting the amount.
-    if (!touchesAccount || daysBetween(transaction.date, date) > 1) return false;
+  const candidates = getAmountCandidates(matchIndex, signedAmount)
+    .filter(transaction => {
+      const touchesAccount = transactionTouchesAccount(transaction, accountId);
+      // A one-day tolerance instead of an exact match: the same transaction can
+      // carry a slightly different posted/value date across overlapping bank
+      // statement exports, and treating that shift as "not a duplicate" is what
+      // lets it get imported a second time, double-counting the amount.
+      if (!touchesAccount || daysBetween(transaction.date, date) > 1) return false;
 
-    const txnSignedAmount = getSignedAmountForAccount(transaction, accountId);
-    if (Math.abs(txnSignedAmount - signedAmount) > 0.005) return false;
+      const txnSignedAmount = getSignedAmountForAccount(transaction, accountId);
+      if (Math.abs(txnSignedAmount - signedAmount) > 0.005) return false;
 
-    const transactionText = normaliseText(`${transaction.title || ""} ${transaction.note || ""}`);
-    return transactionText.includes(text.slice(0, 14)) || text.includes(transactionText.slice(0, 14));
-  }) || null;
+      const transactionText = normaliseText(`${transaction.title || ""} ${transaction.note || ""}`);
+      return transactionText.includes(text.slice(0, 14)) || text.includes(transactionText.slice(0, 14));
+    })
+    .map(transaction => {
+      // With more than one candidate in range (e.g. two same-amount payments
+      // a day apart), pick whichever is actually closest — same day beats
+      // adjacent day, and matching time-of-day (when both sides have one)
+      // beats a same-day match with no time evidence either way.
+      const transactionTime = transaction.matchedBankRows?.[0]?.time || null;
+      const dateScore = Math.max(0, 10 - daysBetween(transaction.date, date) * 10);
+      const timeScore = time && transactionTime
+        ? Math.max(0, 5 - minutesBetween(transaction.date, transactionTime, date, time) / 120)
+        : 0;
+      return { transaction, score: dateScore + timeScore };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return candidates[0]?.transaction || null;
 }
 
 function findOppositeSignAccountMatch(matchIndex, uploadedAccountId, date, time, signedAmount, description) {
@@ -1301,6 +1326,10 @@ function categoryExists(data, categoryId, type) {
 
 function getCategoryName(data, categoryId) {
   return (data.categories || []).find(category => category.id === categoryId)?.name || "";
+}
+
+function getAccountName(data, accountId) {
+  return (data.accounts || []).find(account => account.id === accountId)?.name || "the linked account";
 }
 
 function createSourceRowHash({ accountId, date, amount, description }) {
