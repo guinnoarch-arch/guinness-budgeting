@@ -193,6 +193,41 @@ function ReconciliationPreview({ appData, analysis, rowEdits, createAdjustment, 
   );
 }
 
+// Shared by the pre-import "Preview projected balances" check (mode
+// "preview", runs the import against a throwaway copy of the data — nothing
+// is saved) and the post-import result (mode "result", what actually got
+// saved). Same shape either way: verifyImportBalances() output.
+function BalanceVerificationPanel({ verification, mode }) {
+  if (!verification) return null;
+
+  const heading = mode === "preview"
+    ? `Projected balance check (not yet imported)`
+    : `Balance check against the CSV${verification.length > 1 ? "s" : ""}`;
+
+  return (
+    <div className={`import-verification-panel ${mode === "preview" ? "preview" : ""}`}>
+      <strong>{heading}</strong>
+      {verification.map(item => (
+        <div key={item.accountId} className={`import-verification-row ${item.matches ? "ok" : "mismatch"}`}>
+          <span>{item.matches ? "✓" : "✗"} {item.accountName}</span>
+          <span>
+            {formatMoney(item.calculatedBalance)} {mode === "preview" ? "projected" : "calculated"}
+            {item.matches ? "" : ` vs ${formatMoney(item.csvBalance)} on the CSV (as of ${item.asOfDate})`}
+          </span>
+        </div>
+      ))}
+      {verification.some(item => !item.matches) && (
+        <small>
+          A mismatch usually means a transaction on the statement wasn't imported, was imported twice, or an opening balance needs adjusting.
+          {mode === "preview"
+            ? ' Use the "Needs review" and "Unticked" filters below to find rows that still need a decision, use "Not this match" / "Not a transfer" on any wrongly-guessed transfer, then preview again.'
+            : " Check the account's transaction list against the raw CSV for that date."}
+        </small>
+      )}
+    </div>
+  );
+}
+
 function BalanceChainCheckBox({ check, label }) {
   if (!check?.checked) {
     return (
@@ -268,6 +303,7 @@ export default function ImportPage({ appData, actions }) {
   const [activeFilter, setActiveFilter] = useState("all");
   const [status, setStatus] = useState("");
   const [importVerification, setImportVerification] = useState(null);
+  const [previewVerification, setPreviewVerification] = useState(null);
   const [accountModal, setAccountModal] = useState(null);
   const [accountForm, setAccountForm] = useState(emptyAccountForm);
   const [detailBatchId, setDetailBatchId] = useState(null);
@@ -521,6 +557,7 @@ export default function ImportPage({ appData, actions }) {
       isMulti: files.length > 1
     });
     setImportVerification(null);
+    setPreviewVerification(null);
     if (files.length > 1) {
       setMultiRowEdits(initialEdits);
       setRowEdits({});
@@ -701,8 +738,50 @@ export default function ImportPage({ appData, actions }) {
     closeDuplicateReview();
   }
 
+  // Runs the exact same import logic as Confirm import, against a throwaway
+  // projection, so the resulting balances can be checked and troubleshot
+  // *before* anything is actually saved. Nothing here is persisted — only
+  // actions.updateAppData in confirmImport ever writes real data.
+  function previewImportResult() {
+    if (!analysis) return;
+
+    if (analysis.isMulti) {
+      const validFileIds = new Set(uploadItems.map(item => item.id));
+      const { data: projectedData, missingTransferFileName } = applyMultiCsvImport(
+        appData, analysis.files, analysis.rows, multiRowEdits, validFileIds
+      );
+
+      const verification = verifyImportBalances(
+        projectedData,
+        analysis.files.map(fileAnalysis => ({ accountId: fileAnalysis.accountId, reconciliation: fileAnalysis.reconciliation }))
+      );
+      setPreviewVerification(verification.length > 0 ? verification : null);
+
+      if (missingTransferFileName) {
+        setStatus(`Preview stopped at "${missingTransferFileName}" — choose the other account for every selected transfer in that statement, then preview again.`);
+        return;
+      }
+      setStatus(verification.length === 0
+        ? "Preview ready, but no statement has a balance column mapped, so projected balances can't be checked."
+        : verification.every(item => item.matches)
+          ? "Preview: every account balance would match its CSV. Safe to import."
+          : "Preview: some balances wouldn't match yet — see below before importing.");
+      return;
+    }
+
+    const result = applyCsvImport(appData, analysis, rowEdits, { createReconciliationAdjustment: createAdjustment });
+    const verification = verifyImportBalances(result.data, [{ accountId: analysis.accountId, reconciliation: analysis.reconciliation }]);
+    setPreviewVerification(verification.length > 0 ? verification : null);
+    setStatus(verification.length === 0
+      ? "Preview ready, but no balance column was mapped, so a projected check isn't available."
+      : verification.every(item => item.matches)
+        ? "Preview: the account balance would match its CSV. Safe to import."
+        : "Preview: the balance wouldn't match yet — see below before importing.");
+  }
+
   function confirmImport() {
     if (!analysis) return;
+    setPreviewVerification(null);
 
     if (analysis.isMulti) {
       const validFileIds = new Set(uploadItems.map(item => item.id));
@@ -858,20 +937,7 @@ export default function ImportPage({ appData, actions }) {
 
         {fileName && !uploadItems.length && <p className="muted-text">Loaded file: <strong>{fileName}</strong> · {rows.length} raw row(s)</p>}
         {status && <div className="import-status-box">{status}</div>}
-        {importVerification && (
-          <div className="import-verification-panel">
-            <strong>Balance check against the CSV{importVerification.length > 1 ? "s" : ""}</strong>
-            {importVerification.map(item => (
-              <div key={item.accountId} className={`import-verification-row ${item.matches ? "ok" : "mismatch"}`}>
-                <span>{item.matches ? "✓" : "✗"} {item.accountName}</span>
-                <span>{formatMoney(item.calculatedBalance)} calculated{item.matches ? "" : ` vs ${formatMoney(item.csvBalance)} on the CSV (as of ${item.asOfDate})`}</span>
-              </div>
-            ))}
-            {importVerification.some(item => !item.matches) && (
-              <small>A mismatch usually means a transaction on the statement wasn't imported, was imported twice, or an opening balance needs adjusting. Check the account's transaction list against the raw CSV for that date.</small>
-            )}
-          </div>
-        )}
+        <BalanceVerificationPanel verification={importVerification} mode="result" />
         {uploadItems.length > 0 && <div className="modal-actions"><button type="button" className="primary-button" onClick={analyseImport}>Analyse all CSVs</button></div>}
       </section>
 
@@ -947,8 +1013,13 @@ export default function ImportPage({ appData, actions }) {
                 <h3>{analysis.isMulti ? "4. Review all statements together" : "4. Review rows before importing"}</h3>
                 <p className="muted-text">{analysis.isMulti ? "All statements are combined and sorted by date. Opposite-sign matches across accounts are highlighted as transfers." : "Untick anything you do not want. Transfers need the other GH account selected before import."}</p>
               </div>
-              <button className="primary-button" onClick={confirmImport}>Confirm import</button>
+              <div className="import-preview-header-actions">
+                <button type="button" className="secondary-button" onClick={previewImportResult}>Preview projected balances</button>
+                <button className="primary-button" onClick={confirmImport}>Confirm import</button>
+              </div>
             </div>
+
+            <BalanceVerificationPanel verification={previewVerification} mode="preview" />
 
             <div className="import-filter-row">
               {previewFilters.map(([key, label]) => (

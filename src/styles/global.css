@@ -1338,6 +1338,22 @@ th {
   border-color: rgba(255, 255, 255, 0.12);
 }
 
+.import-verification-panel.preview {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+[data-theme="dark"] .import-verification-panel.preview {
+  background: rgba(96, 165, 250, 0.1);
+  border-color: rgba(96, 165, 250, 0.3);
+}
+
+.import-preview-header-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .account-multiselect-label {
   display: flex;
   flex-direction: column;
