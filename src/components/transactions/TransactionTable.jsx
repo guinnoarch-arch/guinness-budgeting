@@ -11,18 +11,7 @@ function formatFileSize(bytes) {
   return `${value} B`;
 }
 
-// The transaction is stored once, but reads differently depending on which
-// account you're looking at it from: "Transferred to X" when you're viewing
-// the sending account, "Transferred from X" when you're viewing the
-// receiving account, and the plain A → B form when there's no account
-// context (e.g. the "all accounts" view).
-function getTransferAccountText(txn, from, to, viewAccountId) {
-  if (viewAccountId && txn.fromAccountId === viewAccountId) return `Transferred to ${to?.name || "another account"}`;
-  if (viewAccountId && txn.toAccountId === viewAccountId) return `Transferred from ${from?.name || "another account"}`;
-  return `${from?.name} → ${to?.name}`;
-}
-
-export default function TransactionTable({ appData, actions, transactions, viewAccountId = null }) {
+export default function TransactionTable({ appData, actions, transactions }) {
   const [receiptViewer, setReceiptViewer] = useState(null);
   const [receiptError, setReceiptError] = useState("");
 
@@ -97,8 +86,12 @@ export default function TransactionTable({ appData, actions, transactions, viewA
             {transactions.map(txn => {
               const category = appData.categories.find(cat => cat.id === txn.categoryId);
               const account = appData.accounts.find(acc => acc.id === txn.accountId);
-              const from = appData.accounts.find(acc => acc.id === txn.fromAccountId);
-              const to = appData.accounts.find(acc => acc.id === txn.toAccountId);
+              const transferPartner = txn.transferLinkId
+                ? appData.transactions.find(item => item.id === txn.transferLinkId)
+                : null;
+              const transferPartnerAccount = transferPartner
+                ? appData.accounts.find(acc => acc.id === transferPartner.accountId)
+                : null;
               const linkedLoan = getLoanById(appData, getLinkedLoanId(txn));
               const loanSplit = linkedLoan ? getTransactionLoanSplit(txn, linkedLoan) : null;
 
@@ -118,7 +111,14 @@ export default function TransactionTable({ appData, actions, transactions, viewA
                     )}
                   </td>
                   <td>{txn.type === "expense" && txn.excludeFromBudget ? <span className="pill excluded">Excluded</span> : category?.name || "-"}</td>
-                  <td>{txn.type === "transfer" ? getTransferAccountText(txn, from, to, viewAccountId) : account?.name}</td>
+                  <td>
+                    {account?.name}
+                    {transferPartner && (
+                      <div>
+                        <small>{txn.type === "expense" ? "→" : "←"} transfer with {transferPartnerAccount?.name || "another account"}</small>
+                      </div>
+                    )}
+                  </td>
                   <td className={`amount ${txn.type}`}>{signedMoney(txn.amount, txn.type)}</td>
                   <td>{txn.isRecurring ? "Yes" : "No"}</td>
                   <td>

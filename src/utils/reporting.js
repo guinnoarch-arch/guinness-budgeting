@@ -33,21 +33,20 @@ function sortByDateDesc(a, b) {
 }
 
 function transactionAccountName(data, transaction) {
-  if (transaction.type === "transfer") {
-    const from = getAccountById(data.accounts, transaction.fromAccountId)?.name || "Unknown";
-    const to = getAccountById(data.accounts, transaction.toAccountId)?.name || "Unknown";
-    return `${from} → ${to}`;
-  }
-  return getAccountById(data.accounts, transaction.accountId)?.name || "Unknown";
+  const ownName = getAccountById(data.accounts, transaction.accountId)?.name || "Unknown";
+  if (!transaction.transferLinkId) return ownName;
+  const partner = data.transactions.find(item => item.id === transaction.transferLinkId);
+  const partnerName = partner ? getAccountById(data.accounts, partner.accountId)?.name || "Unknown" : "Unknown";
+  return transaction.type === "expense" ? `${ownName} → ${partnerName}` : `${partnerName} → ${ownName}`;
 }
 
 function transactionCategoryName(data, transaction) {
-  if (transaction.type === "transfer") return "Transfer";
+  if (transaction.transferLinkId) return "Transfer";
   return getCategoryById(data.categories, transaction.categoryId)?.name || "Uncategorised";
 }
 
 function getIncomeByCategory(data, monthKey) {
-  const income = getTransactionsForMonth(data.transactions, monthKey).filter(t => t.type === "income");
+  const income = getTransactionsForMonth(data.transactions, monthKey).filter(t => t.type === "income" && !t.transferLinkId);
   const totals = new Map();
 
   income.forEach(transaction => {
@@ -61,11 +60,15 @@ function getIncomeByCategory(data, monthKey) {
 }
 
 function getSavingsTransfersByAccount(data, monthKey) {
-  const transfers = getTransactionsForMonth(data.transactions, monthKey).filter(transaction => transaction.type === "transfer");
+  // The receiving leg of a linked transfer is what represents money having
+  // arrived in savings - the sending leg is excluded so a single transfer
+  // is never counted twice.
+  const arrivals = getTransactionsForMonth(data.transactions, monthKey)
+    .filter(transaction => transaction.type === "income" && transaction.transferLinkId);
   const totals = new Map();
 
-  transfers.forEach(transaction => {
-    const toAccount = getAccountById(data.accounts, transaction.toAccountId);
+  arrivals.forEach(transaction => {
+    const toAccount = getAccountById(data.accounts, transaction.accountId);
     if (toAccount?.type !== "savings") return;
     totals.set(toAccount.name, (totals.get(toAccount.name) || 0) + Number(transaction.amount || 0));
   });
@@ -204,7 +207,7 @@ function getImportImpact(data, monthKey) {
 
 function getTopTransactions(data, monthKey, type = "expense", limit = 8) {
   return getTransactionsForMonth(data.transactions, monthKey)
-    .filter(transaction => transaction.type === type)
+    .filter(transaction => transaction.type === type && !transaction.transferLinkId)
     .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
     .slice(0, limit)
     .map(transaction => ({

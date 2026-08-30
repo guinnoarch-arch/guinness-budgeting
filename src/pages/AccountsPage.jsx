@@ -193,9 +193,6 @@ function buildBalanceRowsFromDeltas(data, accounts, dateStrings, range) {
       deltasByAccount.get(transaction.accountId).push({ date, amount });
     } else if (transaction.type === "expense" && deltasByAccount.has(transaction.accountId)) {
       deltasByAccount.get(transaction.accountId).push({ date, amount: -amount });
-    } else if (transaction.type === "transfer") {
-      if (deltasByAccount.has(transaction.toAccountId)) deltasByAccount.get(transaction.toAccountId).push({ date, amount });
-      if (deltasByAccount.has(transaction.fromAccountId)) deltasByAccount.get(transaction.fromAccountId).push({ date, amount: -amount });
     }
   });
 

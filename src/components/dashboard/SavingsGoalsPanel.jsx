@@ -3,12 +3,7 @@ import { formatMoney } from "../../utils/money.js";
 
 function goalTouchesAccount(appData, goalId, accountId) {
   return appData.transactions.some(transaction => (
-    transaction.linkedSavingsGoalId === goalId
-    && (
-      transaction.accountId === accountId
-      || transaction.fromAccountId === accountId
-      || transaction.toAccountId === accountId
-    )
+    transaction.linkedSavingsGoalId === goalId && transaction.accountId === accountId
   ));
 }
 

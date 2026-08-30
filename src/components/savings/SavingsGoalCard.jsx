@@ -8,7 +8,7 @@ export default function SavingsGoalCard({ appData, goal, onEditGoal, onArchiveGo
   const percent = Math.min(progress.percent, 100);
 
   const linkedTransfers = appData.transactions
-    .filter(txn => txn.type === "transfer" && txn.linkedSavingsGoalId === goal.id)
+    .filter(txn => txn.type === "income" && txn.linkedSavingsGoalId === goal.id)
     .sort((a, b) => b.date.localeCompare(a.date));
 
   return (
