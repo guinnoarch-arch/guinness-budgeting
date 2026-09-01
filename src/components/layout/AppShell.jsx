@@ -557,13 +557,13 @@ export default function AppShell({
         />
 
         <div className="below-tabs-banner-stack">
-          {featureFlags.maintenanceMode && (
+          {adminStatus.isAdmin && actions.appNotices?.maintenanceMode && (
             <div className="install-app-banner maintenance-banner" role="status" aria-live="polite">
               <div>
-                <strong>Maintenance notice</strong>
-                <span>Admin maintenance mode is enabled. Avoid large imports until it is turned off.</span>
+                <strong>Maintenance mode is ON</strong>
+                <span>Everyone except admins is currently locked out. Turn it off in Control Centre when you're done.</span>
               </div>
-              {adminStatus.isAdmin && <button className="text-button" onClick={() => setActivePage("control")}>Control Centre</button>}
+              <button className="text-button" onClick={() => setActivePage("control")}>Control Centre</button>
             </div>
           )}
 

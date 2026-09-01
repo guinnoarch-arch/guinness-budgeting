@@ -16,7 +16,6 @@ export const DEFAULT_FEATURE_FLAGS = {
   stocks: false,
   aiAssistant: false,
   experimentalMobileLayout: true,
-  maintenanceMode: false,
   backupReminders: true,
   qrPhoneAccess: true
 };
@@ -52,11 +51,6 @@ export const FEATURE_FLAG_DETAILS = {
     description: "Keep compact phone-mode interface updates active.",
     defaultValue: true
   },
-  maintenanceMode: {
-    label: "Maintenance notice",
-    description: "Show a non-blocking maintenance banner.",
-    defaultValue: false
-  },
   backupReminders: {
     label: "Backup reminders",
     description: "Show backup warning banners and urgency states.",
@@ -82,8 +76,16 @@ export const DEFAULT_ADMIN_ACCESS_STATE = {
   adminClaimEnabled: false,
   canClaimAdmin: false,
   isBlocked: false,
+  isPaused: false,
   error: "",
   reason: "Admin state has not loaded yet."
+};
+
+export const DEFAULT_APP_NOTICES = {
+  loaded: false,
+  maintenanceMode: false,
+  maintenanceMessage: "",
+  broadcast: null
 };
 
 export function normaliseFeatureFlags(value = {}) {
@@ -109,7 +111,8 @@ export function normaliseAdminAccessState(value = {}, cloudAuthSummary = getStor
   const adminExists = Boolean(value.adminExists ?? value.admin_exists ?? Number(value.admin_count || 0) > 0);
   const adminClaimEnabled = Boolean(value.adminClaimEnabled ?? value.admin_claim_enabled);
   const isBlocked = Boolean(value.isBlocked ?? value.is_blocked ?? value.blocked);
-  const canClaimAdmin = signedIn && !isBlocked && !isAdmin && (!adminExists || adminClaimEnabled);
+  const isPaused = Boolean(value.isPaused ?? value.is_paused ?? value.paused);
+  const canClaimAdmin = signedIn && !isBlocked && !isPaused && !isAdmin && (!adminExists || adminClaimEnabled);
 
   return {
     ...DEFAULT_ADMIN_ACCESS_STATE,
@@ -126,9 +129,14 @@ export function normaliseAdminAccessState(value = {}, cloudAuthSummary = getStor
     adminClaimEnabled,
     canClaimAdmin,
     isBlocked,
+    isPaused,
     error: value.error || "",
+    // Blocked takes precedence in the message when (unusually) both are true -
+    // it's the more permanent state and the one a user needs to act on first.
     reason: value.reason || (isBlocked
       ? "Your account has been blocked. Contact the app admin."
+      : isPaused
+      ? "Your account access has been paused by the app admin. This is temporary, not a block - contact the admin to resume."
       : isAdmin
       ? `Admin role confirmed from ${ADMIN_ROLE_FIELD}.`
       : signedIn
@@ -236,6 +244,80 @@ export async function setAdminUserBlocked(settings = {}, targetUserId, blocked) 
     })
   }));
   return row;
+}
+
+export async function setAdminUserPaused(settings = {}, targetUserId, paused) {
+  const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_admin_set_user_paused", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      target_user_id: targetUserId,
+      target_paused: Boolean(paused)
+    })
+  }));
+  return row;
+}
+
+function normaliseAppNotices(row = {}) {
+  return {
+    loaded: true,
+    maintenanceMode: Boolean(row.maintenance_mode),
+    maintenanceMessage: row.maintenance_message || "",
+    broadcast: row.broadcast_id ? {
+      id: row.broadcast_id,
+      message: row.broadcast_message || "",
+      severity: row.broadcast_severity || "info",
+      createdAt: row.broadcast_created_at || null
+    } : null
+  };
+}
+
+// Unlike feature flags (local to the toggling device only), maintenance mode
+// and broadcast messages are meant to reach every signed-in user, so this
+// reads server state via a Supabase RPC rather than appData.settings.
+export async function getAppNotices(settings = {}) {
+  if (!isCloudBackupConfigured(settings)) return { ...DEFAULT_APP_NOTICES, loaded: true };
+  try {
+    const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_get_app_notices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    }));
+    return normaliseAppNotices(row);
+  } catch {
+    return { ...DEFAULT_APP_NOTICES, loaded: true };
+  }
+}
+
+export async function setAppStatus(settings = {}, maintenanceMode, maintenanceMessage = "") {
+  const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_admin_set_app_status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      p_maintenance_mode: Boolean(maintenanceMode),
+      p_maintenance_message: maintenanceMessage || null
+    })
+  }));
+  return row;
+}
+
+export async function sendBroadcast(settings = {}, message, severity = "info") {
+  const text = String(message || "").trim();
+  if (!text) throw new Error("Enter a message first.");
+  const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_admin_send_broadcast", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ p_message: text, p_severity: severity })
+  }));
+  return row;
+}
+
+export async function clearBroadcast(settings = {}) {
+  await supabaseRestFetch(settings, "rpc/gh_admin_clear_broadcast", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  });
 }
 
 export async function submitFeatureSuggestion(settings = {}, message) {

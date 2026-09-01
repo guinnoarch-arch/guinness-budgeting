@@ -8,14 +8,18 @@ import {
 import {
   FEATURE_FLAG_DETAILS,
   STABLE_PRODUCTION_APP_URL,
+  clearBroadcast,
   getAdminStatus,
   getFeatureFlags,
   listAdminFeatureSuggestions,
   listAdminAuditLog,
   listAdminUsers,
+  sendBroadcast,
   setAdminClaimMode,
   setAdminUserBlocked,
+  setAdminUserPaused,
   setAdminUserRole,
+  setAppStatus,
   setFeatureFlag,
   updateAdminFeatureSuggestion
 } from "../services/adminService.js";
@@ -104,6 +108,12 @@ export default function ControlCentrePage({ appData, actions }) {
   const [suggestions, setSuggestions] = useState([]);
   const [suggestionFilter, setSuggestionFilter] = useState("all");
   const [suggestionStatus, setSuggestionStatus] = useState("");
+  const appNotices = actions.appNotices || { maintenanceMode: false, maintenanceMessage: "", broadcast: null };
+  const [maintenanceDraft, setMaintenanceDraft] = useState(() => appNotices.maintenanceMessage || "");
+  const [maintenanceStatus, setMaintenanceStatus] = useState("");
+  const [broadcastDraft, setBroadcastDraft] = useState("");
+  const [broadcastSeverity, setBroadcastSeverity] = useState("info");
+  const [broadcastStatus, setBroadcastStatus] = useState("");
   const storageHealth = useMemo(() => getStorageHealth(appData), [appData]);
   const backupReminder = getBackupReminder(settings);
   const publicUrlCheck = getPublicUrlCheck();
@@ -250,6 +260,80 @@ export default function ControlCentrePage({ appData, actions }) {
     }
   }
 
+  async function pauseUser(user) {
+    if (user.is_admin && adminStatus.adminCount <= 1) {
+      setUserStatus("Cannot pause the last admin.");
+      return;
+    }
+    if (user.id === adminStatus.currentUserId && user.is_admin) {
+      const allowSelfPause = users.some(item => item.id !== user.id && item.is_admin && !item.blocked && !item.paused);
+      if (!allowSelfPause) {
+        setUserStatus("Cannot pause the last admin.");
+        return;
+      }
+      if (!confirm("You are about to pause your own admin account. Another active admin will need to resume you. Continue?")) return;
+    } else if (!confirm("Pause this user account? Unlike blocking, this is meant as a temporary suspension - it stops access and cloud sync but does not delete data.")) {
+      return;
+    }
+
+    setUserStatus("Pausing user...");
+    try {
+      await setAdminUserPaused(settings, user.id, true);
+      setUserStatus(`${user.username || user.email || "User"} has been paused.`);
+      await Promise.all([refreshUsers(), refreshAuditLog(), actions.refreshAdminAccess?.()]);
+    } catch (error) {
+      setUserStatus(error.message || "Could not pause user.");
+    }
+  }
+
+  async function resumeUser(user) {
+    if (!confirm("Resume this user account?")) return;
+    setUserStatus("Resuming user...");
+    try {
+      await setAdminUserPaused(settings, user.id, false);
+      setUserStatus(`${user.username || user.email || "User"} has been resumed.`);
+      await Promise.all([refreshUsers(), refreshAuditLog(), actions.refreshAdminAccess?.()]);
+    } catch (error) {
+      setUserStatus(error.message || "Could not resume user.");
+    }
+  }
+
+  async function saveMaintenanceStatus(nextEnabled) {
+    setMaintenanceStatus(nextEnabled ? "Turning maintenance mode on..." : "Turning maintenance mode off...");
+    try {
+      await setAppStatus(settings, nextEnabled, maintenanceDraft);
+      await Promise.all([actions.refreshAppNotices?.(), refreshAuditLog()]);
+      setMaintenanceStatus(nextEnabled ? "Maintenance mode is ON for everyone except admins." : "Maintenance mode is OFF.");
+    } catch (error) {
+      setMaintenanceStatus(error.message || "Could not update maintenance mode.");
+    }
+  }
+
+  async function sendBroadcastMessage(event) {
+    event.preventDefault();
+    setBroadcastStatus("Sending...");
+    try {
+      await sendBroadcast(settings, broadcastDraft, broadcastSeverity);
+      setBroadcastDraft("");
+      await Promise.all([actions.refreshAppNotices?.(), refreshAuditLog()]);
+      setBroadcastStatus("Message sent to all signed-in users.");
+    } catch (error) {
+      setBroadcastStatus(error.message || "Could not send message.");
+    }
+  }
+
+  async function clearBroadcastMessage() {
+    if (!confirm("Clear the active broadcast message for everyone?")) return;
+    setBroadcastStatus("Clearing...");
+    try {
+      await clearBroadcast(settings);
+      await Promise.all([actions.refreshAppNotices?.(), refreshAuditLog()]);
+      setBroadcastStatus("Broadcast cleared.");
+    } catch (error) {
+      setBroadcastStatus(error.message || "Could not clear message.");
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -300,11 +384,13 @@ export default function ControlCentrePage({ appData, actions }) {
     const matchesFilter = userFilter === "all"
       || (userFilter === "admins" && user.is_admin)
       || (userFilter === "users" && !user.is_admin)
-      || (userFilter === "blocked" && user.blocked);
+      || (userFilter === "blocked" && user.blocked)
+      || (userFilter === "paused" && user.paused);
     return matchesSearch && matchesFilter;
   });
 
   const blockedCount = users.filter(user => user.blocked).length;
+  const pausedCount = users.filter(user => user.paused).length;
   const adminUserCount = users.filter(user => user.is_admin).length;
   const userStatValue = (value) => userListLoaded ? value : "Setup needed";
 
@@ -382,6 +468,7 @@ export default function ControlCentrePage({ appData, actions }) {
             <ControlStat label="Total users" value={userStatValue(users.length)} />
             <ControlStat label="Admins" value={userStatValue(adminUserCount)} />
             <ControlStat label="Blocked" value={userStatValue(blockedCount)} />
+            <ControlStat label="Paused" value={userStatValue(pausedCount)} />
           </div>
         </div>
 
@@ -397,7 +484,8 @@ export default function ControlCentrePage({ appData, actions }) {
               ["all", "All"],
               ["admins", "Admins"],
               ["users", "Users"],
-              ["blocked", "Blocked"]
+              ["blocked", "Blocked"],
+              ["paused", "Paused"]
             ].map(([key, label]) => (
               <button
                 key={key}
@@ -431,7 +519,7 @@ export default function ControlCentrePage({ appData, actions }) {
             </thead>
             <tbody>
               {filteredUsers.map(user => {
-                const isOnlyAdmin = user.is_admin && (adminStatus.adminCount <= 1 || users.filter(item => item.is_admin && !item.blocked).length <= 1);
+                const isOnlyAdmin = user.is_admin && (adminStatus.adminCount <= 1 || users.filter(item => item.is_admin && !item.blocked && !item.paused).length <= 1);
                 const isSelf = user.id === adminStatus.currentUserId;
                 return (
                   <tr key={user.id}>
@@ -446,7 +534,8 @@ export default function ControlCentrePage({ appData, actions }) {
                     <td data-label="Status">
                       <div className="admin-badge-stack">
                         {user.blocked && <StatusBadge tone="expense">Blocked</StatusBadge>}
-                        {!user.blocked && <StatusBadge tone="storage-ok">Unblocked</StatusBadge>}
+                        {user.paused && <StatusBadge tone="warning">Paused</StatusBadge>}
+                        {!user.blocked && !user.paused && <StatusBadge tone="storage-ok">Active</StatusBadge>}
                       </div>
                     </td>
                     <td data-label="Activity">
@@ -472,6 +561,15 @@ export default function ControlCentrePage({ appData, actions }) {
                         ) : (
                           <button type="button" className="danger-button small" onClick={() => blockUser(user)} disabled={isOnlyAdmin || (isSelf && isOnlyAdmin)}>
                             Block
+                          </button>
+                        )}
+                        {user.paused ? (
+                          <button type="button" className="secondary-button small" onClick={() => resumeUser(user)}>
+                            Resume
+                          </button>
+                        ) : (
+                          <button type="button" className="secondary-button small" onClick={() => pauseUser(user)} disabled={isOnlyAdmin || (isSelf && isOnlyAdmin)}>
+                            Pause
                           </button>
                         )}
                       </div>
@@ -574,6 +672,82 @@ export default function ControlCentrePage({ appData, actions }) {
               />
             </label>
           ))}
+        </div>
+      </div>
+
+      <div className="control-centre-grid">
+        <div className="card control-panel">
+          <div className="panel-heading">
+            <div>
+              <h3>App access</h3>
+              <p>Unlike feature flags above, this reaches every signed-in user's device, not just this browser.</p>
+            </div>
+          </div>
+          <div className="security-check-list">
+            <SecurityCheck
+              label="Maintenance mode"
+              ok={!appNotices.maintenanceMode}
+              detail={appNotices.maintenanceMode ? "ON: everyone except admins is locked out of the app." : "OFF: everyone has normal access."}
+            />
+          </div>
+          <label>
+            Message shown while maintenance mode is on
+            <textarea
+              value={maintenanceDraft}
+              onChange={event => setMaintenanceDraft(event.target.value)}
+              placeholder="Upgrading the server, back in 10 minutes."
+              rows={2}
+            />
+          </label>
+          <div className="row-actions">
+            {appNotices.maintenanceMode ? (
+              <button type="button" className="danger-button" onClick={() => saveMaintenanceStatus(false)}>
+                Turn maintenance mode OFF
+              </button>
+            ) : (
+              <button type="button" className="secondary-button" onClick={() => saveMaintenanceStatus(true)}>
+                Turn maintenance mode ON
+              </button>
+            )}
+          </div>
+          {maintenanceStatus && <p className="cloud-status-message compact-status">{maintenanceStatus}</p>}
+        </div>
+
+        <div className="card control-panel">
+          <div className="panel-heading">
+            <div>
+              <h3>Broadcast message</h3>
+              <p>Pops up on every signed-in user's screen until they dismiss it.</p>
+            </div>
+          </div>
+          {appNotices.broadcast ? (
+            <div className={`cloud-status-message compact-status broadcast-${appNotices.broadcast.severity}`}>
+              Active ({appNotices.broadcast.severity}): {appNotices.broadcast.message}
+            </div>
+          ) : (
+            <p className="muted-text">No broadcast message is currently active.</p>
+          )}
+          <form className="suggestion-form" onSubmit={sendBroadcastMessage}>
+            <textarea
+              value={broadcastDraft}
+              onChange={event => setBroadcastDraft(event.target.value)}
+              placeholder="e.g. New transfer linking feature shipped today - see Import for details."
+              rows={2}
+              required
+            />
+            <select value={broadcastSeverity} onChange={event => setBroadcastSeverity(event.target.value)}>
+              <option value="info">Info</option>
+              <option value="warning">Warning</option>
+              <option value="urgent">Urgent</option>
+            </select>
+            <button className="primary-button" type="submit">Send to all users</button>
+          </form>
+          {appNotices.broadcast && (
+            <div className="row-actions">
+              <button type="button" className="secondary-button small" onClick={clearBroadcastMessage}>Clear active message</button>
+            </div>
+          )}
+          {broadcastStatus && <p className="cloud-status-message compact-status">{broadcastStatus}</p>}
         </div>
       </div>
 

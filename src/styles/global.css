@@ -5078,6 +5078,23 @@ button[disabled] {
   justify-self: start;
 }
 
+.broadcast-message-modal {
+  max-width: 480px;
+  border-left: 6px solid var(--blue);
+}
+
+.broadcast-message-modal.broadcast-warning {
+  border-left-color: var(--orange);
+}
+
+.broadcast-message-modal.broadcast-urgent {
+  border-left-color: var(--red);
+}
+
+.broadcast-message-modal p {
+  white-space: pre-wrap;
+}
+
 @media (max-width: 780px) {
   .admin-user-tools {
     grid-template-columns: 1fr;
