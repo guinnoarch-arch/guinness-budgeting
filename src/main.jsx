@@ -672,7 +672,7 @@ function App() {
     if (!appData) return undefined;
     if (adminAccessState.loaded && adminAccessState.isBlocked) return undefined;
     const cloud = appData.settings?.cloudBackup || {};
-    if (!cloud.enabled || !cloud.linkedLocalDataAt || !cloud.cloudBackupNeeded) return undefined;
+    if (!cloud.enabled || cloud.autoBackupEnabled === false || !cloud.linkedLocalDataAt || !cloud.cloudBackupNeeded) return undefined;
     if (!isCloudBackupConfigured(appData.settings) || !isCloudSessionAllowed(appData.settings, cloudAuthSummary)) return undefined;
 
     const timer = window.setTimeout(() => {
@@ -681,6 +681,7 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [
     appData?.settings?.cloudBackup?.enabled,
+    appData?.settings?.cloudBackup?.autoBackupEnabled,
     appData?.settings?.cloudBackup?.linkedLocalDataAt,
     appData?.settings?.cloudBackup?.cloudBackupNeeded,
     appData?.settings?.lastDataChangedAt,

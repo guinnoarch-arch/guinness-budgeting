@@ -248,7 +248,7 @@ export default function AppShell({
   const featureFlags = actions.featureFlags || {};
   const adminStatus = actions.adminStatus || {};
   const isBackupBannerDismissedForCurrentChange = hasUnbackedChanges && backupBannerDismissedTime >= lastDataChangedTime;
-  const showUnbackedBanner = featureFlags.backupReminders !== false && hasUnbackedChanges && !isBackupBannerDismissedForCurrentChange;
+  const showUnbackedBanner = featureFlags.backupReminders !== false && settings.backupWarningsEnabled !== false && hasUnbackedChanges && !isBackupBannerDismissedForCurrentChange;
   const backupButtonLevel = backupReminder.level || "ok";
   const backupButtonCanFlash = settings.backupButtonFlashEnabled !== false;
   const backupButtonShouldFlash = backupButtonCanFlash && backupButtonLevel === "danger";

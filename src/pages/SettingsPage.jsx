@@ -561,6 +561,7 @@ export default function SettingsPage({ appData, actions }) {
       provider: "supabase",
       mode: "auto-cloud-backup",
       enabled: Boolean(patch.enabled ?? cloudSettings.enabled ?? false),
+      autoBackupEnabled: patch.autoBackupEnabled ?? cloudSettings.autoBackupEnabled ?? true,
       requireLoginBeforeData: patch.requireLoginBeforeData ?? cloudSettings.requireLoginBeforeData ?? true,
       supabaseUrl: "",
       supabaseAnonKey: "",
@@ -894,7 +895,7 @@ export default function SettingsPage({ appData, actions }) {
   }
 
   function updateAppearanceSetting(field, value) {
-    const displayOnlyFields = ["themeMode", "accentColor"];
+    const displayOnlyFields = ["themeMode", "accentColor", "backupWarningsEnabled"];
     actions.updateAppData({
       ...appData,
       settings: {
@@ -903,7 +904,7 @@ export default function SettingsPage({ appData, actions }) {
         ...(field === "themeMode" ? { darkModeEnabled: value === "dark" } : {})
       }
     }, {
-      reason: field === "themeMode" ? "Theme changed" : field === "accentColor" ? "Accent colour changed" : "Display setting changed",
+      reason: field === "themeMode" ? "Theme changed" : field === "accentColor" ? "Accent colour changed" : field === "backupWarningsEnabled" ? "Backup warning preference changed" : "Display setting changed",
       markDirty: displayOnlyFields.includes(field) ? false : undefined
     });
   }
@@ -1638,6 +1639,15 @@ export default function SettingsPage({ appData, actions }) {
             Allow Backup Now button to slowly flash when backup is urgent
           </label>
 
+          <label className="checkbox-label appearance-checkbox-label">
+            <input
+              type="checkbox"
+              checked={settings.backupWarningsEnabled !== false}
+              onChange={event => updateAppearanceSetting("backupWarningsEnabled", event.target.checked)}
+            />
+            Allow backup warnings (the "changes since last backup" banner)
+          </label>
+
           <div className="appearance-preview-card full-width">
             <span className="pill">Preview</span>
             <strong>{settings.themeMode === "dark" ? "Dark dashboard" : settings.themeMode === "system" ? "Device-controlled theme" : "Light dashboard"}</strong>
@@ -1649,6 +1659,7 @@ export default function SettingsPage({ appData, actions }) {
             </div>
             <small>Dashboard layout: {settings.dashboardLayout === "simple" ? "Simple money left" : settings.dashboardLayout === "compact" ? "Compact" : "Full"}</small>
             <small>Backup flash: {settings.backupButtonFlashEnabled === false ? "Off" : "On"}</small>
+            <small>Backup warnings: {settings.backupWarningsEnabled === false ? "Off" : "On"}</small>
           </div>
         </div>
       </section>
@@ -2187,11 +2198,21 @@ export default function SettingsPage({ appData, actions }) {
               </div>
               <div className="storage-health-grid cloud-status-grid">
                 <p><span>Enabled</span><strong>{cloudSettings.enabled ? "Yes" : "No"}</strong></p>
+                <p><span>Automatic backups</span><strong>{cloudSettings.autoBackupEnabled === false ? "Off" : "On"}</strong></p>
                 <p><span>Last auto backup</span><strong>{formatDateTime(cloudSettings.lastAutoCloudBackupAt)}</strong></p>
                 <p><span>Local changes waiting</span><strong>{cloudSettings.cloudBackupNeeded ? "Yes" : "No"}</strong></p>
                 <p><span>Last restore</span><strong>{formatDateTime(cloudSettings.lastCloudRestoreAt)}</strong></p>
                 <p><span>Last error</span><strong>{cloudSettings.lastCloudError || "None"}</strong></p>
               </div>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={cloudSettings.autoBackupEnabled !== false}
+                  onChange={event => saveCloudSettings({ autoBackupEnabled: event.target.checked })}
+                  disabled={!cloudSession.signedIn || !cloudConfigured}
+                />
+                Automatically back up to the cloud a little after each change, once signed in
+              </label>
               <div className="cloud-sync-actions">
                 <button type="button" className="primary-button" onClick={uploadCloudBackupNow} disabled={!cloudSession.signedIn || !cloudConfigured}>
                   Back up now
