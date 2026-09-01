@@ -127,16 +127,6 @@ function buildSearchResults(appData, query) {
   return rows.slice(0, 30);
 }
 
-function ControlCentreIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M12 3 5 6v5.5c0 4.2 2.8 7.9 7 9.5 4.2-1.6 7-5.3 7-9.5V6l-7-3Z" />
-      <path d="M9 12h6" />
-      <path d="M12 9v6" />
-    </svg>
-  );
-}
-
 function normalisePublicAppUrl(value) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -263,7 +253,7 @@ export default function AppShell({
   const connectionLabel = pwaInstall?.isLocalAccessMode ? "Local mode" : pwaInstall?.isOnline ? "Online" : "Offline";
   const connectionClass = pwaInstall?.isLocalAccessMode ? "connection-pill local-mode" : pwaInstall?.isOnline ? "connection-pill online" : "connection-pill offline";
   const profileName = appData.profile?.displayName || appData.profile?.username || "Local user";
-  const showHeaderBackupButton = backupButtonLevel === "danger";
+  const showHeaderBackupButton = backupButtonLevel === "danger" && settings.backupWarningsEnabled !== false;
   const showInstallBanner = Boolean(
     pwaInstall?.installPrompt
     && !pwaInstall?.isInstalled
@@ -417,17 +407,6 @@ export default function AppShell({
               </HeaderIconButton>
             )}
 
-            {adminStatus.isAdmin && (
-              <HeaderIconButton
-                label="Control Centre"
-                title="Control Centre"
-                active={activePage === "control"}
-                onClick={() => setActivePage("control")}
-              >
-                <ControlCentreIcon />
-              </HeaderIconButton>
-            )}
-
             <div className="notification-wrapper">
               <button
                 type="button"
@@ -574,16 +553,17 @@ export default function AppShell({
           selectedDashboardAccountId={actions.selectedDashboardAccountId || "all"}
           setSelectedDashboardAccountId={actions.setSelectedDashboardAccountId}
           featureFlags={featureFlags}
+          isAdmin={adminStatus.isAdmin}
         />
 
         <div className="below-tabs-banner-stack">
-          {featureFlags.maintenanceMode && (
+          {adminStatus.isAdmin && actions.appNotices?.maintenanceMode && (
             <div className="install-app-banner maintenance-banner" role="status" aria-live="polite">
               <div>
-                <strong>Maintenance notice</strong>
-                <span>Admin maintenance mode is enabled. Avoid large imports until it is turned off.</span>
+                <strong>Maintenance mode is ON</strong>
+                <span>Everyone except admins is currently locked out. Turn it off in Control Centre when you're done.</span>
               </div>
-              {adminStatus.isAdmin && <button className="text-button" onClick={() => setActivePage("control")}>Control Centre</button>}
+              <button className="text-button" onClick={() => setActivePage("control")}>Control Centre</button>
             </div>
           )}
 

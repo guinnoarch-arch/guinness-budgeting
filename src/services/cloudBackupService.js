@@ -472,6 +472,15 @@ alter table public.profiles
   add column if not exists blocked_by uuid references auth.users(id) on delete set null;
 
 alter table public.profiles
+  add column if not exists paused boolean not null default false;
+
+alter table public.profiles
+  add column if not exists paused_at timestamptz;
+
+alter table public.profiles
+  add column if not exists paused_by uuid references auth.users(id) on delete set null;
+
+alter table public.profiles
   add column if not exists last_activity_at timestamptz;
 
 alter table public.profiles
@@ -480,6 +489,7 @@ alter table public.profiles
 update public.profiles
 set role = coalesce(nullif(role, ''), 'user'),
     blocked = coalesce(blocked, false),
+    paused = coalesce(paused, false),
     updated_at = coalesce(updated_at, now()),
     last_activity_at = coalesce(last_activity_at, updated_at, created_at, now());
 
@@ -526,11 +536,33 @@ create table if not exists public.gh_admin_settings (
   updated_at timestamptz not null default now()
 );
 
+alter table public.gh_admin_settings
+  add column if not exists maintenance_mode boolean not null default false;
+
+alter table public.gh_admin_settings
+  add column if not exists maintenance_message text;
+
 insert into public.gh_admin_settings (id, admin_claim_enabled)
 values (true, false)
 on conflict (id) do nothing;
 
 alter table public.gh_admin_settings enable row level security;
+
+create table if not exists public.gh_broadcast_messages (
+  id uuid primary key default gen_random_uuid(),
+  message text not null,
+  severity text not null default 'info' check (severity in ('info', 'warning', 'urgent')),
+  created_by uuid references auth.users(id) on delete set null,
+  created_by_email text,
+  created_at timestamptz not null default now(),
+  active boolean not null default true
+);
+
+alter table public.gh_broadcast_messages enable row level security;
+revoke all on public.gh_broadcast_messages from anon, authenticated;
+
+create index if not exists gh_broadcast_messages_active_idx
+  on public.gh_broadcast_messages (active, created_at desc);
 
 create table if not exists public.gh_admin_audit_log (
   id uuid primary key default gen_random_uuid(),
@@ -569,6 +601,34 @@ as $$
   );
 $$;
 
+-- Paused is a separate, reversible-by-design status distinct from blocked
+-- (different admin action, different user-facing message), but it must deny
+-- data access exactly like blocked does. gh_is_denied_access is the single
+-- check every access-controlling RLS policy calls, so a paused user is
+-- locked out at the database layer the same way a blocked user is, without
+-- duplicating that logic across every policy.
+create or replace function public.gh_is_paused(user_id uuid default auth.uid())
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = user_id
+      and p.paused = true
+  );
+$$;
+
+create or replace function public.gh_is_denied_access(user_id uuid default auth.uid())
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select coalesce(public.gh_is_blocked(user_id), false) or coalesce(public.gh_is_paused(user_id), false);
+$$;
+
 create or replace function public.gh_log_admin_action(action_name text, action_details jsonb default '{}'::jsonb)
 returns void
 language plpgsql
@@ -597,7 +657,12 @@ drop function if exists public.gh_admin_audit_recent(integer);
 drop function if exists public.gh_admin_list_users();
 drop function if exists public.gh_admin_set_user_role(uuid, text);
 drop function if exists public.gh_admin_set_user_blocked(uuid, boolean);
+drop function if exists public.gh_admin_set_user_paused(uuid, boolean);
 drop function if exists public.gh_get_admin_access_state();
+drop function if exists public.gh_get_app_notices();
+drop function if exists public.gh_admin_set_app_status(boolean, text);
+drop function if exists public.gh_admin_send_broadcast(text, text);
+drop function if exists public.gh_admin_clear_broadcast();
 
 create or replace function public.gh_get_admin_access_state()
 returns table(
@@ -609,7 +674,8 @@ returns table(
   admin_count integer,
   profile_count integer,
   admin_claim_enabled boolean,
-  is_blocked boolean
+  is_blocked boolean,
+  is_paused boolean
 )
 language sql
 security definer
@@ -627,7 +693,8 @@ as $$
       else 0
     end as profile_count,
     coalesce((select s.admin_claim_enabled from public.gh_admin_settings s where s.id = true), false) as admin_claim_enabled,
-    coalesce(p.blocked, false) as is_blocked
+    coalesce(p.blocked, false) as is_blocked,
+    coalesce(p.paused, false) as is_paused
   from (select auth.uid() as id) current_app_user
   left join public.profiles p on p.id = current_app_user.id
   where current_app_user.id is not null;
@@ -643,7 +710,8 @@ returns table(
   admin_count integer,
   profile_count integer,
   admin_claim_enabled boolean,
-  is_blocked boolean
+  is_blocked boolean,
+  is_paused boolean
 )
 language plpgsql
 security definer
@@ -709,7 +777,8 @@ returns table(
   admin_count integer,
   profile_count integer,
   admin_claim_enabled boolean,
-  is_blocked boolean
+  is_blocked boolean,
+  is_paused boolean
 )
 language plpgsql
 security definer
@@ -776,6 +845,8 @@ returns table(
   email text,
   role text,
   blocked boolean,
+  paused boolean,
+  paused_at timestamptz,
   created_at timestamptz,
   updated_at timestamptz,
   last_activity_at timestamptz,
@@ -801,13 +872,15 @@ begin
       p.email,
       p.role,
       coalesce(p.blocked, false) as blocked,
+      coalesce(p.paused, false) as paused,
+      p.paused_at,
       p.created_at,
       p.updated_at,
       coalesce(p.last_activity_at, max(b.created_at), p.updated_at, p.created_at) as last_activity_at,
       p.role = 'admin' as is_admin
     from public.profiles p
     left join public.gh_cloud_backups b on b.user_id = p.id
-    group by p.id, p.username, p.email, p.role, p.blocked, p.created_at, p.updated_at, p.last_activity_at
+    group by p.id, p.username, p.email, p.role, p.blocked, p.paused, p.paused_at, p.created_at, p.updated_at, p.last_activity_at
     order by p.created_at desc;
 end;
 $$;
@@ -947,6 +1020,233 @@ begin
     where p.id = target_user_id;
 end;
 $$;
+
+-- Pause is deliberately a separate admin action from block, not an alias for
+-- it: same access-denial effect (enforced via gh_is_denied_access), but a
+-- distinct status/timestamp/actor and distinct user-facing message, so an
+-- admin can temporarily suspend an account without it reading as punitive.
+create or replace function public.gh_admin_set_user_paused(target_user_id uuid, target_paused boolean)
+returns table(
+  id uuid,
+  username text,
+  email text,
+  role text,
+  is_admin boolean,
+  paused boolean,
+  paused_at timestamptz,
+  paused_by uuid,
+  created_at timestamptz,
+  updated_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_profile_role text;
+  target_current_paused boolean;
+  active_admin_count integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Not authorised';
+  end if;
+
+  if not public.gh_is_admin(auth.uid()) then
+    raise exception 'Not authorised';
+  end if;
+
+  if target_user_id is null then
+    raise exception 'Invalid admin action';
+  end if;
+
+  select p.role, coalesce(p.paused, false)
+    into target_profile_role, target_current_paused
+  from public.profiles p
+  where p.id = target_user_id;
+
+  if target_profile_role is null then
+    raise exception 'User not found';
+  end if;
+
+  select count(*)::integer into active_admin_count
+  from public.profiles
+  where profiles.role = 'admin'
+    and coalesce(profiles.blocked, false) = false
+    and coalesce(profiles.paused, false) = false;
+
+  if target_profile_role = 'admin' and coalesce(target_paused, false) = true and active_admin_count <= 1 then
+    raise exception 'Cannot pause the last active admin.';
+  end if;
+
+  update public.profiles p
+  set paused = coalesce(target_paused, false),
+      paused_at = case when coalesce(target_paused, false) then now() else null end,
+      paused_by = case when coalesce(target_paused, false) then auth.uid() else null end,
+      updated_at = now()
+  where p.id = target_user_id;
+
+  perform public.gh_log_admin_action(
+    case when coalesce(target_paused, false) then 'user_paused' else 'user_unpaused' end,
+    jsonb_build_object('target_user_id', target_user_id, 'previous_paused', target_current_paused, 'paused', coalesce(target_paused, false))
+  );
+
+  return query
+    select p.id, p.username, p.email, p.role, p.role = 'admin', p.paused, p.paused_at, p.paused_by, p.created_at, p.updated_at
+    from public.profiles p
+    where p.id = target_user_id;
+end;
+$$;
+
+-- App-wide status (maintenance mode) and broadcast messages both need to
+-- reach every signed-in client, not just the admin's own browser - unlike
+-- feature flags, which only ever live in the toggling device's local
+-- settings. gh_get_app_notices is one cheap combined read (both admins and
+-- ordinary users poll it) so a maintenance notice and a broadcast message
+-- share a single round trip instead of two.
+create or replace function public.gh_get_app_notices()
+returns table(
+  maintenance_mode boolean,
+  maintenance_message text,
+  broadcast_id uuid,
+  broadcast_message text,
+  broadcast_severity text,
+  broadcast_created_at timestamptz
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    coalesce(s.maintenance_mode, false),
+    s.maintenance_message,
+    b.id,
+    b.message,
+    b.severity,
+    b.created_at
+  from public.gh_admin_settings s
+  left join lateral (
+    select gb.id, gb.message, gb.severity, gb.created_at
+    from public.gh_broadcast_messages gb
+    where gb.active = true
+    order by gb.created_at desc
+    limit 1
+  ) b on true
+  where s.id = true;
+$$;
+
+create or replace function public.gh_admin_set_app_status(p_maintenance_mode boolean, p_maintenance_message text default null)
+returns table(maintenance_mode boolean, maintenance_message text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Not authorised';
+  end if;
+
+  if not public.gh_is_admin(auth.uid()) then
+    raise exception 'Not authorised';
+  end if;
+
+  update public.gh_admin_settings s
+  set maintenance_mode = coalesce(p_maintenance_mode, false),
+      maintenance_message = nullif(trim(coalesce(p_maintenance_message, '')), ''),
+      updated_by = auth.uid(),
+      updated_at = now()
+  where s.id = true;
+
+  perform public.gh_log_admin_action(
+    'maintenance_mode_changed',
+    jsonb_build_object('maintenance_mode', coalesce(p_maintenance_mode, false), 'maintenance_message', p_maintenance_message)
+  );
+
+  return query
+    select s.maintenance_mode, s.maintenance_message
+    from public.gh_admin_settings s
+    where s.id = true;
+end;
+$$;
+
+create or replace function public.gh_admin_send_broadcast(p_message text, p_severity text default 'info')
+returns table(id uuid, message text, severity text, created_at timestamptz)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  profile_email text;
+begin
+  if auth.uid() is null then
+    raise exception 'Not authorised';
+  end if;
+
+  if not public.gh_is_admin(auth.uid()) then
+    raise exception 'Not authorised';
+  end if;
+
+  if length(trim(coalesce(p_message, ''))) = 0 then
+    raise exception 'Enter a message first';
+  end if;
+
+  if p_severity not in ('info', 'warning', 'urgent') then
+    raise exception 'Invalid severity';
+  end if;
+
+  select p.email into profile_email from public.profiles p where p.id = auth.uid();
+
+  -- Only one broadcast is ever active at a time - sending a new one retires
+  -- the previous one rather than stacking popups.
+  update public.gh_broadcast_messages set active = false where active = true;
+
+  perform public.gh_log_admin_action(
+    'broadcast_sent',
+    jsonb_build_object('message', left(trim(p_message), 200), 'severity', p_severity)
+  );
+
+  return query
+    insert into public.gh_broadcast_messages (message, severity, created_by, created_by_email, active)
+    values (left(trim(p_message), 2000), p_severity, auth.uid(), profile_email, true)
+    returning gh_broadcast_messages.id, gh_broadcast_messages.message, gh_broadcast_messages.severity, gh_broadcast_messages.created_at;
+end;
+$$;
+
+create or replace function public.gh_admin_clear_broadcast()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Not authorised';
+  end if;
+
+  if not public.gh_is_admin(auth.uid()) then
+    raise exception 'Not authorised';
+  end if;
+
+  update public.gh_broadcast_messages set active = false where active = true;
+
+  perform public.gh_log_admin_action('broadcast_cleared', '{}'::jsonb);
+end;
+$$;
+
+revoke all on function public.gh_is_paused(uuid) from public;
+revoke all on function public.gh_is_denied_access(uuid) from public;
+revoke all on function public.gh_admin_set_user_paused(uuid, boolean) from public;
+revoke all on function public.gh_get_app_notices() from public;
+revoke all on function public.gh_admin_set_app_status(boolean, text) from public;
+revoke all on function public.gh_admin_send_broadcast(text, text) from public;
+revoke all on function public.gh_admin_clear_broadcast() from public;
+
+grant execute on function public.gh_is_paused(uuid) to authenticated;
+grant execute on function public.gh_is_denied_access(uuid) to authenticated;
+grant execute on function public.gh_admin_set_user_paused(uuid, boolean) to authenticated;
+grant execute on function public.gh_get_app_notices() to authenticated, anon;
+grant execute on function public.gh_admin_set_app_status(boolean, text) to authenticated;
+grant execute on function public.gh_admin_send_broadcast(text, text) to authenticated;
+grant execute on function public.gh_admin_clear_broadcast() to authenticated;
 
 create table if not exists public.gh_feature_suggestions (
   id uuid primary key default gen_random_uuid(),
@@ -1296,20 +1596,20 @@ drop policy if exists "GH users can delete own backups" on public.gh_cloud_backu
 
 create policy "GH users can read own backups"
   on public.gh_cloud_backups for select
-  using (auth.uid() = user_id and not public.gh_is_blocked(auth.uid()));
+  using (auth.uid() = user_id and not public.gh_is_denied_access(auth.uid()));
 
 create policy "GH users can insert own backups"
   on public.gh_cloud_backups for insert
-  with check (auth.uid() = user_id and not public.gh_is_blocked(auth.uid()));
+  with check (auth.uid() = user_id and not public.gh_is_denied_access(auth.uid()));
 
 create policy "GH users can update own backups"
   on public.gh_cloud_backups for update
-  using (auth.uid() = user_id and not public.gh_is_blocked(auth.uid()))
-  with check (auth.uid() = user_id and not public.gh_is_blocked(auth.uid()));
+  using (auth.uid() = user_id and not public.gh_is_denied_access(auth.uid()))
+  with check (auth.uid() = user_id and not public.gh_is_denied_access(auth.uid()));
 
 create policy "GH users can delete own backups"
   on public.gh_cloud_backups for delete
-  using (auth.uid() = user_id and not public.gh_is_blocked(auth.uid()));
+  using (auth.uid() = user_id and not public.gh_is_denied_access(auth.uid()));
 
 create index if not exists gh_cloud_backups_user_created_idx
   on public.gh_cloud_backups (user_id, created_at desc);

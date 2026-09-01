@@ -48,18 +48,27 @@ import {
   uploadSupabaseCloudBackup
 } from "./services/cloudBackupService.js";
 import { getDisplayUsernameFromSession } from "./services/authService.js";
-import { ADMIN_ROUTE_PATH, DEFAULT_ADMIN_ACCESS_STATE, fetchAdminAccessState, getAdminStatus, getFeatureFlags } from "./services/adminService.js";
+import { ADMIN_ROUTE_PATH, DEFAULT_ADMIN_ACCESS_STATE, DEFAULT_APP_NOTICES, fetchAdminAccessState, getAdminStatus, getAppNotices, getFeatureFlags } from "./services/adminService.js";
 import { buildDataFingerprint } from "./services/cloudMergeService.js";
 import { clearLocalAccessSession, hasUsableLocalBudgetData, isLocalAccessSessionAllowed, storeLocalAccessSession } from "./services/localAccessService.js";
 
 
 const PHONE_MODE_STORAGE_KEY = "ghBudgetingPhoneMode";
+const DISMISSED_BROADCAST_STORAGE_KEY = "ghBudgetingDismissedBroadcastId";
 
 function readStoredPhoneMode() {
   try {
     return window.localStorage.getItem(PHONE_MODE_STORAGE_KEY) === "true";
   } catch {
     return false;
+  }
+}
+
+function readStoredDismissedBroadcastId() {
+  try {
+    return window.localStorage.getItem(DISMISSED_BROADCAST_STORAGE_KEY) || "";
+  } catch {
+    return "";
   }
 }
 
@@ -237,6 +246,59 @@ function BlockedAccountScreen({ phoneMode, onLogout }) {
   );
 }
 
+function PausedAccountScreen({ phoneMode, onLogout }) {
+  return (
+    <main className={`blocked-account-page ${phoneMode ? "phone-mode" : ""}`.trim()}>
+      <section className="card blocked-account-card">
+        <p className="eyebrow">Account paused</p>
+        <h1>Your account access has been paused by the app admin.</h1>
+        <p className="muted-text">
+          This is temporary, not a block - contact the admin to resume. Local browser data, backups, and budget records have not been touched.
+        </p>
+        <button type="button" className="primary-button" onClick={onLogout}>
+          Logout
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function MaintenanceScreen({ phoneMode, message, onLogout }) {
+  return (
+    <main className={`blocked-account-page ${phoneMode ? "phone-mode" : ""}`.trim()}>
+      <section className="card blocked-account-card">
+        <p className="eyebrow">Under maintenance</p>
+        <h1>The app is temporarily unavailable while the admin makes changes.</h1>
+        <p className="muted-text">
+          {message || "This shouldn't take long. Your local data is safe either way."}
+        </p>
+        <button type="button" className="secondary-button" onClick={onLogout}>
+          Logout
+        </button>
+      </section>
+    </main>
+  );
+}
+
+const BROADCAST_SEVERITY_LABEL = { info: "Message from the admin", warning: "Notice from the admin", urgent: "Urgent notice from the admin" };
+
+function BroadcastMessageModal({ broadcast, onDismiss }) {
+  return (
+    <div className="modal-backdrop">
+      <div className={`modal-card broadcast-message-modal broadcast-${broadcast.severity || "info"}`}>
+        <div className="section-header">
+          <h2>{BROADCAST_SEVERITY_LABEL[broadcast.severity] || BROADCAST_SEVERITY_LABEL.info}</h2>
+          <button type="button" className="icon-button" onClick={onDismiss} aria-label="Dismiss">×</button>
+        </div>
+        <p>{broadcast.message}</p>
+        <div className="modal-actions">
+          <button type="button" className="primary-button" onClick={onDismiss}>Got it</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [appData, setAppData] = useState(null);
   const [appLoadStatus, setAppLoadStatus] = useState("Loading saved data...");
@@ -260,6 +322,8 @@ function App() {
   const [phoneMode, setPhoneMode] = useState(readStoredPhoneMode);
   const [preferredSettingsSection, setPreferredSettingsSection] = useState("");
   const [adminAccessState, setAdminAccessState] = useState(DEFAULT_ADMIN_ACCESS_STATE);
+  const [appNotices, setAppNotices] = useState(DEFAULT_APP_NOTICES);
+  const [dismissedBroadcastId, setDismissedBroadcastId] = useState(readStoredDismissedBroadcastId);
 
   useEffect(() => {
     let cancelled = false;
@@ -766,6 +830,50 @@ function App() {
     cloudAuthSummary?.user?.id
   ]);
 
+  // Maintenance mode and broadcast messages are server state meant to reach
+  // every signed-in session promptly, not just at next sign-in - so this
+  // polls on the same cadence as the cloud session refresh above, instead of
+  // fetching once and going stale for the rest of the session.
+  useEffect(() => {
+    if (!appData) return undefined;
+    if (!cloudAuthSummary?.signedIn) return undefined;
+    let cancelled = false;
+
+    async function poll() {
+      const next = await getAppNotices(appData.settings || {});
+      if (!cancelled) setAppNotices(next);
+    }
+
+    poll();
+    const timer = window.setInterval(poll, 60000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    appData?.settings?.cloudBackup?.supabaseUrl,
+    appData?.settings?.cloudBackup?.supabaseAnonKey,
+    cloudAuthSummary?.signedIn,
+    cloudAuthSummary?.user?.id
+  ]);
+
+  async function refreshAppNotices() {
+    if (!appData) return undefined;
+    const next = await getAppNotices(appData.settings || {});
+    setAppNotices(next);
+    return next;
+  }
+
+  function dismissBroadcast(id) {
+    setDismissedBroadcastId(id);
+    try {
+      window.localStorage.setItem(DISMISSED_BROADCAST_STORAGE_KEY, id);
+    } catch {
+      // Dismissal is a per-device convenience only; failing to persist it
+      // just means the same message can reappear next load.
+    }
+  }
+
   function clearCloudConflict() {
     setCloudConflict(null);
     setAppData(prev => ({
@@ -885,6 +993,8 @@ function App() {
     openLocalAccessMode,
     openSettingsProfile,
     refreshAdminAccess,
+    refreshAppNotices,
+    appNotices,
     cloudAuthSummary,
     cloudBackupStatus,
     phoneMode,
@@ -908,7 +1018,7 @@ function App() {
     setSelectedMonth,
     selectedDashboardAccountId,
     setSelectedDashboardAccountId
-  }), [appData, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode, adminAccessState, preferredSettingsSection]);
+  }), [appData, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode, adminAccessState, appNotices, preferredSettingsSection]);
 
   if (storageRecoveryError) {
     return (
@@ -946,6 +1056,14 @@ function App() {
   const cloudSessionAllowed = isCloudSessionAllowed(appData.settings, cloudAuthSummary);
   const localAccessAllowed = localAccessUnlocked && hasUsableLocalBudgetData(appData);
   const signedInBlocked = cloudSessionAllowed && adminAccessState.loaded && adminAccessState.isBlocked;
+  // Blocked takes precedence when (unusually) both are true - it's the more
+  // permanent state, and the one message a user should see first.
+  const signedInPaused = cloudSessionAllowed && adminAccessState.loaded && adminAccessState.isPaused && !adminAccessState.isBlocked;
+  // Maintenance mode only gates cloud-connected sessions - a local-access-only
+  // user isn't touching anything the admin's server-side changes could
+  // break, so there's nothing to protect them from by locking them out too.
+  // Admins bypass it so they're the ones who can turn it back off.
+  const maintenanceBlocking = cloudSessionAllowed && appNotices.maintenanceMode && !adminAccessState.isAdmin;
 
   if (loginGateRequired && !cloudSessionAllowed && !localAccessAllowed) {
     return (
@@ -974,6 +1092,14 @@ function App() {
 
   if (signedInBlocked) {
     return <BlockedAccountScreen phoneMode={phoneMode} onLogout={logoutApp} />;
+  }
+
+  if (signedInPaused) {
+    return <PausedAccountScreen phoneMode={phoneMode} onLogout={logoutApp} />;
+  }
+
+  if (maintenanceBlocking) {
+    return <MaintenanceScreen phoneMode={phoneMode} message={appNotices.maintenanceMessage} onLogout={logoutApp} />;
   }
 
   if (cloudConflict?.cloudData) {
@@ -1021,19 +1147,27 @@ function App() {
   ) ? "dashboard" : activePage;
   const CurrentPage = pages[visibleActivePage] || DashboardPage;
 
+  const activeBroadcast = appNotices.broadcast;
+  const showBroadcast = Boolean(activeBroadcast && activeBroadcast.id !== dismissedBroadcastId);
+
   return (
-    <AppShell
-      activePage={visibleActivePage}
-      setActivePage={navigateToPage}
-      appData={appData}
-      actions={{ ...actions, featureFlags, adminStatus }}
-      showTransactionModal={showTransactionModal}
-      editingTransaction={editingTransaction}
-      quickBackupStatus={quickBackupStatus}
-      pwaInstall={actions.pwaInstall}
-    >
-      <CurrentPage appData={appData} actions={actions} />
-    </AppShell>
+    <>
+      <AppShell
+        activePage={visibleActivePage}
+        setActivePage={navigateToPage}
+        appData={appData}
+        actions={{ ...actions, featureFlags, adminStatus }}
+        showTransactionModal={showTransactionModal}
+        editingTransaction={editingTransaction}
+        quickBackupStatus={quickBackupStatus}
+        pwaInstall={actions.pwaInstall}
+      >
+        <CurrentPage appData={appData} actions={actions} />
+      </AppShell>
+      {showBroadcast && (
+        <BroadcastMessageModal broadcast={activeBroadcast} onDismiss={() => dismissBroadcast(activeBroadcast.id)} />
+      )}
+    </>
   );
 }
 
