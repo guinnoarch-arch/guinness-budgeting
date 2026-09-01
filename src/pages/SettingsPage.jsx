@@ -1645,7 +1645,7 @@ export default function SettingsPage({ appData, actions }) {
               checked={settings.backupWarningsEnabled !== false}
               onChange={event => updateAppearanceSetting("backupWarningsEnabled", event.target.checked)}
             />
-            Allow backup warnings (the "changes since last backup" banner)
+            Allow backup warnings (the "changes since last backup" banner and the urgent Backup Now header button)
           </label>
 
           <div className="appearance-preview-card full-width">

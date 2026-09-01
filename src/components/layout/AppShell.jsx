@@ -253,7 +253,7 @@ export default function AppShell({
   const connectionLabel = pwaInstall?.isLocalAccessMode ? "Local mode" : pwaInstall?.isOnline ? "Online" : "Offline";
   const connectionClass = pwaInstall?.isLocalAccessMode ? "connection-pill local-mode" : pwaInstall?.isOnline ? "connection-pill online" : "connection-pill offline";
   const profileName = appData.profile?.displayName || appData.profile?.username || "Local user";
-  const showHeaderBackupButton = backupButtonLevel === "danger";
+  const showHeaderBackupButton = backupButtonLevel === "danger" && settings.backupWarningsEnabled !== false;
   const showInstallBanner = Boolean(
     pwaInstall?.installPrompt
     && !pwaInstall?.isInstalled
