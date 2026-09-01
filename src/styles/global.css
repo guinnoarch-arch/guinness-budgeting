@@ -168,6 +168,20 @@ button {
   background: var(--primary);
 }
 
+.nav-item-admin {
+  color: white;
+  background: var(--blue);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.85em;
+}
+
+.nav-item-admin.active {
+  background: var(--blue);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.6);
+}
+
 .page-content,
 .page-grid {
   display: grid;

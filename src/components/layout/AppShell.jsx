@@ -127,16 +127,6 @@ function buildSearchResults(appData, query) {
   return rows.slice(0, 30);
 }
 
-function ControlCentreIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M12 3 5 6v5.5c0 4.2 2.8 7.9 7 9.5 4.2-1.6 7-5.3 7-9.5V6l-7-3Z" />
-      <path d="M9 12h6" />
-      <path d="M12 9v6" />
-    </svg>
-  );
-}
-
 function normalisePublicAppUrl(value) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -417,17 +407,6 @@ export default function AppShell({
               </HeaderIconButton>
             )}
 
-            {adminStatus.isAdmin && (
-              <HeaderIconButton
-                label="Control Centre"
-                title="Control Centre"
-                active={activePage === "control"}
-                onClick={() => setActivePage("control")}
-              >
-                <ControlCentreIcon />
-              </HeaderIconButton>
-            )}
-
             <div className="notification-wrapper">
               <button
                 type="button"
@@ -574,6 +553,7 @@ export default function AppShell({
           selectedDashboardAccountId={actions.selectedDashboardAccountId || "all"}
           setSelectedDashboardAccountId={actions.setSelectedDashboardAccountId}
           featureFlags={featureFlags}
+          isAdmin={adminStatus.isAdmin}
         />
 
         <div className="below-tabs-banner-stack">

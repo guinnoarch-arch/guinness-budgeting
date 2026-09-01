@@ -16,7 +16,8 @@ export default function TopNav({
   accounts = [],
   selectedDashboardAccountId = "all",
   setSelectedDashboardAccountId,
-  featureFlags = {}
+  featureFlags = {},
+  isAdmin = false
 }) {
   const activeAccounts = (accounts || []).filter(account => account.isActive !== false);
   const selectedAccountExists = activeAccounts.some(account => account.id === selectedDashboardAccountId);
@@ -25,6 +26,15 @@ export default function TopNav({
 
   return (
     <nav className="top-nav">
+      {isAdmin && (
+        <button
+          className={`nav-item nav-item-admin ${activePage === "control" ? "active" : ""}`}
+          onClick={() => setActivePage("control")}
+        >
+          Admin
+        </button>
+      )}
+
       {visibleNavItems.map(([key, label]) => (
         <Fragment key={key}>
           <button
