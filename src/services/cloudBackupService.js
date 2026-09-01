@@ -31,6 +31,7 @@ export function normaliseCloudBackupSettings(settings = {}) {
     provider: current.provider || "supabase",
     mode: current.mode || "auto-cloud-backup",
     enabled: Boolean(current.enabled),
+    autoBackupEnabled: current.autoBackupEnabled !== false,
     requireLoginBeforeData: current.requireLoginBeforeData !== false,
     supabaseUrl: String(envDefaults.supabaseUrl || "").trim(),
     supabaseAnonKey: String(envDefaults.supabaseAnonKey || "").trim(),
