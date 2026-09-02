@@ -68,7 +68,7 @@ export default function TransactionTable({ appData, actions, transactions }) {
   return (
     <>
       <div className="table-card">
-        <table>
+        <table className="phone-card-table">
           <thead>
             <tr>
               <th>Date</th>
@@ -97,9 +97,9 @@ export default function TransactionTable({ appData, actions, transactions }) {
 
               return (
                 <tr key={txn.id}>
-                  <td>{txn.date}</td>
-                  <td><span className={`pill ${txn.type}`}>{txn.type}</span></td>
-                  <td>
+                  <td data-label="Date">{txn.date}</td>
+                  <td data-label="Type"><span className={`pill ${txn.type}`}>{txn.type}</span></td>
+                  <td data-label="Title">
                     <strong>{txn.title}</strong>
                     {txn.note && <small>{txn.note}</small>}
                     {linkedLoan && (
@@ -110,8 +110,8 @@ export default function TransactionTable({ appData, actions, transactions }) {
                       </div>
                     )}
                   </td>
-                  <td>{txn.type === "expense" && txn.excludeFromBudget ? <span className="pill excluded">Excluded</span> : category?.name || "-"}</td>
-                  <td>
+                  <td data-label="Category">{txn.type === "expense" && txn.excludeFromBudget ? <span className="pill excluded">Excluded</span> : category?.name || "-"}</td>
+                  <td data-label="Account">
                     {account?.name}
                     {transferPartner && (
                       <div>
@@ -119,16 +119,16 @@ export default function TransactionTable({ appData, actions, transactions }) {
                       </div>
                     )}
                   </td>
-                  <td className={`amount ${txn.type}`}>{signedMoney(txn.amount, txn.type)}</td>
-                  <td>{txn.isRecurring ? "Yes" : "No"}</td>
-                  <td>
+                  <td className={`amount ${txn.type}`} data-label="Amount">{signedMoney(txn.amount, txn.type)}</td>
+                  <td data-label="Recurring?">{txn.isRecurring ? "Yes" : "No"}</td>
+                  <td data-label="Receipt">
                     {txn.receiptId ? (
                       <button className="text-button" onClick={() => openReceipt(txn)}>View receipt</button>
                     ) : (
                       <span className="muted">None</span>
                     )}
                   </td>
-                  <td>
+                  <td data-label="Actions">
                     <div className="row-actions">
                       <button className="text-button" onClick={() => actions.openEditTransaction(txn)}>Edit</button>
                       <button className="text-button danger-text" onClick={() => handleDelete(txn)}>Delete</button>
