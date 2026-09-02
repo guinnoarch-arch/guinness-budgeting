@@ -1058,7 +1058,7 @@ export default function ImportPage({ appData, actions }) {
                   const displayDescription = edit.description || row.description;
                   const displayAmount = Number(edit.amount ?? row.amount);
                   const displaySignedAmount = displayAmount * (row.signedAmount < 0 ? -1 : 1);
-                  const pairColor = (row.crossFileMatchId && type === "transfer") ? getPairAccentColor(row.id, row.crossFileMatchId) : null;
+                  const pairColor = (row.crossFileMatchId && type === "transfer") ? getConfidenceColor(row.confidence) : null;
                   const nextVisibleRow = visibleRows[rowPosition + 1];
                   const isFirstOfVisiblePair = Boolean(pairColor) && nextVisibleRow?.id === row.crossFileMatchId;
                   const mergeSelected = action === "match_existing_transfer";
@@ -1080,7 +1080,7 @@ export default function ImportPage({ appData, actions }) {
                       {analysis.isMulti && <td><small>{row.sourceFileName}</small><small>{appData.accounts.find(account => account.id === row.sourceAccountId)?.name || "Unknown account"}</small></td>}
                       <td>
                         <strong>{displayDescription}</strong>
-                        <small>{row.confidence} confidence</small>
+                        <small style={{ color: getConfidenceColor(row.confidence), fontWeight: 600 }}>{row.confidence} confidence</small>
                       </td>
                       <td className={displaySignedAmount >= 0 ? "positive-text" : "negative-text"}>{displaySignedAmount >= 0 ? `+${formatMoney(displayAmount)}` : `-${formatMoney(displayAmount)}`}</td>
                       <td>
@@ -1582,12 +1582,15 @@ function verifyImportBalances(finalData, targets) {
     });
 }
 
-function getPairAccentColor(idA, idB) {
-  const key = [idA, idB].sort().join("|");
-  let hash = 0;
-  for (let index = 0; index < key.length; index += 1) hash = (hash * 31 + key.charCodeAt(index)) >>> 0;
-  const hue = hash % 360;
-  return `hsl(${hue}, 62%, 52%)`;
+// Green/amber/red mirror csvImportService's three confidence tiers so the
+// color always means the same thing: green is the highest confirmation
+// (exact wording or corroborated timestamps), amber matched on the same
+// day, red matched only within the 2-day pairing window and most needs a
+// second look before importing.
+function getConfidenceColor(confidence) {
+  if (confidence === "High") return "var(--green)";
+  if (confidence === "Medium") return "var(--orange)";
+  return "var(--red)";
 }
 
 function getTransferText(row, edit, selectedAccountId, accounts) {
