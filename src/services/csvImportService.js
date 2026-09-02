@@ -1290,9 +1290,15 @@ export function combineCsvAnalyses(analyses) {
       const b = pairablePool[j];
       if (a.sourceAccountId === b.sourceAccountId) continue;
       if (Math.abs(Number(a.signedAmount) + Number(b.signedAmount)) > 0.005) continue;
+      // Most genuine transfers between the user's own accounts settle
+      // within minutes, so a candidate pair is only worth considering when
+      // both legs are dated at most 2 calendar days apart — this rules out
+      // coincidental same-amount matches several days apart before they're
+      // ever scored (the day-gap also drives the confidence tier below).
+      const dayGap = daysBetween(a.date, b.date);
+      if (dayGap > 2) continue;
       const gapMinutes = minutesBetween(a.date, a.time, b.date, b.time);
-      if (gapMinutes > 3 * 24 * 60) continue;
-      candidatePairs.push({ a, b, gapMinutes, ...describeTextMatch(a.description, b.description) });
+      candidatePairs.push({ a, b, dayGap, gapMinutes, ...describeTextMatch(a.description, b.description) });
     }
   }
   // Prefer pairs with actual wording evidence over same-amount coincidences,
@@ -1307,47 +1313,47 @@ export function combineCsvAnalyses(analyses) {
 
   const matchedRowIds = new Set();
   candidatePairs.forEach(pair => {
-    const { a, b, gapMinutes, exactText, similarity } = pair;
+    const { a, b, dayGap, exactText, similarity } = pair;
     if (matchedRowIds.has(a.id) || matchedRowIds.has(b.id)) return;
     matchedRowIds.add(a.id);
     matchedRowIds.add(b.id);
 
     const describeWhen = row => row.time ? `${row.date} ${row.time}` : row.date;
-    // Same amount, opposite sign, and close together in time is not on its
-    // own evidence that two rows from different accounts are the same
-    // transfer — it also matches two completely unrelated transactions that
-    // happen to share a common amount (rent, a subscription, a round
-    // number). But when *both* sides actually carry a real timestamp (not
-    // the noon default minutesBetween falls back to when a row has none)
-    // and they land within minutes of each other, that is strong evidence
-    // on its own: banks that timestamp both legs of their own internal
-    // transfers do so identically, even when the two legs' descriptions are
-    // generic and share no wording at all (e.g. "From Uni" / "To
-    // Archibald's Account"). Otherwise, only auto-include when the wording
-    // actually overlaps; if neither signal is there, still show the
-    // possible pairing, but require the user to confirm it so an unrelated
-    // expense/income pair is never silently merged into a phantom transfer.
-    const hasEvidence = exactText || similarity >= 0.25 || hasCorroboratedTiming(pair);
+    // Three review tiers, strongest evidence first. Green ("High"): an
+    // exact wording match, or both legs carrying a real timestamp (not the
+    // noon default minutesBetween falls back to when a row has none) within
+    // minutes of each other — banks that timestamp both legs of their own
+    // internal transfers do so identically, even when the wording is
+    // generic and shares nothing at all (e.g. "From Uni" / "To Archibald's
+    // Account"). Amber ("Medium"): no strong evidence, but both legs are
+    // dated the same calendar day — still a solid signal on its own. Red
+    // ("Needs review"): only within the 2-day pairing window on amount
+    // alone — the weakest signal, most likely to be a coincidence, and
+    // exactly where a genuine mismatch (an unrelated expense/income pair
+    // that happens to share an amount) is most likely to slip in.
+    const strongEvidence = exactText || hasCorroboratedTiming(pair);
+    const hasEvidence = strongEvidence || similarity >= 0.25;
+    const confidence = strongEvidence ? "High" : dayGap === 0 ? "Medium" : "Needs review";
 
     a.type = "transfer";
     a.action = "new_transfer";
     a.actionLabel = "Cross-file transfer";
     a.linkedAccountId = b.sourceAccountId;
-    a.defaultInclude = hasEvidence;
+    a.defaultInclude = true;
     a.warning = hasEvidence
       ? `Likely transfer matched with ${b.sourceFileName} (${describeWhen(b)}, ${formatAmountForNote(b.amount)} opposite sign).`
-      : `Unconfirmed possible transfer: same amount as a row in ${b.sourceFileName} (${describeWhen(b)}), but the descriptions don't match — could be a coincidence. Review before importing — not auto-selected.`;
-    a.confidence = hasEvidence ? (gapMinutes <= 60 ? "High" : "Medium") : "Needs review";
+      : `Unconfirmed possible transfer: same amount as a row in ${b.sourceFileName} (${describeWhen(b)}), but the descriptions don't match — could be a coincidence. Included by default; double-check before importing.`;
+    a.confidence = confidence;
 
     b.type = "transfer";
     b.action = "new_transfer";
     b.actionLabel = "Cross-file transfer";
     b.linkedAccountId = a.sourceAccountId;
-    b.defaultInclude = hasEvidence;
+    b.defaultInclude = true;
     b.warning = hasEvidence
       ? `Likely transfer matched with ${a.sourceFileName} (${describeWhen(a)}, ${formatAmountForNote(a.amount)} opposite sign).`
-      : `Unconfirmed possible transfer: same amount as a row in ${a.sourceFileName} (${describeWhen(a)}), but the descriptions don't match — could be a coincidence. Review before importing — not auto-selected.`;
-    b.confidence = hasEvidence ? (gapMinutes <= 60 ? "High" : "Medium") : "Needs review";
+      : `Unconfirmed possible transfer: same amount as a row in ${a.sourceFileName} (${describeWhen(a)}), but the descriptions don't match — could be a coincidence. Included by default; double-check before importing.`;
+    b.confidence = confidence;
 
     a.crossFileMatchId = b.id;
     b.crossFileMatchId = a.id;
