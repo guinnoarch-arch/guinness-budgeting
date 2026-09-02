@@ -37,48 +37,51 @@ export default function TransactionsPage({ appData, actions }) {
         </div>
       </div>
 
-      <section className="card filters-card">
-        <label>
-          Month
-          <input type="month" value={filters.month} onChange={e => update("month", e.target.value)} />
-        </label>
+      <details className="filters-toggle" open={!actions.phoneMode}>
+        <summary className="filters-toggle-summary">Filters</summary>
+        <section className="card filters-card">
+          <label>
+            Month
+            <input type="month" value={filters.month} onChange={e => update("month", e.target.value)} />
+          </label>
 
-        <label>
-          Category
-          <select value={filters.categoryId} onChange={e => update("categoryId", e.target.value)}>
-            <option value="all">All categories</option>
-            <option value="__excluded__">Excluded from budget</option>
-            {appData.categories.map(category => (
-              <option key={category.id} value={category.id}>{category.name}</option>
-            ))}
-          </select>
-        </label>
+          <label>
+            Category
+            <select value={filters.categoryId} onChange={e => update("categoryId", e.target.value)}>
+              <option value="all">All categories</option>
+              <option value="__excluded__">Excluded from budget</option>
+              {appData.categories.map(category => (
+                <option key={category.id} value={category.id}>{category.name}</option>
+              ))}
+            </select>
+          </label>
 
-        <label>
-          Type
-          <select value={filters.type} onChange={e => update("type", e.target.value)}>
-            <option value="all">All types</option>
-            <option value="income">Income</option>
-            <option value="expense">Expense</option>
-            <option value="transfer">Transfer</option>
-          </select>
-        </label>
+          <label>
+            Type
+            <select value={filters.type} onChange={e => update("type", e.target.value)}>
+              <option value="all">All types</option>
+              <option value="income">Income</option>
+              <option value="expense">Expense</option>
+              <option value="transfer">Transfer</option>
+            </select>
+          </label>
 
-        <label>
-          Account
-          <select value={filters.accountId} onChange={e => update("accountId", e.target.value)}>
-            <option value="all">All accounts</option>
-            {appData.accounts.map(account => (
-              <option key={account.id} value={account.id}>{account.name}</option>
-            ))}
-          </select>
-        </label>
+          <label>
+            Account
+            <select value={filters.accountId} onChange={e => update("accountId", e.target.value)}>
+              <option value="all">All accounts</option>
+              {appData.accounts.map(account => (
+                <option key={account.id} value={account.id}>{account.name}</option>
+              ))}
+            </select>
+          </label>
 
-        <label>
-          Search
-          <input placeholder="Search title/note" value={filters.search} onChange={e => update("search", e.target.value)} />
-        </label>
-      </section>
+          <label>
+            Search
+            <input placeholder="Search title/note" value={filters.search} onChange={e => update("search", e.target.value)} />
+          </label>
+        </section>
+      </details>
 
       <TransactionTable appData={appData} actions={actions} transactions={filteredTransactions} />
     </div>

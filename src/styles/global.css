@@ -79,6 +79,13 @@ button {
   gap: 10px;
 }
 
+.header-icon-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
 .backup-now-button {
   border: 1px solid var(--line);
   background: #ffffff;
@@ -459,6 +466,17 @@ small {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 14px;
+}
+
+.filters-toggle-summary {
+  margin-bottom: 10px;
+  padding: 4px 0;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.filters-toggle:not([open]) .filters-toggle-summary {
+  margin-bottom: 0;
 }
 
 .recurring-options {
@@ -4580,6 +4598,32 @@ button[disabled] {
   gap: 6px;
 }
 
+/* The small utility icons (theme, search, settings, etc.) scroll as one
+   compact row instead of wrapping across two — that recovers real content
+   space above the fold. The "+ Add Transaction" button stays outside this
+   row so it keeps its own full-width, always-visible line below rather
+   than getting swept into the icon scroller. */
+.app-shell.phone-mode .header-icon-row {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.app-shell.phone-mode .header-icon-row::-webkit-scrollbar {
+  display: none;
+}
+
+.app-shell.phone-mode .header-actions > .primary-button,
+.app-shell.phone-mode .header-actions > .secondary-button,
+.app-shell.phone-mode .header-actions > .danger-button {
+  flex: 1 1 100%;
+}
+
 .app-shell.phone-mode .header-connection-pill,
 .app-shell.phone-mode .header-logout-button {
   display: none;
@@ -4601,6 +4645,7 @@ button[disabled] {
   min-width: 38px;
   height: 38px;
   padding: 8px;
+  flex-shrink: 0;
 }
 
 .app-shell.phone-mode .top-nav {
@@ -4675,7 +4720,6 @@ button[disabled] {
 }
 
 .app-shell.phone-mode .dashboard-summary-grid,
-.app-shell.phone-mode .dashboard-summary-grid.summary-grid-two,
 .app-shell.phone-mode .dashboard-summary-grid.summary-grid-five {
   gap: 8px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4743,7 +4787,6 @@ button[disabled] {
 
 @media (max-width: 380px) {
   .app-shell.phone-mode .dashboard-summary-grid,
-  .app-shell.phone-mode .dashboard-summary-grid.summary-grid-two,
   .app-shell.phone-mode .dashboard-summary-grid.summary-grid-five {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4758,10 +4801,67 @@ button[disabled] {
   overflow-x: auto;
 }
 
+/* The transaction table has 9 columns — even shrunk, that only ever fits a
+   phone screen by scrolling sideways to see the amount or category. Turn
+   each row into a labeled card instead: no horizontal scrolling, and every
+   field is readable without hiding any of them. */
+.app-shell.phone-mode .phone-card-table {
+  display: block;
+  width: 100%;
+}
+
+.app-shell.phone-mode .phone-card-table thead {
+  display: none;
+}
+
+.app-shell.phone-mode .phone-card-table tbody {
+  display: block;
+}
+
+.app-shell.phone-mode .phone-card-table tr {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: var(--card);
+}
+
+.app-shell.phone-mode .phone-card-table td {
+  display: block;
+  padding: 7px 0;
+  border: none;
+  text-align: left;
+}
+
+.app-shell.phone-mode .phone-card-table td:not(:last-child) {
+  border-bottom: 1px solid var(--line);
+}
+
+.app-shell.phone-mode .phone-card-table td::before {
+  content: attr(data-label);
+  display: block;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 .app-shell.phone-mode input,
 .app-shell.phone-mode select,
 .app-shell.phone-mode textarea {
   min-width: 0;
+}
+
+/* The dashboard account picker still needs room for its longest option
+   text ("All accounts") — the blanket min-width: 0 above was shrinking it
+   to just its arrow, making the selected text invisible. */
+.app-shell.phone-mode .nav-account-select {
+  min-width: 128px;
+  font-size: 0.86rem;
+  padding: 10px 30px 10px 12px;
 }
 
 .app-shell.phone-mode .modal-card,
