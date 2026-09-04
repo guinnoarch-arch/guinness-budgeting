@@ -13,6 +13,7 @@ import {
   minutesBetween
 } from "../services/csvImportService.js";
 import { calculateAccountBalance, calculateAccountBalanceAtDate } from "../utils/calculations.js";
+import { addDaysToIsoDate } from "../utils/dates.js";
 import { createId } from "../utils/ids.js";
 import { formatMoney } from "../utils/money.js";
 
@@ -144,6 +145,74 @@ function getSignedAmountForAccount(transaction, accountId, cutoffDate) {
   return 0;
 }
 
+function roundMoney(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+// Walks one account's rows in date order, applying the exact same
+// include/edit/match logic as getProjectedBalanceAtDate above but tracking
+// the running balance after every single row instead of only the final
+// total. Wherever the CSV's own Balance column is mapped, that running
+// total is checked against it after each row — the first row where they
+// stop agreeing is almost always the actual cause of a mismatch (a missing
+// tick, a duplicate, a wrongly edited amount), not just "somewhere in this
+// account's transactions".
+function diagnoseAccountBalance(appData, accountId, accountRows, reconciliation, rowEdits) {
+  if (!reconciliation?.available) return null;
+
+  const orderedRows = accountRows.filter(row => row.date).sort((a, b) => a.date.localeCompare(b.date));
+  if (!orderedRows.length) return null;
+
+  const dayBefore = addDaysToIsoDate(orderedRows[0].date, -1);
+  let running = calculateAccountBalanceAtDate(appData, accountId, dayBefore);
+
+  const steps = orderedRows.map(row => {
+    const edit = getRowEdit(rowEdits, row);
+    const include = edit.include ?? row.defaultInclude;
+    const action = edit.action || row.action;
+    const type = edit.type || row.type;
+    const signedAmount = Number(edit.amount ?? row.amount) * (row.signedAmount < 0 ? -1 : 1);
+
+    let applied = 0;
+    let note = null;
+    if (action === "duplicate") {
+      note = "Excluded: marked as a duplicate";
+    } else if (action === "match_existing_transfer") {
+      note = "Excluded: matched to an existing transfer";
+    } else if (!include) {
+      note = "Excluded: row is unticked";
+    } else if (action === "match_planned" && row.matchTransactionId) {
+      const existing = appData.transactions.find(transaction => transaction.id === row.matchTransactionId);
+      const previousSigned = existing ? getSignedAmountForAccount(existing, accountId, reconciliation.latestCsvDate) : 0;
+      applied = signedAmount - previousSigned;
+      note = "Matched to a planned transaction";
+    } else if (type === "income" || type === "expense" || type === "transfer") {
+      applied = signedAmount;
+    } else {
+      note = "Excluded: not counted as money in or out";
+    }
+
+    running = roundMoney(running + applied);
+    const csvBalance = row.balance !== null && row.balance !== undefined ? Number(row.balance) : null;
+    const difference = csvBalance === null ? null : roundMoney(running - csvBalance);
+    const diverged = difference !== null && Math.abs(difference) > 0.005;
+
+    return { row, applied, note, runningBalance: running, csvBalance, difference, diverged };
+  });
+
+  const hasBalanceColumn = orderedRows.some(row => row.balance !== null && row.balance !== undefined);
+  const firstProblemIndex = steps.findIndex(step => step.diverged);
+  const firstProblem = firstProblemIndex >= 0 ? steps[firstProblemIndex] : null;
+
+  let sameGapThroughout = null;
+  if (firstProblem) {
+    const laterChecked = steps.slice(firstProblemIndex + 1).filter(step => step.csvBalance !== null);
+    sameGapThroughout = laterChecked.length === 0 || laterChecked.every(step => Math.abs(step.difference - firstProblem.difference) < 0.01);
+  }
+
+  return { hasBalanceColumn, firstProblem, sameGapThroughout };
+}
+
 function ReconciliationPreview({ appData, analysis, rowEdits, createAdjustment, setCreateAdjustment }) {
   const reconciliation = analysis?.reconciliation;
   if (!reconciliation?.available) {
@@ -193,27 +262,71 @@ function ReconciliationPreview({ appData, analysis, rowEdits, createAdjustment, 
 // Shared by the pre-import "Preview projected balances" check (mode
 // "preview", runs the import against a throwaway copy of the data — nothing
 // is saved) and the post-import result (mode "result", what actually got
-// saved). Same shape either way: verifyImportBalances() output.
-function BalanceVerificationPanel({ verification, mode }) {
+// saved). Same shape either way: verifyImportBalances() output. analysis,
+// rowEdits and appData are only needed (and only passed in) for the preview
+// "Diagnose problem" button — it re-walks the real per-row numbers, which
+// only exist before anything is saved.
+function BalanceVerificationPanel({ verification, mode, analysis, rowEdits, appData }) {
+  const [diagnosing, setDiagnosing] = useState(false);
   if (!verification) return null;
 
   const heading = mode === "preview"
     ? `Projected balance check (not yet imported)`
     : `Balance check against the CSV${verification.length > 1 ? "s" : ""}`;
 
+  const hasMismatch = verification.some(item => !item.matches);
+  const canDiagnose = mode === "preview" && hasMismatch && analysis && appData;
+  const visibleVerification = diagnosing ? verification.filter(item => !item.matches) : verification;
+
   return (
     <div className={`import-verification-panel ${mode === "preview" ? "preview" : ""}`}>
-      <strong>{heading}</strong>
-      {verification.map(item => (
-        <div key={item.accountId} className={`import-verification-row ${item.matches ? "ok" : "mismatch"}`}>
-          <span>{item.matches ? "✓" : "✗"} {item.accountName}</span>
-          <span>
-            {formatMoney(item.calculatedBalance)} {mode === "preview" ? "projected" : "calculated"}
-            {item.matches ? "" : ` vs ${formatMoney(item.csvBalance)} on the CSV (as of ${item.asOfDate})`}
-          </span>
-        </div>
-      ))}
-      {verification.some(item => !item.matches) && (
+      <div className="import-verification-heading-row">
+        <strong>{heading}</strong>
+        {canDiagnose && (
+          <button type="button" className="secondary-button small" onClick={() => setDiagnosing(value => !value)}>
+            {diagnosing ? "Show all accounts" : "Diagnose problem"}
+          </button>
+        )}
+      </div>
+      {diagnosing && <small className="muted-text">Showing only the accounts that don't balance yet — hidden: {verification.length - visibleVerification.length} that already match.</small>}
+      {visibleVerification.map(item => {
+        const accountRows = diagnosing ? (analysis.rows || []).filter(row => row.sourceAccountId === item.accountId) : [];
+        const accountReconciliation = analysis?.isMulti
+          ? analysis.files.find(fileAnalysis => fileAnalysis.accountId === item.accountId)?.reconciliation
+          : analysis?.reconciliation;
+        const diagnosis = diagnosing ? diagnoseAccountBalance(appData, item.accountId, accountRows, accountReconciliation, rowEdits) : null;
+
+        return (
+          <div key={item.accountId} className={`import-verification-row ${item.matches ? "ok" : "mismatch"}`}>
+            <span>{item.matches ? "✓" : "✗"} {item.accountName}</span>
+            <span>
+              {formatMoney(item.calculatedBalance)} {mode === "preview" ? "projected" : "calculated"}
+              {item.matches ? "" : ` vs ${formatMoney(item.csvBalance)} on the CSV (as of ${item.asOfDate})`}
+            </span>
+            {diagnosis && (
+              <div className="import-diagnosis-box">
+                {!diagnosis.hasBalanceColumn && (
+                  <span>This statement has no running Balance column mapped, so the exact row can't be pinpointed — map the Balance column for this file to narrow it down further.</span>
+                )}
+                {diagnosis.hasBalanceColumn && !diagnosis.firstProblem && (
+                  <span>Every row checks out against the CSV's own running balance right up to the last row — the gap must be in the account's opening balance or a transaction from before this statement.</span>
+                )}
+                {diagnosis.firstProblem && (
+                  <>
+                    <span>
+                      Reconciles up to <strong>{diagnosis.firstProblem.row.date}</strong> · {diagnosis.firstProblem.row.description}. After that row the running balance is {formatMoney(diagnosis.firstProblem.runningBalance)}, but the CSV shows {formatMoney(diagnosis.firstProblem.csvBalance)} ({diagnosis.firstProblem.difference >= 0 ? "+" : ""}{formatMoney(diagnosis.firstProblem.difference)}).
+                    </span>
+                    {diagnosis.firstProblem.note && <span>{diagnosis.firstProblem.note} — check whether that's correct for this row.</span>}
+                    {diagnosis.sameGapThroughout === true && <span>The same gap carries through the rest of the statement unchanged, so this row is very likely the one cause.</span>}
+                    {diagnosis.sameGapThroughout === false && <span>The gap changes again later in the statement too — there's likely more than one row to check.</span>}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {hasMismatch && (
         <small>
           A mismatch usually means a transaction on the statement wasn't imported, was imported twice, or an opening balance needs adjusting.
           {mode === "preview"
@@ -1016,7 +1129,7 @@ export default function ImportPage({ appData, actions }) {
               </div>
             </div>
 
-            <BalanceVerificationPanel verification={previewVerification} mode="preview" />
+            <BalanceVerificationPanel verification={previewVerification} mode="preview" analysis={analysis} rowEdits={effectiveRowEdits} appData={appData} />
 
             <div className="import-filter-row">
               {previewFilters.map(([key, label]) => (
