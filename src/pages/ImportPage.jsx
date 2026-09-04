@@ -164,7 +164,8 @@ function diagnoseAccountBalance(appData, accountId, accountRows, reconciliation,
   if (!orderedRows.length) return null;
 
   const dayBefore = addDaysToIsoDate(orderedRows[0].date, -1);
-  let running = calculateAccountBalanceAtDate(appData, accountId, dayBefore);
+  const seed = calculateAccountBalanceAtDate(appData, accountId, dayBefore);
+  let running = seed;
 
   const steps = orderedRows.map(row => {
     const edit = getRowEdit(rowEdits, row);
@@ -210,7 +211,17 @@ function diagnoseAccountBalance(appData, accountId, accountRows, reconciliation,
     sameGapThroughout = laterChecked.length === 0 || laterChecked.every(step => Math.abs(step.difference - firstProblem.difference) < 0.01);
   }
 
-  return { hasBalanceColumn, firstProblem, sameGapThroughout };
+  // If the very first row already disagrees with the CSV, no row in this
+  // statement has ever been confirmed correct — that points at the balance
+  // the account started this statement with (its opening balance, or a
+  // transaction dated before the statement) rather than at row one's own
+  // transaction. Work out what that starting balance would need to have
+  // been for row one to reconcile, so the message can say that directly
+  // instead of wrongly blaming the first transaction it happens to see.
+  const isOpeningBalanceIssue = firstProblemIndex === 0;
+  const impliedOpeningBalance = isOpeningBalanceIssue ? roundMoney(firstProblem.csvBalance - firstProblem.applied) : null;
+
+  return { hasBalanceColumn, firstProblem, sameGapThroughout, isOpeningBalanceIssue, seed, impliedOpeningBalance };
 }
 
 function ReconciliationPreview({ appData, analysis, rowEdits, createAdjustment, setCreateAdjustment }) {
@@ -311,7 +322,16 @@ function BalanceVerificationPanel({ verification, mode, analysis, rowEdits, appD
                 {diagnosis.hasBalanceColumn && !diagnosis.firstProblem && (
                   <span>Every row checks out against the CSV's own running balance right up to the last row — the gap must be in the account's opening balance or a transaction from before this statement.</span>
                 )}
-                {diagnosis.firstProblem && (
+                {diagnosis.firstProblem && diagnosis.isOpeningBalanceIssue && (
+                  <>
+                    <span>
+                      The very first row of the statement (<strong>{diagnosis.firstProblem.row.date}</strong> · {diagnosis.firstProblem.row.description}) already doesn't match — no row has confirmed the account's starting point, so this isn't that transaction's fault. Based on the CSV, the account's balance just before this statement should have been {formatMoney(diagnosis.impliedOpeningBalance)}, but GH currently has it at {formatMoney(diagnosis.seed)} ({diagnosis.impliedOpeningBalance - diagnosis.seed >= 0 ? "+" : ""}{formatMoney(diagnosis.impliedOpeningBalance - diagnosis.seed)}).
+                    </span>
+                    <span>Check the account's opening balance, or whether a transaction dated before this statement is missing or wrong.</span>
+                    {diagnosis.sameGapThroughout === false && <span>The gap changes again later in the statement too, so there may be a second issue on top of the opening balance.</span>}
+                  </>
+                )}
+                {diagnosis.firstProblem && !diagnosis.isOpeningBalanceIssue && (
                   <>
                     <span>
                       Reconciles up to <strong>{diagnosis.firstProblem.row.date}</strong> · {diagnosis.firstProblem.row.description}. After that row the running balance is {formatMoney(diagnosis.firstProblem.runningBalance)}, but the CSV shows {formatMoney(diagnosis.firstProblem.csvBalance)} ({diagnosis.firstProblem.difference >= 0 ? "+" : ""}{formatMoney(diagnosis.firstProblem.difference)}).
