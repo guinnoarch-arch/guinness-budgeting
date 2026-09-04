@@ -353,7 +353,7 @@ export default function ImportPage({ appData, actions }) {
           rows: parsed.rows,
           columnMap: savedMapping?.columnMap
             ? { ...emptyColumnMap, ...savedMapping.columnMap }
-            : { ...emptyColumnMap, ...suggestColumnMap(parsed.headers) },
+            : { ...emptyColumnMap, ...suggestColumnMap(parsed.headers, parsed.rows) },
           accountId,
           ignoredTopRows: parsed.ignoredTopRows || 0,
           savedMappingName: savedMapping?.name || savedMapping?.fileName || "",

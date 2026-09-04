@@ -2,7 +2,14 @@ import { createId } from "../utils/ids.js";
 import { calculateAccountBalanceAtDate } from "../utils/calculations.js";
 import { formatIsoDateLocal, todayIsoDate } from "../utils/dates.js";
 
-const DATE_CANDIDATES = ["date", "transaction date", "posted date", "booking date", "value date"];
+// "started date" sits ahead of "completed date" on purpose: for a bank that
+// exports both (Revolut among them), the started/initiated timestamp is the
+// one that lines up with the other side of a transfer, while "completed"
+// can lag by seconds or minutes and weakens the timing match. Both are
+// still exact-match candidates, so whichever column is actually present
+// gets picked deterministically — not by whichever happens to come first
+// in the CSV's column order.
+const DATE_CANDIDATES = ["date", "transaction date", "started date", "posted date", "booking date", "value date", "completed date"];
 const TIME_CANDIDATES = ["time", "transaction time", "posted time", "booking time"];
 const DESCRIPTION_CANDIDATES = ["description", "transaction description", "transaction details", "transaction narrative", "transaction 2", "transaction", "details", "narrative", "merchant", "name", "reference", "payee", "memo"];
 const AMOUNT_CANDIDATES = ["amount", "transaction amount", "value", "paid", "money in/out", "money in out", "net", "signed amount"];
@@ -229,10 +236,20 @@ function isUsableDataRow(values, headers) {
   return repeatedHeaderCells < Math.max(2, Math.ceil(headers.length / 2));
 }
 
-export function suggestColumnMap(headers) {
+export function suggestColumnMap(headers, rows = []) {
+  const date = findHeader(headers, DATE_CANDIDATES);
+  let time = findHeader(headers, TIME_CANDIDATES);
+  // Some banks (Revolut among them) only export one combined date+time
+  // column rather than a separate Time column. Point Time at that same
+  // column up front so the mapping step shows the split explicitly, instead
+  // of leaving Time blank and only splitting it out silently at import time.
+  if (!time && date && rows.some(row => /\d{1,2}:\d{2}/.test(String(row?.[date] ?? "")))) {
+    time = date;
+  }
+
   return {
-    date: findHeader(headers, DATE_CANDIDATES),
-    time: findHeader(headers, TIME_CANDIDATES),
+    date,
+    time,
     description: findHeader(headers, DESCRIPTION_CANDIDATES),
     amount: findHeader(headers, AMOUNT_CANDIDATES),
     paidIn: findHeader(headers, PAID_IN_CANDIDATES),
