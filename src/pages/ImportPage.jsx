@@ -221,7 +221,17 @@ function diagnoseAccountBalance(appData, accountId, accountRows, reconciliation,
   const isOpeningBalanceIssue = firstProblemIndex === 0;
   const impliedOpeningBalance = isOpeningBalanceIssue ? roundMoney(firstProblem.csvBalance - firstProblem.applied) : null;
 
-  return { hasBalanceColumn, firstProblem, sameGapThroughout, isOpeningBalanceIssue, seed, impliedOpeningBalance };
+  // A one-click fix is only safe when nothing else already contributes to
+  // that pre-statement balance — if there are transactions or adjustments
+  // on the account dated before the statement, "seed" is opening balance
+  // plus those, and overwriting the opening balance field alone would be
+  // wrong (it could double up on real history, or paper over a genuinely
+  // missing/incorrect earlier transaction instead of the field itself).
+  const hasPriorHistory = (appData.transactions || []).some(t => t.accountId === accountId && t.date && t.date <= dayBefore)
+    || (appData.accountAdjustments || []).some(adj => adj.accountId === accountId && (!adj.date || adj.date <= dayBefore));
+  const canAutoFixOpeningBalance = isOpeningBalanceIssue && !hasPriorHistory;
+
+  return { hasBalanceColumn, firstProblem, sameGapThroughout, isOpeningBalanceIssue, seed, impliedOpeningBalance, canAutoFixOpeningBalance };
 }
 
 function ReconciliationPreview({ appData, analysis, rowEdits, createAdjustment, setCreateAdjustment }) {
@@ -274,10 +284,10 @@ function ReconciliationPreview({ appData, analysis, rowEdits, createAdjustment, 
 // "preview", runs the import against a throwaway copy of the data — nothing
 // is saved) and the post-import result (mode "result", what actually got
 // saved). Same shape either way: verifyImportBalances() output. analysis,
-// rowEdits and appData are only needed (and only passed in) for the preview
-// "Diagnose problem" button — it re-walks the real per-row numbers, which
-// only exist before anything is saved.
-function BalanceVerificationPanel({ verification, mode, analysis, rowEdits, appData }) {
+// rowEdits, appData and onFixOpeningBalance are only needed (and only
+// passed in) for the preview "Diagnose problem" button — it re-walks the
+// real per-row numbers, which only exist before anything is saved.
+function BalanceVerificationPanel({ verification, mode, analysis, rowEdits, appData, onFixOpeningBalance }) {
   const [diagnosing, setDiagnosing] = useState(false);
   if (!verification) return null;
 
@@ -327,7 +337,19 @@ function BalanceVerificationPanel({ verification, mode, analysis, rowEdits, appD
                     <span>
                       The very first row of the statement (<strong>{diagnosis.firstProblem.row.date}</strong> · {diagnosis.firstProblem.row.description}) already doesn't match — no row has confirmed the account's starting point, so this isn't that transaction's fault. Based on the CSV, the account's balance just before this statement should have been {formatMoney(diagnosis.impliedOpeningBalance)}, but GH currently has it at {formatMoney(diagnosis.seed)} ({diagnosis.impliedOpeningBalance - diagnosis.seed >= 0 ? "+" : ""}{formatMoney(diagnosis.impliedOpeningBalance - diagnosis.seed)}).
                     </span>
-                    <span>Check the account's opening balance, or whether a transaction dated before this statement is missing or wrong.</span>
+                    {diagnosis.canAutoFixOpeningBalance ? (
+                      <span className="import-diagnosis-fix-row">
+                        <button
+                          type="button"
+                          className="secondary-button small"
+                          onClick={() => onFixOpeningBalance(item.accountId, diagnosis.impliedOpeningBalance)}
+                        >
+                          Set opening balance to {formatMoney(diagnosis.impliedOpeningBalance)}
+                        </button>
+                      </span>
+                    ) : (
+                      <span>Check the account's opening balance, or whether a transaction dated before this statement is missing or wrong.</span>
+                    )}
                     {diagnosis.sameGapThroughout === false && <span>The gap changes again later in the statement too, so there may be a second issue on top of the opening balance.</span>}
                   </>
                 )}
@@ -868,10 +890,30 @@ export default function ImportPage({ appData, actions }) {
     closeDuplicateReview();
   }
 
+  // Applies a "Diagnose problem" opening-balance fix for real (this is the
+  // one action in this whole preview flow that writes real data — everything
+  // else stays a throwaway projection until Confirm import). The preview
+  // check is now stale against the corrected account, so it's cleared and
+  // the user is asked to re-run it rather than silently re-computed against
+  // appData, which still holds this render's now-outdated value.
+  function fixOpeningBalance(accountId, newOpeningBalance) {
+    actions.updateAppData({
+      ...appData,
+      accounts: appData.accounts.map(account => (
+        account.id === accountId
+          ? { ...account, openingBalance: newOpeningBalance, updatedAt: new Date().toISOString() }
+          : account
+      ))
+    }, { reason: "Corrected account opening balance from CSV import diagnosis" });
+    setPreviewVerification(null);
+    setStatus(`Opening balance updated to ${formatMoney(newOpeningBalance)}. Click "Preview projected balances" again to re-check.`);
+  }
+
   // Runs the exact same import logic as Confirm import, against a throwaway
   // projection, so the resulting balances can be checked and troubleshot
   // *before* anything is actually saved. Nothing here is persisted — only
-  // actions.updateAppData in confirmImport ever writes real data.
+  // actions.updateAppData in confirmImport (and fixOpeningBalance above)
+  // ever writes real data.
   function previewImportResult() {
     if (!analysis) return;
 
@@ -1149,7 +1191,7 @@ export default function ImportPage({ appData, actions }) {
               </div>
             </div>
 
-            <BalanceVerificationPanel verification={previewVerification} mode="preview" analysis={analysis} rowEdits={effectiveRowEdits} appData={appData} />
+            <BalanceVerificationPanel verification={previewVerification} mode="preview" analysis={analysis} rowEdits={effectiveRowEdits} appData={appData} onFixOpeningBalance={fixOpeningBalance} />
 
             <div className="import-filter-row">
               {previewFilters.map(([key, label]) => (
