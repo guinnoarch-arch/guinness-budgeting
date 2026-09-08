@@ -17,7 +17,7 @@ function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpending
     return (
       <div className="summary-grid summary-grid-two dashboard-summary-grid">
         <SummaryCard label="Saved" value={summary.accountMoneyIn} change={summary.accountMoneyInChange} tone="positive" onClick={() => onBreakdown("Saved")} />
-        <SummaryCard label="Spent" value={summary.accountMoneyOut} change={summary.accountMoneyOutChange} tone="negative" onClick={() => onBreakdown("Spent")} />
+        <SummaryCard label="Spent" value={summary.expenses} change={summary.expenseChange} tone="negative" onClick={() => onBreakdown("Spent")} />
       </div>
     );
   }
