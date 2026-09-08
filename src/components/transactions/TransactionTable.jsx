@@ -98,7 +98,7 @@ export default function TransactionTable({ appData, actions, transactions }) {
               return (
                 <tr key={txn.id}>
                   <td data-label="Date">{txn.date}</td>
-                  <td data-label="Type"><span className={`pill ${txn.type}`}>{txn.type}</span></td>
+                  <td data-label="Type"><span className={`pill ${txn.transferLinkId ? "transfer" : txn.type}`}>{txn.transferLinkId ? "transfer" : txn.type}</span></td>
                   <td data-label="Title">
                     <strong>{txn.title}</strong>
                     {txn.note && <small>{txn.note}</small>}
