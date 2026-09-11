@@ -50,6 +50,7 @@ const OPTIONAL_ARRAY_FIELDS = [
   "importBatches",
   "importRules",
   "transferRules",
+  "exclusionRules",
   "externalAccountMappings",
   "csvColumnMappings",
   "profiles",
@@ -970,6 +971,7 @@ export function normaliseAppData(data) {
     "importBatches",
     "importRules",
     "transferRules",
+    "exclusionRules",
     "externalAccountMappings",
     "csvColumnMappings"
   ].forEach(field => {
@@ -1050,6 +1052,7 @@ export function getBackupCounts(data) {
     importBatches: safeData.importBatches.length,
     importRules: safeData.importRules.length,
     transferRules: safeData.transferRules.length,
+    exclusionRules: safeData.exclusionRules.length,
     externalAccountMappings: safeData.externalAccountMappings.length,
     csvColumnMappings: safeData.csvColumnMappings.length,
     receiptAttachments: safeData.transactions.filter(transaction => Boolean(transaction.receiptId)).length,
