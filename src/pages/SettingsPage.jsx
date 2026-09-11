@@ -21,6 +21,7 @@ import {
 import { getInitialAppData, removeExampleDataFromAppData } from "../data/exampleData.js";
 import PwaInstallCard from "../components/settings/PwaInstallCard.jsx";
 import { createId } from "../utils/ids.js";
+import { applyExclusionRules } from "../services/transactionService.js";
 import { calculateMonthSummary } from "../utils/calculations.js";
 import { getMonthKey } from "../utils/dates.js";
 import { formatMoney } from "../utils/money.js";
@@ -284,6 +285,11 @@ export default function SettingsPage({ appData, actions }) {
   const [ruleStatus, setRuleStatus] = useState("");
   const [activeSettingsSection, setActiveSettingsSection] = useState(null);
   const [activeImportRulesPanel, setActiveImportRulesPanel] = useState("external");
+  const [newExclusionMatchText, setNewExclusionMatchText] = useState("");
+  const [newExclusionExcludeFromTotal, setNewExclusionExcludeFromTotal] = useState(true);
+  const [newExclusionExcludeFromBudget, setNewExclusionExcludeFromBudget] = useState(false);
+  const [newExclusionExcludeFromChart, setNewExclusionExcludeFromChart] = useState(true);
+  const [exclusionApplyStatus, setExclusionApplyStatus] = useState("");
   const [selectedRuleCategoryId, setSelectedRuleCategoryId] = useState("");
   const [newExternalName, setNewExternalName] = useState("");
   const [newExternalAccountId, setNewExternalAccountId] = useState("");
@@ -1041,6 +1047,52 @@ export default function SettingsPage({ appData, actions }) {
       [field]: (appData[field] || []).filter(item => item.id !== id)
     });
     setRuleStatus(`Deleted ${label}.`);
+  }
+
+  function addExclusionRule() {
+    const matchText = newExclusionMatchText.trim();
+    if (!matchText) {
+      setRuleStatus("Enter the text to match in a transaction's description before adding the rule.");
+      return;
+    }
+    if (!newExclusionExcludeFromTotal && !newExclusionExcludeFromBudget && !newExclusionExcludeFromChart) {
+      setRuleStatus("Tick at least one exclusion for this rule.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    actions.updateAppData({
+      ...appData,
+      exclusionRules: [
+        {
+          id: createId("exclusion_rule"),
+          matchText,
+          excludeFromTotal: newExclusionExcludeFromTotal,
+          excludeFromBudget: newExclusionExcludeFromBudget,
+          excludeFromChart: newExclusionExcludeFromChart,
+          createdAt: now,
+          updatedAt: now
+        },
+        ...(appData.exclusionRules || [])
+      ]
+    });
+    setNewExclusionMatchText("");
+    setRuleStatus(`Added exclusion rule for "${matchText}". Use "Apply rules now" to sweep existing transactions.`);
+  }
+
+  function runExclusionRules() {
+    const rules = appData.exclusionRules || [];
+    if (!rules.length) {
+      setExclusionApplyStatus("Add a rule first, then apply it.");
+      return;
+    }
+    const { data: nextData, updatedCount } = applyExclusionRules(appData);
+    actions.updateAppData(nextData);
+    setExclusionApplyStatus(
+      updatedCount > 0
+        ? `Applied ${rules.length} rule${rules.length === 1 ? "" : "s"} — updated ${updatedCount} transaction${updatedCount === 1 ? "" : "s"}.`
+        : `Applied ${rules.length} rule${rules.length === 1 ? "" : "s"} — every matching transaction was already excluded.`
+    );
   }
 
   function addExternalAccountMapping() {
@@ -2010,6 +2062,135 @@ export default function SettingsPage({ appData, actions }) {
                 </div>
               )}
             </div>
+          )}
+        </section>
+      )}
+
+      <section className={sectionClass("exclusionRules", "settings-section-entry-card")}>
+        <div className="section-header compact-header settings-accordion-heading" {...sectionHeaderProps("exclusionRules")}>
+          <div>
+            <p className="eyebrow">Settings section</p>
+            <h3>Payment Rules</h3>
+            <p className="muted-text">Save a description (e.g. a person's name on a bank transfer) once, and any transaction whose description includes it can be excluded from spending/income totals, budgets, or charts — including transactions already in your data.</p>
+          </div>
+          <div className="settings-accordion-heading-side"><span className="pill">{(appData.exclusionRules || []).length} rules</span><SectionChevron sectionId="exclusionRules" /></div>
+        </div>
+      </section>
+
+      {activeSettingsSection === "exclusionRules" && (
+        <section className="card import-rules-settings-card" id="exclusion-rules-manager">
+          <div className="section-header compact-header">
+            <div>
+              <h3>Payment Rules Manager</h3>
+              <p className="muted-text">Rules match against a transaction's description (title), case-insensitively. Ticking a box only ever adds an exclusion — it never un-ticks one you set by hand on an individual transaction.</p>
+            </div>
+          </div>
+
+          {ruleStatus && <div className="import-status-box">{ruleStatus}</div>}
+
+          <div className="manual-rule-add-box">
+            <h5>Add payment rule</h5>
+            <div className="manual-rule-add-grid">
+              <label>
+                Description contains
+                <input
+                  value={newExclusionMatchText}
+                  onChange={event => setNewExclusionMatchText(event.target.value)}
+                  placeholder="e.g. R GUINNESS"
+                />
+              </label>
+            </div>
+            <div className="exclude-toggle-group">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={newExclusionExcludeFromTotal}
+                  onChange={event => setNewExclusionExcludeFromTotal(event.target.checked)}
+                />
+                Exclude from spending &amp; income totals
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={newExclusionExcludeFromChart}
+                  onChange={event => setNewExclusionExcludeFromChart(event.target.checked)}
+                />
+                Exclude from charts
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={newExclusionExcludeFromBudget}
+                  onChange={event => setNewExclusionExcludeFromBudget(event.target.checked)}
+                />
+                Exclude from budgets
+              </label>
+            </div>
+            <button className="primary-button" onClick={addExclusionRule}>Add rule</button>
+          </div>
+
+          {(appData.exclusionRules || []).length === 0 ? (
+            <p className="muted">No payment rules saved yet.</p>
+          ) : (
+            <>
+              <div className="rule-list-stack">
+                {(appData.exclusionRules || []).map(rule => {
+                  const matchCount = appData.transactions.filter(transaction => (
+                    (transaction.title || "").toLowerCase().includes(normaliseRuleText(rule.matchText))
+                  )).length;
+                  return (
+                    <div key={rule.id} className="rule-edit-row">
+                      <label>
+                        Description contains
+                        <input
+                          value={rule.matchText || ""}
+                          onChange={event => updateArrayItem("exclusionRules", rule.id, { matchText: event.target.value })}
+                          placeholder="e.g. R GUINNESS"
+                        />
+                      </label>
+                      <div className="exclude-toggle-group">
+                        <label className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(rule.excludeFromTotal)}
+                            onChange={event => updateArrayItem("exclusionRules", rule.id, { excludeFromTotal: event.target.checked })}
+                          />
+                          Totals
+                        </label>
+                        <label className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(rule.excludeFromChart)}
+                            onChange={event => updateArrayItem("exclusionRules", rule.id, { excludeFromChart: event.target.checked })}
+                          />
+                          Charts
+                        </label>
+                        <label className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(rule.excludeFromBudget)}
+                            onChange={event => updateArrayItem("exclusionRules", rule.id, { excludeFromBudget: event.target.checked })}
+                          />
+                          Budgets
+                        </label>
+                      </div>
+                      <div className="rule-readable-summary">
+                        <span className="pill">{matchCount} matching transaction{matchCount === 1 ? "" : "s"}</span>
+                      </div>
+                      <button className="secondary-button small" onClick={() => removeArrayItem("exclusionRules", rule.id, "payment rule")}>Delete</button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="section-header compact-header">
+                <div>
+                  <p className="muted-text">Rules aren't applied automatically. Click below any time — after adding, editing, or removing a rule, or after importing new transactions — to sweep all your transactions (past and future) and apply the ticked exclusions to every match.</p>
+                </div>
+                <button className="primary-button" onClick={runExclusionRules}>Apply rules now</button>
+              </div>
+              {exclusionApplyStatus && <div className="import-status-box">{exclusionApplyStatus}</div>}
+            </>
           )}
         </section>
       )}

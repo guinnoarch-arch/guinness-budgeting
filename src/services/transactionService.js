@@ -253,6 +253,53 @@ function convertExistingToTransfer(data, formValues, existingId, now) {
   };
 }
 
+// Sweeps every saved exclusion rule against every transaction's title, so a
+// rule created after the fact still catches transactions that were already
+// sitting in the data ("back date" application), not just future ones. A
+// rule only ever turns a flag ON (OR-merge with whatever is already set), so
+// running it repeatedly can never silently undo a flag someone ticked by
+// hand on an individual transaction.
+export function applyExclusionRules(data) {
+  const rules = (data.exclusionRules || []).filter(rule => (rule.matchText || "").trim());
+  if (!rules.length) return { data, updatedCount: 0 };
+
+  const normalisedRules = rules.map(rule => ({
+    matchText: rule.matchText.trim().toLowerCase(),
+    excludeFromBudget: Boolean(rule.excludeFromBudget),
+    excludeFromTotal: Boolean(rule.excludeFromTotal),
+    excludeFromChart: Boolean(rule.excludeFromChart)
+  }));
+
+  let updatedCount = 0;
+  const now = new Date().toISOString();
+
+  const transactions = data.transactions.map(transaction => {
+    const title = (transaction.title || "").toLowerCase();
+    const matchingRules = normalisedRules.filter(rule => title.includes(rule.matchText));
+    if (!matchingRules.length) return transaction;
+
+    const nextExcludeFromBudget = Boolean(transaction.excludeFromBudget) || matchingRules.some(rule => rule.excludeFromBudget);
+    const nextExcludeFromTotal = Boolean(transaction.excludeFromTotal) || matchingRules.some(rule => rule.excludeFromTotal);
+    const nextExcludeFromChart = Boolean(transaction.excludeFromChart) || matchingRules.some(rule => rule.excludeFromChart);
+
+    const changed = nextExcludeFromBudget !== Boolean(transaction.excludeFromBudget)
+      || nextExcludeFromTotal !== Boolean(transaction.excludeFromTotal)
+      || nextExcludeFromChart !== Boolean(transaction.excludeFromChart);
+    if (!changed) return transaction;
+
+    updatedCount += 1;
+    return {
+      ...transaction,
+      excludeFromBudget: nextExcludeFromBudget,
+      excludeFromTotal: nextExcludeFromTotal,
+      excludeFromChart: nextExcludeFromChart,
+      updatedAt: now
+    };
+  });
+
+  return { data: { ...data, transactions }, updatedCount };
+}
+
 export function deleteTransaction(data, transactionId) {
   const unlinked = unlinkTransferPair(data, transactionId);
   return removeHouseContributionForTransaction(removeLoanEventsForTransaction({

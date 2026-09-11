@@ -10,6 +10,7 @@ const MERGE_COLLECTIONS = [
   "closedMonths",
   "importRules",
   "transferRules",
+  "exclusionRules",
   "externalAccountMappings",
   "csvColumnMappings",
   "loans",
