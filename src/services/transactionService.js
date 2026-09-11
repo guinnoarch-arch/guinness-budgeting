@@ -51,6 +51,8 @@ export function upsertTransaction(data, formValues, existingId = null) {
     recurringItemId,
     isRecurring: shouldCreateRecurring,
     excludeFromBudget: formValues.type === "expense" ? Boolean(formValues.excludeFromBudget) : false,
+    excludeFromTotal: Boolean(formValues.excludeFromTotal),
+    excludeFromChart: Boolean(formValues.excludeFromChart),
     isExample: false,
     receiptId: formValues.receiptId || null,
     receiptFileName: formValues.receiptFileName || null,
