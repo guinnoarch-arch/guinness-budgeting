@@ -524,6 +524,11 @@ textarea {
   grid-column: 1 / -1;
 }
 
+.exclude-toggle-group {
+  display: grid;
+  gap: 8px;
+}
+
 .disabled-field {
   color: var(--muted);
 }
@@ -1633,7 +1638,7 @@ th {
 
 .accounts-total-grid {
   display: grid;
-  grid-template-columns: 1.35fr repeat(4, minmax(0, 1fr));
+  grid-template-columns: 1.35fr repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 

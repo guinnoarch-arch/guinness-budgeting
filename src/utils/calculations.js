@@ -8,9 +8,14 @@ export function getAccountById(accounts, id) {
   return accounts.find(account => account.id === id);
 }
 
+// Investment accounts (contribution-tracking only, no real balance/statement)
+// are treated the same as savings accounts everywhere this is used: excluded
+// from spendable balance, their inflows count as "Saved", and viewing one
+// individually shows the simplified Saved/Spent dashboard instead of a
+// budget view that wouldn't mean anything for them.
 export function isSavingsAccount(accounts, accountId) {
   const account = getAccountById(accounts, accountId);
-  return account?.type === "savings";
+  return account?.type === "savings" || account?.type === "investment";
 }
 
 export function normaliseAccountFilter(accountId) {
@@ -172,13 +177,13 @@ function getSavingsTransferAmount(data, transactions, accountId) {
 function getAccountMoneyIn(transactions, accountId) {
   const selectedAccountId = normaliseAccountFilter(accountId);
   if (!selectedAccountId) return 0;
-  return sum(transactions.filter(t => t.type === "income" && t.accountId === selectedAccountId).map(t => t.amount));
+  return sum(transactions.filter(t => t.type === "income" && t.accountId === selectedAccountId && !t.excludeFromTotal).map(t => t.amount));
 }
 
 function getAccountMoneyOut(transactions, accountId) {
   const selectedAccountId = normaliseAccountFilter(accountId);
   if (!selectedAccountId) return 0;
-  return sum(transactions.filter(t => t.type === "expense" && t.accountId === selectedAccountId).map(t => t.amount));
+  return sum(transactions.filter(t => t.type === "expense" && t.accountId === selectedAccountId && !t.excludeFromTotal).map(t => t.amount));
 }
 
 export function getTransactionsForMonth(transactions, monthKey) {
@@ -203,6 +208,7 @@ function getSixMonthDashboardTrend(data, monthKey, accountId, trendIsSavings, in
       : sum(monthTransactions
         .filter(t => expenseMatchesAccount(t, accountId))
         .filter(t => includeExcludedSpending || !isBudgetExcludedExpense(t))
+        .filter(t => !t.excludeFromChart)
         .map(t => t.amount));
 
     return {
@@ -226,8 +232,8 @@ export function calculateMonthSummary(data, monthKey, options = {}) {
 
   const monthTransactions = monthTransactionsAll.filter(transaction => transactionMatchesAccount(transaction, accountId));
 
-  const income = sum(monthTransactionsAll.filter(t => incomeMatchesAccount(t, accountId)).map(t => t.amount));
-  const expenses = sum(monthTransactionsAll.filter(t => expenseMatchesAccount(t, accountId)).map(t => t.amount));
+  const income = sum(monthTransactionsAll.filter(t => incomeMatchesAccount(t, accountId) && !t.excludeFromTotal).map(t => t.amount));
+  const expenses = sum(monthTransactionsAll.filter(t => expenseMatchesAccount(t, accountId) && !t.excludeFromTotal).map(t => t.amount));
   const savingsTransfers = getSavingsTransferAmount(data, monthTransactionsAll, accountId);
 
   const transferIn = accountId
@@ -251,13 +257,13 @@ export function calculateMonthSummary(data, monthKey, options = {}) {
   const budgetLeftSummary = getBudgetLeftSummary(data, monthKey, accountId);
   const moneyLeft = selectedAccountIsSavings ? netMoneyLeft : budgetLeftSummary.budgetLeft;
 
-  const previousIncome = sum(previousTransactionsAll.filter(t => incomeMatchesAccount(t, accountId)).map(t => t.amount));
-  const previousExpenses = sum(previousTransactionsAll.filter(t => expenseMatchesAccount(t, accountId)).map(t => t.amount));
+  const previousIncome = sum(previousTransactionsAll.filter(t => incomeMatchesAccount(t, accountId) && !t.excludeFromTotal).map(t => t.amount));
+  const previousExpenses = sum(previousTransactionsAll.filter(t => expenseMatchesAccount(t, accountId) && !t.excludeFromTotal).map(t => t.amount));
   const previousSavings = getSavingsTransferAmount(data, previousTransactionsAll, accountId);
   const previousAccountMoneyIn = accountId ? getAccountMoneyIn(previousTransactionsAll, accountId) : previousIncome;
   const previousAccountMoneyOut = accountId ? getAccountMoneyOut(previousTransactionsAll, accountId) : previousExpenses;
 
-  const twoMonthsAgoExpenses = sum(twoMonthsAgoTransactionsAll.filter(t => expenseMatchesAccount(t, accountId)).map(t => t.amount));
+  const twoMonthsAgoExpenses = sum(twoMonthsAgoTransactionsAll.filter(t => expenseMatchesAccount(t, accountId) && !t.excludeFromTotal).map(t => t.amount));
   const twoMonthsAgoAccountMoneyIn = accountId ? getAccountMoneyIn(twoMonthsAgoTransactionsAll, accountId) : 0;
 
   const trendIsSavings = selectedAccountIsSavings;
@@ -406,6 +412,7 @@ function getCumulativeExpenseSeries(transactions, monthKey, maxDays, accountId =
   transactions
     .filter(t => expenseMatchesAccount(t, accountId) && isInMonth(t.date, monthKey))
     .filter(t => includeExcludedSpending || !isBudgetExcludedExpense(t))
+    .filter(t => !t.excludeFromChart)
     .forEach(transaction => {
       const day = Number(transaction.date?.slice(8, 10));
       if (day >= 1 && day <= monthDays) {
@@ -431,6 +438,7 @@ function getCumulativeSavingInSeries(transactions, monthKey, maxDays, accountId 
   transactions
     .filter(t => isInMonth(t.date, monthKey))
     .filter(t => selectedAccountId && t.type === "income" && t.accountId === selectedAccountId)
+    .filter(t => !t.excludeFromChart)
     .forEach(transaction => {
       const day = Number(transaction.date?.slice(8, 10));
       if (day >= 1 && day <= monthDays) {

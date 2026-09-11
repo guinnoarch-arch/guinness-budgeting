@@ -1478,6 +1478,7 @@ export default function ImportPage({ appData, actions }) {
                 >
                   <option value="current">Current account</option>
                   <option value="savings">Savings account</option>
+                  <option value="investment">Investment account</option>
                   <option value="cash">Cash</option>
                   <option value="other">Other account</option>
                 </select>

@@ -96,7 +96,7 @@ export default function DashboardPage({ appData, actions }) {
   const selectedAccount = activeAccounts.find(account => account.id === requestedAccountId) || null;
   const selectedAccountId = selectedAccount ? requestedAccountId : "all";
   const accountIdForCalculations = selectedAccountId === "all" ? null : selectedAccountId;
-  const isSavingsView = selectedAccount?.type === "savings";
+  const isSavingsView = selectedAccount?.type === "savings" || selectedAccount?.type === "investment";
   const [includeExcludedSpendingInCharts, setIncludeExcludedSpendingInCharts] = useState(false);
   const [breakdown, setBreakdown] = useState(null);
   const summary = calculateMonthSummary(appData, actions.selectedMonth, {

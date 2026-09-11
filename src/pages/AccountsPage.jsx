@@ -279,8 +279,11 @@ export default function AccountsPage({ appData, actions }) {
   const cashTotal = accountBalances
     .filter(item => item.account.type === "cash")
     .reduce((sum, item) => sum + item.balance, 0);
+  const investmentTotal = accountBalances
+    .filter(item => item.account.type === "investment")
+    .reduce((sum, item) => sum + item.balance, 0);
   const otherTotal = accountBalances
-    .filter(item => !["current", "savings", "cash"].includes(item.account.type))
+    .filter(item => !["current", "savings", "cash", "investment"].includes(item.account.type))
     .reduce((sum, item) => sum + item.balance, 0);
   const recentActivity = useMemo(() => (
     [...appData.transactions]
@@ -443,7 +446,7 @@ export default function AccountsPage({ appData, actions }) {
           <div className="accounts-total-card main-total">
             <span>Total balance</span>
             <strong>{formatMoney(total)}</strong>
-            <small>Current + savings + cash + other</small>
+            <small>Current + savings + investments + cash + other</small>
           </div>
           <div className="accounts-total-card">
             <span>Spendable</span>
@@ -454,6 +457,11 @@ export default function AccountsPage({ appData, actions }) {
             <span>Savings</span>
             <strong>{formatMoney(savingsTotal)}</strong>
             <small>Savings accounts only</small>
+          </div>
+          <div className="accounts-total-card">
+            <span>Investments</span>
+            <strong>{formatMoney(investmentTotal)}</strong>
+            <small>Contributed so far, not current value</small>
           </div>
           <div className="accounts-total-card">
             <span>Cash</span>
@@ -631,6 +639,7 @@ export default function AccountsPage({ appData, actions }) {
                 >
                   <option value="current">Current account</option>
                   <option value="savings">Savings account</option>
+                  <option value="investment">Investment account</option>
                   <option value="cash">Cash</option>
                   <option value="other">Other account</option>
                 </select>
