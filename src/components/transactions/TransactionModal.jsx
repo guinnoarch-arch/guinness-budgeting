@@ -13,6 +13,26 @@ function formatFileSize(bytes) {
   return `${value} B`;
 }
 
+// If you're converting an existing expense/income into a transfer, the
+// account it's already on is almost always the side you want to keep — an
+// expense becomes the "from" account, income becomes "to" — leaving just
+// the other account to pick. Falls back to an actual active account rather
+// than a hardcoded id that might not exist in this data, so From/To never
+// silently default to the same account.
+function getDefaultFromAccountId(appData, editingTransaction) {
+  if (editingTransaction && editingTransaction.type !== "income") return editingTransaction.accountId;
+  const accounts = (appData.accounts || []).filter(acc => acc.isActive !== false);
+  return accounts.find(acc => acc.id === "acc_current")?.id || accounts[0]?.id || "acc_current";
+}
+
+function getDefaultToAccountId(appData, editingTransaction, fromAccountId) {
+  if (editingTransaction && editingTransaction.type === "income") return editingTransaction.accountId;
+  const accounts = (appData.accounts || []).filter(acc => acc.isActive !== false);
+  const preferred = accounts.find(acc => acc.id === "acc_savings" && acc.id !== fromAccountId);
+  if (preferred) return preferred.id;
+  return accounts.find(acc => acc.id !== fromAccountId)?.id || accounts[0]?.id || "acc_savings";
+}
+
 export default function TransactionModal({ appData, actions, editingTransaction }) {
   const isEditing = Boolean(editingTransaction);
   const [transactionId] = useState(() => editingTransaction?.id || createId("txn"));
@@ -22,7 +42,10 @@ export default function TransactionModal({ appData, actions, editingTransaction 
   const [receiptError, setReceiptError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [form, setForm] = useState(() => ({
+  const [form, setForm] = useState(() => {
+    const fromAccountId = getDefaultFromAccountId(appData, editingTransaction);
+    const toAccountId = getDefaultToAccountId(appData, editingTransaction, fromAccountId);
+    return {
     id: transactionId,
     type: editingTransaction?.type || "expense",
     date: editingTransaction?.date || todayIsoDate(),
@@ -31,8 +54,8 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     note: editingTransaction?.note || "",
     categoryId: editingTransaction?.categoryId || "",
     accountId: editingTransaction?.accountId || "acc_current",
-    fromAccountId: "acc_current",
-    toAccountId: "acc_savings",
+    fromAccountId,
+    toAccountId,
     linkedSavingsGoalId: editingTransaction?.linkedSavingsGoalId || "",
     linkedLoanId: editingTransaction?.linkedLoanId || "",
     linkedHouseId: editingTransaction?.linkedHouseId || "",
@@ -61,7 +84,8 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     excludeFromTotal: Boolean(editingTransaction?.excludeFromTotal),
     excludeFromChart: Boolean(editingTransaction?.excludeFromChart),
     createdAt: editingTransaction?.createdAt
-  }));
+    };
+  });
 
   const categories = useMemo(() => (
     (appData.categories || []).filter(category => category.isActive !== false && !category.isArchived && !category.archivedAt && category.type === form.type)
@@ -292,7 +316,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
             <select value={form.type} onChange={e => update("type", e.target.value)}>
               <option value="expense">Expense</option>
               <option value="income">Income</option>
-              {!isEditing && <option value="transfer">Transfer</option>}
+              {!editingTransaction?.transferLinkId && <option value="transfer">Transfer</option>}
             </select>
           </label>
 
