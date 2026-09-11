@@ -527,7 +527,14 @@ create policy "GH users can update own profile"
 revoke update on public.profiles from anon, authenticated;
 grant select on public.profiles to authenticated;
 grant insert on public.profiles to authenticated;
-grant update (email, username, username_normalized, updated_at, last_activity_at) on public.profiles to authenticated;
+-- id must be included here even though its value never changes: PostgREST's
+-- merge-duplicates upsert (used by the app's profile sync on every sign-in)
+-- issues "SET id = excluded.id" for every column present in the request
+-- body, including the conflict target itself. Without UPDATE on id, that
+-- statement is rejected with "permission denied for table profiles" even
+-- though RLS (auth.uid() = id) already guarantees a user can only ever set
+-- it to its own existing value.
+grant update (id, email, username, username_normalized, updated_at, last_activity_at) on public.profiles to authenticated;
 
 create table if not exists public.gh_admin_settings (
   id boolean primary key default true check (id),
