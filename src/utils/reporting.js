@@ -111,7 +111,7 @@ function getAccountBalanceTrend(data, selectedMonth) {
     activeAccounts.forEach(account => {
       const balance = calculateAccountBalanceAtDate(data, account.id, cutoffDate);
       row.total += balance;
-      if (account.type === "savings") row.savings += balance;
+      if (account.type === "savings" || account.type === "investment") row.savings += balance;
       if (account.type === "current" || account.type === "cash") row.spendable += balance;
     });
 

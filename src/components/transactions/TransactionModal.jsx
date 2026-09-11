@@ -58,6 +58,8 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     receiptSizeBytes: editingTransaction?.receiptSizeBytes || 0,
     receiptUploadedAt: editingTransaction?.receiptUploadedAt || null,
     excludeFromBudget: Boolean(editingTransaction?.excludeFromBudget),
+    excludeFromTotal: Boolean(editingTransaction?.excludeFromTotal),
+    excludeFromChart: Boolean(editingTransaction?.excludeFromChart),
     createdAt: editingTransaction?.createdAt
   }));
 
@@ -347,15 +349,35 @@ export default function TransactionModal({ appData, actions, editingTransaction 
                 </select>
               </label>
 
-              {form.type === "expense" && (
-                <label className={`checkbox-label full-width exclude-budget-toggle ${isLargeExpense ? "highlight" : ""}`}>
-                  <input
-                    type="checkbox"
-                    checked={form.excludeFromBudget}
-                    onChange={e => update("excludeFromBudget", e.target.checked)}
-                  />
-                  <span>Exclude from monthly budget</span>
-                </label>
+              {form.type !== "transfer" && (
+                <div className="exclude-toggle-group full-width">
+                  {form.type === "expense" && (
+                    <label className={`checkbox-label exclude-budget-toggle ${isLargeExpense ? "highlight" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={form.excludeFromBudget}
+                        onChange={e => update("excludeFromBudget", e.target.checked)}
+                      />
+                      <span>Exclude from monthly budget</span>
+                    </label>
+                  )}
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={form.excludeFromTotal}
+                      onChange={e => update("excludeFromTotal", e.target.checked)}
+                    />
+                    <span>Exclude from {form.type === "income" ? "Income" : "Spent"} total this month</span>
+                  </label>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={form.excludeFromChart}
+                      onChange={e => update("excludeFromChart", e.target.checked)}
+                    />
+                    <span>Hide from charts</span>
+                  </label>
+                </div>
               )}
 
               {form.type === "income" && (

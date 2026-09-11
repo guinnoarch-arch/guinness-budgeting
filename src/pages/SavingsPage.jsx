@@ -26,7 +26,7 @@ export default function SavingsPage({ appData, actions }) {
     .sort((a, b) => String(b.archivedAt || b.updatedAt || "").localeCompare(String(a.archivedAt || a.updatedAt || "")));
 
   const savingsAccounts = useMemo(() => (
-    appData.accounts.filter(account => account.isActive !== false && account.type === "savings")
+    appData.accounts.filter(account => account.isActive !== false && (account.type === "savings" || account.type === "investment"))
   ), [appData.accounts]);
 
   function updateGoalForm(field, value) {
