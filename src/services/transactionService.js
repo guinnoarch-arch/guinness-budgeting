@@ -5,13 +5,16 @@ import { removeLoanEventsForTransaction, syncLoanEventsForTransaction } from "..
 export function upsertTransaction(data, formValues, existingId = null) {
   const now = new Date().toISOString();
 
-  // "Transfer" is a creation-time shortcut, not a stored shape: it always
-  // produces two independent, already-linked income/expense transactions
-  // rather than one record spanning two accounts. It only ever applies to
-  // creating something new — editing an existing (already income/expense)
-  // transaction never routes through here.
-  if (formValues.type === "transfer" && !existingId) {
-    return createTransferPair(data, formValues, now);
+  // "Transfer" is never a stored shape: it always produces two independent,
+  // already-linked income/expense transactions rather than one record
+  // spanning two accounts. Converting an existing transaction routes through
+  // convertExistingToTransfer, which reuses its id for one leg (so a
+  // receipt or import-batch link on it doesn't go stale) and creates a
+  // fresh new leg for the other account.
+  if (formValues.type === "transfer") {
+    return existingId
+      ? convertExistingToTransfer(data, formValues, existingId, now)
+      : createTransferPair(data, formValues, now);
   }
 
   const shouldCreateRecurring = Boolean(formValues.isRecurring);
@@ -162,6 +165,89 @@ function createTransferPair(data, formValues, now) {
   return {
     ...data,
     transactions: [fromLeg, toLeg, ...data.transactions]
+  };
+}
+
+// Converts an existing income/expense transaction into a transfer. Reuses
+// its id for whichever leg matches its original type (so nothing that
+// references this id — a receipt, an import batch match — goes stale) and
+// creates a brand new leg for the other account. Any loan or
+// house-contribution link the original transaction had is removed first,
+// since a transfer can't carry either; unlinkTransferPair runs defensively
+// in case it was somehow already one half of a pair.
+function convertExistingToTransfer(data, formValues, existingId, now) {
+  const existingTransaction = data.transactions.find(item => item.id === existingId);
+  const unlinked = unlinkTransferPair(data, existingId);
+  const withoutOldLinks = removeHouseContributionForTransaction(removeLoanEventsForTransaction(unlinked, existingId), existingId);
+
+  const amount = Number(formValues.amount || 0);
+  const reuseAsExpenseLeg = existingTransaction?.type !== "income";
+  const newLegId = createId("txn");
+  const fromId = reuseAsExpenseLeg ? existingId : newLegId;
+  const toId = reuseAsExpenseLeg ? newLegId : existingId;
+
+  const shared = {
+    date: formValues.date,
+    amount,
+    title: formValues.title || "Transfer",
+    note: formValues.note || "",
+    categoryId: null,
+    linkedLoanId: null,
+    linkedHouseId: null,
+    linkedHouseContributionId: null,
+    houseContributionType: null,
+    housePersonId: null,
+    housePersonName: "",
+    houseContributionNotes: "",
+    loanInterestAmount: null,
+    loanPrincipalAmount: null,
+    isLoanOverpayment: false,
+    loanOverpaymentAmount: 0,
+    recurringItemId: null,
+    isRecurring: false,
+    isExample: false,
+    excludeFromTotal: false,
+    excludeFromChart: false,
+    status: existingTransaction?.status || "manual",
+    importSource: existingTransaction?.importSource || null,
+    matchedBankRows: existingTransaction?.matchedBankRows || [],
+    linkedAccountId: null,
+    createdAt: existingTransaction?.createdAt || now,
+    updatedAt: now
+  };
+
+  const fromLeg = {
+    ...shared,
+    id: fromId,
+    type: "expense",
+    accountId: formValues.fromAccountId,
+    excludeFromBudget: false,
+    linkedSavingsGoalId: null,
+    transferLinkId: toId,
+    receiptId: reuseAsExpenseLeg ? (formValues.receiptId || null) : null,
+    receiptFileName: reuseAsExpenseLeg ? (formValues.receiptFileName || null) : null,
+    receiptMimeType: reuseAsExpenseLeg ? (formValues.receiptMimeType || null) : null,
+    receiptSizeBytes: reuseAsExpenseLeg ? Number(formValues.receiptSizeBytes || 0) : 0,
+    receiptUploadedAt: reuseAsExpenseLeg ? (formValues.receiptUploadedAt || null) : null
+  };
+
+  const toLeg = {
+    ...shared,
+    id: toId,
+    type: "income",
+    accountId: formValues.toAccountId,
+    linkedSavingsGoalId: !reuseAsExpenseLeg ? (formValues.linkedSavingsGoalId || null) : null,
+    transferLinkId: fromId,
+    receiptId: !reuseAsExpenseLeg ? (formValues.receiptId || null) : null,
+    receiptFileName: !reuseAsExpenseLeg ? (formValues.receiptFileName || null) : null,
+    receiptMimeType: !reuseAsExpenseLeg ? (formValues.receiptMimeType || null) : null,
+    receiptSizeBytes: !reuseAsExpenseLeg ? Number(formValues.receiptSizeBytes || 0) : 0,
+    receiptUploadedAt: !reuseAsExpenseLeg ? (formValues.receiptUploadedAt || null) : null
+  };
+
+  return {
+    ...withoutOldLinks,
+    transactions: [fromLeg, toLeg, ...withoutOldLinks.transactions.filter(item => item.id !== existingId)]
   };
 }
 
