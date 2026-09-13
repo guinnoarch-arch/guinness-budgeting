@@ -21,7 +21,7 @@ import {
 import { getInitialAppData, removeExampleDataFromAppData } from "../data/exampleData.js";
 import PwaInstallCard from "../components/settings/PwaInstallCard.jsx";
 import { createId } from "../utils/ids.js";
-import { applyExclusionRules } from "../services/transactionService.js";
+import { applyExclusionRules, getMatchingExclusionRules } from "../services/transactionService.js";
 import { calculateMonthSummary } from "../utils/calculations.js";
 import { getMonthKey } from "../utils/dates.js";
 import { formatMoney } from "../utils/money.js";
@@ -2136,7 +2136,7 @@ export default function SettingsPage({ appData, actions }) {
               <div className="rule-list-stack">
                 {(appData.exclusionRules || []).map(rule => {
                   const matchCount = appData.transactions.filter(transaction => (
-                    (transaction.title || "").toLowerCase().includes(normaliseRuleText(rule.matchText))
+                    getMatchingExclusionRules(transaction, [rule]).length > 0
                   )).length;
                   return (
                     <div key={rule.id} className="rule-edit-row">
