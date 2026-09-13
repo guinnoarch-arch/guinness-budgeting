@@ -69,8 +69,18 @@ export default function BudgetsPage({ appData, actions }) {
     .filter(category => category.isActive !== false && !category.isArchived && !category.archivedAt)
     .sort((a, b) => `${a.type}-${a.group || ""}-${a.name || ""}`.localeCompare(`${b.type}-${b.group || ""}-${b.name || ""}`));
 
+  // Looks up any existing budget row for this category/month, including a
+  // disabled one (limit 0, not yet shown on the Category limits list) — so
+  // opening the editor always re-seeds whichever accounts were actually
+  // saved, rather than falling back to a single default account just
+  // because no limit has been set yet.
   function getCurrentBudgetForCategory(categoryId) {
-    return activeMonthlyBudgets.find(budget => budget.categoryId === categoryId) || null;
+    return (appData.budgets || []).find(budget => (
+      budget.categoryId === categoryId
+      && budget.month === actions.selectedMonth
+      && !budget.isArchived
+      && !budget.archivedAt
+    )) || null;
   }
 
   function updateNewCategoryDraft(field, value) {
@@ -112,15 +122,20 @@ export default function BudgetsPage({ appData, actions }) {
     };
 
     const nextBudgets = [...(appData.budgets || [])];
-    if (nextCategory.type === "expense" && limit > 0) {
+    if (nextCategory.type === "expense") {
+      // Always save a budget row once the category is created, even with no
+      // limit set yet (isEnabled follows limit > 0, same as editing an
+      // existing budget) — otherwise a limit of 0 silently discards which
+      // accounts were ticked, since there'd be nothing left to hold them.
       const accountIds = newCategoryDraft.accountIds.length > 0 ? newCategoryDraft.accountIds : [activeAccounts[0]?.id || "acc_current"];
       nextBudgets.push({
         id: createId("bud"),
         categoryId,
         accountIds,
+        accountId: accountIds[0],
         month: actions.selectedMonth,
         limit,
-        isEnabled: true,
+        isEnabled: limit > 0,
         isArchived: false,
         archivedAt: null,
         createdAt: now,
