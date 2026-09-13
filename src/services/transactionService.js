@@ -53,6 +53,7 @@ export function upsertTransaction(data, formValues, existingId = null) {
     excludeFromBudget: formValues.type === "expense" ? Boolean(formValues.excludeFromBudget) : false,
     excludeFromTotal: Boolean(formValues.excludeFromTotal),
     excludeFromChart: Boolean(formValues.excludeFromChart),
+    ruleExempt: Boolean(formValues.ruleExempt),
     isExample: false,
     receiptId: formValues.receiptId || null,
     receiptFileName: formValues.receiptFileName || null,
@@ -253,29 +254,38 @@ function convertExistingToTransfer(data, formValues, existingId, now) {
   };
 }
 
+// A transaction "matches" a rule when its title contains the rule's saved
+// text, case-insensitively. Shared by the rule sweep below, the Settings
+// match-count preview, and the UI (title highlight, per-transaction
+// "exclude from rules" note) so all three always agree on what counts as a
+// match.
+export function getMatchingExclusionRules(transaction, rules) {
+  const title = (transaction?.title || "").trim().toLowerCase();
+  if (!title) return [];
+  return (rules || []).filter(rule => {
+    const matchText = (rule.matchText || "").trim().toLowerCase();
+    return matchText && title.includes(matchText);
+  });
+}
+
 // Sweeps every saved exclusion rule against every transaction's title, so a
 // rule created after the fact still catches transactions that were already
 // sitting in the data ("back date" application), not just future ones. A
 // rule only ever turns a flag ON (OR-merge with whatever is already set), so
 // running it repeatedly can never silently undo a flag someone ticked by
-// hand on an individual transaction.
+// hand on an individual transaction. A transaction marked ruleExempt is
+// skipped entirely, so a specific "R GUINNESS" payment that genuinely was
+// real spending can opt out even though its title still matches.
 export function applyExclusionRules(data) {
   const rules = (data.exclusionRules || []).filter(rule => (rule.matchText || "").trim());
   if (!rules.length) return { data, updatedCount: 0 };
-
-  const normalisedRules = rules.map(rule => ({
-    matchText: rule.matchText.trim().toLowerCase(),
-    excludeFromBudget: Boolean(rule.excludeFromBudget),
-    excludeFromTotal: Boolean(rule.excludeFromTotal),
-    excludeFromChart: Boolean(rule.excludeFromChart)
-  }));
 
   let updatedCount = 0;
   const now = new Date().toISOString();
 
   const transactions = data.transactions.map(transaction => {
-    const title = (transaction.title || "").toLowerCase();
-    const matchingRules = normalisedRules.filter(rule => title.includes(rule.matchText));
+    if (transaction.ruleExempt) return transaction;
+    const matchingRules = getMatchingExclusionRules(transaction, rules);
     if (!matchingRules.length) return transaction;
 
     const nextExcludeFromBudget = Boolean(transaction.excludeFromBudget) || matchingRules.some(rule => rule.excludeFromBudget);
@@ -325,6 +335,33 @@ export function unlinkTransferPair(data, transactionId) {
     transactions: data.transactions.map(item => {
       if (!idsToClear.has(item.id) || !item.transferLinkId) return item;
       return { ...item, transferLinkId: null };
+    })
+  };
+}
+
+// Links two already-existing transactions as a transfer pair instead of
+// creating a fresh leg — for the case where both sides were already entered
+// separately (manually, or from two CSVs imported apart) and never got
+// auto-matched. Defensively unlinks each from any prior partner first, so
+// neither side is ever left half-pointing at two different transactions.
+// Deliberately leaves every other field untouched (category, note, etc.) —
+// same as the CSV importer's own match-existing path — since both rows
+// already represent real, independently-correct transactions.
+export function linkTransferPair(data, transactionIdA, transactionIdB) {
+  if (!transactionIdA || !transactionIdB || transactionIdA === transactionIdB) return data;
+  const hasBoth = data.transactions.some(item => item.id === transactionIdA)
+    && data.transactions.some(item => item.id === transactionIdB);
+  if (!hasBoth) return data;
+
+  const now = new Date().toISOString();
+  const unlinked = unlinkTransferPair(unlinkTransferPair(data, transactionIdA), transactionIdB);
+
+  return {
+    ...unlinked,
+    transactions: unlinked.transactions.map(item => {
+      if (item.id === transactionIdA) return { ...item, transferLinkId: transactionIdB, linkedAccountId: null, updatedAt: now };
+      if (item.id === transactionIdB) return { ...item, transferLinkId: transactionIdA, linkedAccountId: null, updatedAt: now };
+      return item;
     })
   };
 }

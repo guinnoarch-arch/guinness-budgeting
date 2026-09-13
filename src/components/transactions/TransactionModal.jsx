@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { todayIsoDate } from "../../utils/dates.js";
 import { HOUSE_CONTRIBUTION_TYPES } from "../../utils/houseTracking.js";
 import { createId } from "../../utils/ids.js";
-import { unlinkTransferPair, upsertTransaction } from "../../services/transactionService.js";
+import { getMatchingExclusionRules, linkTransferPair, unlinkTransferPair, upsertTransaction } from "../../services/transactionService.js";
 import { estimateLoanPaymentSplit } from "../../utils/loanLinking.js";
 import { deleteStoredReceipt, getStoredReceipt, saveTransactionReceipt } from "../../services/receiptStorageService.js";
+import { signedMoney } from "../../utils/money.js";
 
 function formatFileSize(bytes) {
   const value = Number(bytes || 0);
@@ -41,6 +42,8 @@ export default function TransactionModal({ appData, actions, editingTransaction 
   const [removeExistingReceipt, setRemoveExistingReceipt] = useState(false);
   const [receiptError, setReceiptError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [linkSearch, setLinkSearch] = useState("");
 
   const [form, setForm] = useState(() => {
     const fromAccountId = getDefaultFromAccountId(appData, editingTransaction);
@@ -83,6 +86,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     excludeFromBudget: Boolean(editingTransaction?.excludeFromBudget),
     excludeFromTotal: Boolean(editingTransaction?.excludeFromTotal),
     excludeFromChart: Boolean(editingTransaction?.excludeFromChart),
+    ruleExempt: Boolean(editingTransaction?.ruleExempt),
     createdAt: editingTransaction?.createdAt
     };
   });
@@ -127,11 +131,53 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     ? (appData.accounts || []).find(account => account.id === linkedTransferPartner.accountId)
     : null;
 
+  const matchingExclusionRules = useMemo(() => (
+    getMatchingExclusionRules({ title: form.title }, appData.exclusionRules)
+  ), [form.title, appData.exclusionRules]);
+
+  // Candidates for "link to an existing transaction": the opposite type
+  // (an expense pairs with an income leg and vice versa), not already
+  // linked to something else, not itself, and ranked by how close its date
+  // and amount are to this transaction's — the true other half of the pair
+  // is almost always at or near the top.
+  const linkCandidates = useMemo(() => {
+    if (!editingTransaction || editingTransaction.transferLinkId) return [];
+    const oppositeType = editingTransaction.type === "expense" ? "income" : "expense";
+    const search = linkSearch.trim().toLowerCase();
+    const currentDate = new Date(form.date || editingTransaction.date).getTime();
+    const currentAmount = Number(form.amount || editingTransaction.amount || 0);
+
+    return (appData.transactions || [])
+      .filter(item => item.id !== editingTransaction.id && !item.transferLinkId && item.type === oppositeType)
+      .filter(item => {
+        if (!search) return true;
+        const account = (appData.accounts || []).find(acc => acc.id === item.accountId);
+        return (item.title || "").toLowerCase().includes(search)
+          || String(item.amount || "").includes(search)
+          || (account?.name || "").toLowerCase().includes(search);
+      })
+      .sort((a, b) => {
+        const dateDiffA = Math.abs(new Date(a.date).getTime() - currentDate);
+        const dateDiffB = Math.abs(new Date(b.date).getTime() - currentDate);
+        const amountDiffA = Math.abs(Number(a.amount || 0) - currentAmount);
+        const amountDiffB = Math.abs(Number(b.amount || 0) - currentAmount);
+        return (dateDiffA + amountDiffA) - (dateDiffB + amountDiffB);
+      })
+      .slice(0, 25);
+  }, [appData.transactions, appData.accounts, editingTransaction, linkSearch, form.date, form.amount]);
+
   function unlinkFromTransfer() {
     if (!editingTransaction?.transferLinkId) return;
     if (!confirm("Unlink this from its transfer partner? Both transactions stay, but they'll no longer be shown as a linked transfer.")) return;
     const nextData = unlinkTransferPair(appData, editingTransaction.id);
     actions.updateAppData(nextData, { reason: "Transfer link removed" });
+    actions.closeTransactionModal();
+  }
+
+  function linkToExistingTransaction(otherTransactionId) {
+    if (!editingTransaction) return;
+    const nextData = linkTransferPair(appData, editingTransaction.id, otherTransactionId);
+    actions.updateAppData(nextData, { reason: "Transfer linked" });
     actions.closeTransactionModal();
   }
 
@@ -327,6 +373,44 @@ export default function TransactionModal({ appData, actions, editingTransaction 
             </div>
           )}
 
+          {isEditing && !editingTransaction.transferLinkId && form.type !== "transfer" && (
+            <div className="full-width receipt-warning-box link-transfer-box">
+              <div className="section-header compact-header">
+                <div>
+                  <strong>Is this actually one half of a transfer?</strong>
+                  <p className="muted-text">If the other side is already recorded as its own transaction (e.g. imported separately), link them instead of creating a new one.</p>
+                </div>
+                <button type="button" className="secondary-button small" onClick={() => setShowLinkPicker(v => !v)}>
+                  {showLinkPicker ? "Cancel linking" : "Link to an existing transaction"}
+                </button>
+              </div>
+
+              {showLinkPicker && (
+                <div className="link-transfer-picker">
+                  <label>
+                    Search by title, amount, or account
+                    <input value={linkSearch} onChange={e => setLinkSearch(e.target.value)} placeholder="e.g. ISA, 200, Chase" />
+                  </label>
+                  <div className="rule-list-stack">
+                    {linkCandidates.length === 0 && <p className="muted">No unlinked {editingTransaction.type === "expense" ? "income" : "expense"} transactions match.</p>}
+                    {linkCandidates.map(candidate => {
+                      const candidateAccount = (appData.accounts || []).find(acc => acc.id === candidate.accountId);
+                      return (
+                        <div key={candidate.id} className="rule-edit-row link-candidate-row">
+                          <div className="rule-readable-summary">
+                            <strong>{candidate.title}</strong>
+                            <span>{candidate.date} · {signedMoney(candidate.amount, candidate.type)} · {candidateAccount?.name || "Unknown account"}</span>
+                          </div>
+                          <button type="button" className="primary-button small" onClick={() => linkToExistingTransaction(candidate.id)}>Link this pair</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <label>
             Amount
             <input
@@ -401,6 +485,22 @@ export default function TransactionModal({ appData, actions, editingTransaction 
                     />
                     <span>Hide from charts</span>
                   </label>
+
+                  {matchingExclusionRules.length > 0 && (
+                    <div className="rule-match-notice">
+                      <p className="muted-text">
+                        Matches payment rule{matchingExclusionRules.length > 1 ? "s" : ""}: <strong>{matchingExclusionRules.map(rule => rule.matchText).join(", ")}</strong>
+                      </p>
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={form.ruleExempt}
+                          onChange={e => update("ruleExempt", e.target.checked)}
+                        />
+                        <span>Exclude this transaction from rules (don't apply rule exclusions here)</span>
+                      </label>
+                    </div>
+                  )}
                 </div>
               )}
 

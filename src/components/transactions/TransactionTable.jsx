@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { deleteTransaction } from "../../services/transactionService.js";
+import { deleteTransaction, getMatchingExclusionRules } from "../../services/transactionService.js";
 import { deleteStoredReceipt, getStoredReceipt } from "../../services/receiptStorageService.js";
 import { signedMoney } from "../../utils/money.js";
 import { getLinkedLoanId, getLoanById, getTransactionLoanSplit } from "../../utils/loanLinking.js";
@@ -94,13 +94,24 @@ export default function TransactionTable({ appData, actions, transactions }) {
                 : null;
               const linkedLoan = getLoanById(appData, getLinkedLoanId(txn));
               const loanSplit = linkedLoan ? getTransactionLoanSplit(txn, linkedLoan) : null;
+              const matchingRules = getMatchingExclusionRules(txn, appData.exclusionRules);
 
               return (
                 <tr key={txn.id}>
                   <td data-label="Date">{txn.date}</td>
                   <td data-label="Type"><span className={`pill ${txn.transferLinkId ? "transfer" : txn.type}`}>{txn.transferLinkId ? "transfer" : txn.type}</span></td>
                   <td data-label="Title">
-                    <strong>{txn.title}</strong>
+                    <strong
+                      className={matchingRules.length ? "rule-matched-title" : undefined}
+                      title={matchingRules.length ? `Matches payment rule: ${matchingRules.map(rule => rule.matchText).join(", ")}${txn.ruleExempt ? " (exempted on this transaction)" : ""}` : undefined}
+                    >
+                      {txn.title}
+                    </strong>
+                    {matchingRules.length > 0 && (
+                      <span className={`pill rule-match-pill ${txn.ruleExempt ? "exempt" : ""}`}>
+                        {txn.ruleExempt ? "Rule exempt" : "Rule applied"}
+                      </span>
+                    )}
                     {txn.note && <small>{txn.note}</small>}
                     {linkedLoan && (
                       <div className="transaction-loan-badges">
