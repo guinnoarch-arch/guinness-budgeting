@@ -3,6 +3,7 @@ import BudgetCard from "../components/budgets/BudgetCard.jsx";
 import { getCategorySpend, getBudgetAccountIds } from "../utils/calculations.js";
 import { createId } from "../utils/ids.js";
 import { formatMoney } from "../utils/money.js";
+import { applyCategoryRules, undoCategoryRuleChanges } from "../services/transactionService.js";
 
 function isCategoryArchived(category) {
   return category.isActive === false || category.isArchived || category.archivedAt;
@@ -27,6 +28,8 @@ export default function BudgetsPage({ appData, actions }) {
   const [categoryName, setCategoryName] = useState("");
   const [openBudgetKey, setOpenBudgetKey] = useState(null);
   const [showBudgetManager, setShowBudgetManager] = useState(false);
+  const [categoryRefreshStatus, setCategoryRefreshStatus] = useState("");
+  const [lastCategoryRuleChanges, setLastCategoryRuleChanges] = useState(null);
   const [newCategoryDraft, setNewCategoryDraft] = useState({
     name: "",
     type: "expense",
@@ -81,6 +84,31 @@ export default function BudgetsPage({ appData, actions }) {
       && !budget.isArchived
       && !budget.archivedAt
     )) || null;
+  }
+
+  function refreshCategorisation() {
+    const usableRules = (appData.importRules || []).filter(rule => (rule.matchText || "").trim() && rule.categoryId);
+    if (!usableRules.length) {
+      setCategoryRefreshStatus('No category match texts saved yet — add some (e.g. "Tesco" → Food) in Settings first.');
+      setLastCategoryRuleChanges(null);
+      return;
+    }
+    const { data: nextData, updatedCount, changes } = applyCategoryRules(appData);
+    actions.updateAppData(nextData, { reason: "Category rules refreshed" });
+    setLastCategoryRuleChanges(updatedCount > 0 ? changes : null);
+    setCategoryRefreshStatus(
+      updatedCount > 0
+        ? `Refreshed — recategorised ${updatedCount} transaction${updatedCount === 1 ? "" : "s"}.`
+        : "Refreshed — nothing needed recategorising."
+    );
+  }
+
+  function undoCategoryRefresh() {
+    if (!lastCategoryRuleChanges || !lastCategoryRuleChanges.length) return;
+    const nextData = undoCategoryRuleChanges(appData, lastCategoryRuleChanges);
+    actions.updateAppData(nextData, { reason: "Category refresh undone" });
+    setCategoryRefreshStatus(`Undone — reverted ${lastCategoryRuleChanges.length} transaction${lastCategoryRuleChanges.length === 1 ? "" : "s"} to their previous category.`);
+    setLastCategoryRuleChanges(null);
   }
 
   function updateNewCategoryDraft(field, value) {
@@ -394,6 +422,29 @@ export default function BudgetsPage({ appData, actions }) {
           <button type="button" className="secondary-button" onClick={() => setShowBudgetManager(true)}>Manage categories & budgets</button>
         </div>
       </div>
+
+      <section className="card category-refresh-card">
+        <div className="section-header compact-header">
+          <div>
+            <h3>Refresh categorisation</h3>
+            <p className="muted-text">Re-applies your saved category match texts (e.g. "Tesco" always goes in Food) to every transaction, including ones already in your data. Once you move a transaction to a different category by hand, refresh will never move it again.</p>
+          </div>
+          <div className="row-actions">
+            <button type="button" className="secondary-button" onClick={() => actions.setActivePage("settings")}>Manage category match texts</button>
+            <button type="button" className="primary-button" onClick={refreshCategorisation}>Refresh now</button>
+          </div>
+        </div>
+        {categoryRefreshStatus && (
+          <div className="import-status-box">
+            {categoryRefreshStatus}
+            {lastCategoryRuleChanges && lastCategoryRuleChanges.length > 0 && (
+              <button type="button" className="secondary-button small" onClick={undoCategoryRefresh}>
+                Undo last refresh ({lastCategoryRuleChanges.length})
+              </button>
+            )}
+          </div>
+        )}
+      </section>
 
       <div className="budget-grid">
         {categorySpend.map(item => {
