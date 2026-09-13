@@ -25,6 +25,14 @@ export function upsertTransaction(data, formValues, existingId = null) {
   const transactionId = existingId || formValues.id || createId("txn");
   const linkedLoanId = formValues.type === "expense" ? formValues.linkedLoanId || null : null;
   const linkedHouseId = formValues.type === "expense" ? formValues.linkedHouseId || null : null;
+  // Saving through this form is always a deliberate human decision about the
+  // category — either picking one for a brand new transaction, or actually
+  // changing it on an existing one (reopening and saving without touching
+  // the field doesn't count). Once locked, applyCategoryRules below will
+  // never touch that transaction's category again, so moving something out
+  // of a category a rule put it in is permanent until unlocked by hand.
+  const categoryChanged = !existingTransaction || existingTransaction.categoryId !== formValues.categoryId;
+  const categoryLocked = existingTransaction ? (categoryChanged || Boolean(existingTransaction.categoryLocked)) : true;
 
   const transaction = {
     ...(existingTransaction || {}),
@@ -35,6 +43,7 @@ export function upsertTransaction(data, formValues, existingId = null) {
     title: formValues.title || "Untitled transaction",
     note: formValues.note || "",
     categoryId: formValues.categoryId,
+    categoryLocked,
     accountId: formValues.accountId,
     linkedSavingsGoalId: formValues.type === "income" ? formValues.linkedSavingsGoalId || null : null,
     linkedLoanId,
@@ -325,6 +334,67 @@ export function applyExclusionRules(data) {
 // since edited by hand is left alone — this only restores the three
 // exclusion flags, and only on the ids present in `changes`.
 export function undoExclusionRuleChanges(data, changes) {
+  if (!changes || !changes.length) return data;
+  const now = new Date().toISOString();
+  const previousById = new Map(changes.map(change => [change.id, change.previous]));
+
+  return {
+    ...data,
+    transactions: data.transactions.map(transaction => {
+      const previous = previousById.get(transaction.id);
+      if (!previous) return transaction;
+      return { ...transaction, ...previous, updatedAt: now };
+    })
+  };
+}
+
+// A transaction matches an import rule when its title contains the rule's
+// saved text, case-insensitively, and the rule's transaction type matches
+// (a rule saved for expenses never assigns a category to an income row).
+function findMatchingCategoryRule(transaction, rules) {
+  const title = (transaction?.title || "").trim().toLowerCase();
+  if (!title) return null;
+  return rules.find(rule => (
+    rule.transactionType === transaction.type
+    && title.includes(rule.matchText)
+  )) || null;
+}
+
+// Sweeps every saved category match rule (Settings > Import Rules) against
+// every transaction's title, so "Tesco always goes in Food" applies
+// retroactively too, not just to future CSV imports. Unlike exclusion
+// rules this can change an existing category, not just add a flag — so it
+// only ever touches a transaction that isn't categoryLocked. A transaction
+// becomes locked the moment a human saves it with a category they chose
+// (see upsertTransaction), which is exactly how moving something a rule
+// put in the wrong place stays moved: the manual save locks it, and this
+// sweep will skip it from then on. Transfers are never categorized, so
+// linked transactions are skipped too.
+export function applyCategoryRules(data) {
+  const rules = (data.importRules || [])
+    .filter(rule => (rule.matchText || "").trim() && rule.categoryId)
+    .map(rule => ({ ...rule, matchText: rule.matchText.trim().toLowerCase() }));
+  if (!rules.length) return { data, updatedCount: 0, changes: [] };
+
+  const changes = [];
+  const now = new Date().toISOString();
+
+  const transactions = data.transactions.map(transaction => {
+    if (transaction.categoryLocked || transaction.transferLinkId) return transaction;
+    const rule = findMatchingCategoryRule(transaction, rules);
+    if (!rule || rule.categoryId === transaction.categoryId) return transaction;
+
+    changes.push({ id: transaction.id, previous: { categoryId: transaction.categoryId ?? null } });
+    return { ...transaction, categoryId: rule.categoryId, categoryAssignedByRule: true, updatedAt: now };
+  });
+
+  return { data: { ...data, transactions }, updatedCount: changes.length, changes };
+}
+
+// Reverts exactly the transactions applyCategoryRules changed, back to the
+// category they had before that sweep — the same one-click safety net as
+// undoExclusionRuleChanges.
+export function undoCategoryRuleChanges(data, changes) {
   if (!changes || !changes.length) return data;
   const now = new Date().toISOString();
   const previousById = new Map(changes.map(change => [change.id, change.previous]));
