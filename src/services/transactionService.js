@@ -276,11 +276,14 @@ export function getMatchingExclusionRules(transaction, rules) {
 // hand on an individual transaction. A transaction marked ruleExempt is
 // skipped entirely, so a specific "R GUINNESS" payment that genuinely was
 // real spending can opt out even though its title still matches.
+// Also returns `changes`: the prior flag values for every transaction it
+// touched, so a caller can offer an immediate "Undo last apply" without
+// having to guess which transactions it's safe to revert.
 export function applyExclusionRules(data) {
   const rules = (data.exclusionRules || []).filter(rule => (rule.matchText || "").trim());
-  if (!rules.length) return { data, updatedCount: 0 };
+  if (!rules.length) return { data, updatedCount: 0, changes: [] };
 
-  let updatedCount = 0;
+  const changes = [];
   const now = new Date().toISOString();
 
   const transactions = data.transactions.map(transaction => {
@@ -297,7 +300,14 @@ export function applyExclusionRules(data) {
       || nextExcludeFromChart !== Boolean(transaction.excludeFromChart);
     if (!changed) return transaction;
 
-    updatedCount += 1;
+    changes.push({
+      id: transaction.id,
+      previous: {
+        excludeFromBudget: Boolean(transaction.excludeFromBudget),
+        excludeFromTotal: Boolean(transaction.excludeFromTotal),
+        excludeFromChart: Boolean(transaction.excludeFromChart)
+      }
+    });
     return {
       ...transaction,
       excludeFromBudget: nextExcludeFromBudget,
@@ -307,7 +317,26 @@ export function applyExclusionRules(data) {
     };
   });
 
-  return { data: { ...data, transactions }, updatedCount };
+  return { data: { ...data, transactions }, updatedCount: changes.length, changes };
+}
+
+// Reverts exactly the transactions/flags a prior applyExclusionRules call
+// changed, using the `changes` list it returned. Anything the user has
+// since edited by hand is left alone — this only restores the three
+// exclusion flags, and only on the ids present in `changes`.
+export function undoExclusionRuleChanges(data, changes) {
+  if (!changes || !changes.length) return data;
+  const now = new Date().toISOString();
+  const previousById = new Map(changes.map(change => [change.id, change.previous]));
+
+  return {
+    ...data,
+    transactions: data.transactions.map(transaction => {
+      const previous = previousById.get(transaction.id);
+      if (!previous) return transaction;
+      return { ...transaction, ...previous, updatedAt: now };
+    })
+  };
 }
 
 export function deleteTransaction(data, transactionId) {

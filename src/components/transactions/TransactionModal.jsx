@@ -136,10 +136,12 @@ export default function TransactionModal({ appData, actions, editingTransaction 
   ), [form.title, appData.exclusionRules]);
 
   // Candidates for "link to an existing transaction": the opposite type
-  // (an expense pairs with an income leg and vice versa), not already
-  // linked to something else, not itself, and ranked by how close its date
-  // and amount are to this transaction's — the true other half of the pair
-  // is almost always at or near the top.
+  // (an expense pairs with an income leg and vice versa) — which, since
+  // both sides of a real transfer move the exact same amount of money in
+  // opposite directions, means the exact same amount too. Only an exact
+  // match (to the penny) is shown, so this can never suggest pairing two
+  // transactions that just happen to be similar; ties are broken by how
+  // close the date is.
   const linkCandidates = useMemo(() => {
     if (!editingTransaction || editingTransaction.transferLinkId) return [];
     const oppositeType = editingTransaction.type === "expense" ? "income" : "expense";
@@ -148,21 +150,19 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     const currentAmount = Number(form.amount || editingTransaction.amount || 0);
 
     return (appData.transactions || [])
-      .filter(item => item.id !== editingTransaction.id && !item.transferLinkId && item.type === oppositeType)
+      .filter(item => (
+        item.id !== editingTransaction.id
+        && !item.transferLinkId
+        && item.type === oppositeType
+        && Math.abs(Number(item.amount || 0) - currentAmount) <= 0.005
+      ))
       .filter(item => {
         if (!search) return true;
         const account = (appData.accounts || []).find(acc => acc.id === item.accountId);
         return (item.title || "").toLowerCase().includes(search)
-          || String(item.amount || "").includes(search)
           || (account?.name || "").toLowerCase().includes(search);
       })
-      .sort((a, b) => {
-        const dateDiffA = Math.abs(new Date(a.date).getTime() - currentDate);
-        const dateDiffB = Math.abs(new Date(b.date).getTime() - currentDate);
-        const amountDiffA = Math.abs(Number(a.amount || 0) - currentAmount);
-        const amountDiffB = Math.abs(Number(b.amount || 0) - currentAmount);
-        return (dateDiffA + amountDiffA) - (dateDiffB + amountDiffB);
-      })
+      .sort((a, b) => Math.abs(new Date(a.date).getTime() - currentDate) - Math.abs(new Date(b.date).getTime() - currentDate))
       .slice(0, 25);
   }, [appData.transactions, appData.accounts, editingTransaction, linkSearch, form.date, form.amount]);
 
@@ -387,12 +387,13 @@ export default function TransactionModal({ appData, actions, editingTransaction 
 
               {showLinkPicker && (
                 <div className="link-transfer-picker">
+                  <p className="muted-text">Only showing unlinked {editingTransaction.type === "expense" ? "income" : "expense"} transactions for the exact same amount ({signedMoney(form.amount || editingTransaction.amount, editingTransaction.type === "expense" ? "income" : "expense")}) — a transfer moves the same amount out one side and into the other.</p>
                   <label>
-                    Search by title, amount, or account
-                    <input value={linkSearch} onChange={e => setLinkSearch(e.target.value)} placeholder="e.g. ISA, 200, Chase" />
+                    Narrow down by title or account
+                    <input value={linkSearch} onChange={e => setLinkSearch(e.target.value)} placeholder="e.g. ISA, Chase" />
                   </label>
                   <div className="rule-list-stack">
-                    {linkCandidates.length === 0 && <p className="muted">No unlinked {editingTransaction.type === "expense" ? "income" : "expense"} transactions match.</p>}
+                    {linkCandidates.length === 0 && <p className="muted">No unlinked {editingTransaction.type === "expense" ? "income" : "expense"} transactions for that exact amount.</p>}
                     {linkCandidates.map(candidate => {
                       const candidateAccount = (appData.accounts || []).find(acc => acc.id === candidate.accountId);
                       return (
