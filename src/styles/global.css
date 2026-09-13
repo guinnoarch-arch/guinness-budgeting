@@ -1270,6 +1270,12 @@ th {
   font-weight: 700;
 }
 
+.import-status-box button {
+  display: block;
+  margin-top: 10px;
+  font-weight: 700;
+}
+
 .import-summary-grid {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }

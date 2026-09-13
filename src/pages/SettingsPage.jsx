@@ -21,7 +21,7 @@ import {
 import { getInitialAppData, removeExampleDataFromAppData } from "../data/exampleData.js";
 import PwaInstallCard from "../components/settings/PwaInstallCard.jsx";
 import { createId } from "../utils/ids.js";
-import { applyExclusionRules, getMatchingExclusionRules } from "../services/transactionService.js";
+import { applyExclusionRules, getMatchingExclusionRules, undoExclusionRuleChanges } from "../services/transactionService.js";
 import { calculateMonthSummary } from "../utils/calculations.js";
 import { getMonthKey } from "../utils/dates.js";
 import { formatMoney } from "../utils/money.js";
@@ -290,6 +290,7 @@ export default function SettingsPage({ appData, actions }) {
   const [newExclusionExcludeFromBudget, setNewExclusionExcludeFromBudget] = useState(false);
   const [newExclusionExcludeFromChart, setNewExclusionExcludeFromChart] = useState(true);
   const [exclusionApplyStatus, setExclusionApplyStatus] = useState("");
+  const [lastApplyChanges, setLastApplyChanges] = useState(null);
   const [selectedRuleCategoryId, setSelectedRuleCategoryId] = useState("");
   const [newExternalName, setNewExternalName] = useState("");
   const [newExternalAccountId, setNewExternalAccountId] = useState("");
@@ -1049,6 +1050,11 @@ export default function SettingsPage({ appData, actions }) {
     setRuleStatus(`Deleted ${label}.`);
   }
 
+  function countExclusionRuleMatches(matchText) {
+    const draftRule = { matchText };
+    return appData.transactions.filter(transaction => getMatchingExclusionRules(transaction, [draftRule]).length > 0).length;
+  }
+
   function addExclusionRule() {
     const matchText = newExclusionMatchText.trim();
     if (!matchText) {
@@ -1086,13 +1092,22 @@ export default function SettingsPage({ appData, actions }) {
       setExclusionApplyStatus("Add a rule first, then apply it.");
       return;
     }
-    const { data: nextData, updatedCount } = applyExclusionRules(appData);
+    const { data: nextData, updatedCount, changes } = applyExclusionRules(appData);
     actions.updateAppData(nextData);
+    setLastApplyChanges(updatedCount > 0 ? changes : null);
     setExclusionApplyStatus(
       updatedCount > 0
         ? `Applied ${rules.length} rule${rules.length === 1 ? "" : "s"} — updated ${updatedCount} transaction${updatedCount === 1 ? "" : "s"}.`
         : `Applied ${rules.length} rule${rules.length === 1 ? "" : "s"} — every matching transaction was already excluded.`
     );
+  }
+
+  function undoLastApply() {
+    if (!lastApplyChanges || !lastApplyChanges.length) return;
+    const nextData = undoExclusionRuleChanges(appData, lastApplyChanges);
+    actions.updateAppData(nextData);
+    setExclusionApplyStatus(`Undone — reverted ${lastApplyChanges.length} transaction${lastApplyChanges.length === 1 ? "" : "s"} to how they were before that apply.`);
+    setLastApplyChanges(null);
   }
 
   function addExternalAccountMapping() {
@@ -2100,6 +2115,11 @@ export default function SettingsPage({ appData, actions }) {
                 />
               </label>
             </div>
+            {newExclusionMatchText.trim() && (
+              <p className="muted-text rule-live-preview">
+                Would currently match <strong>{countExclusionRuleMatches(newExclusionMatchText)}</strong> transaction{countExclusionRuleMatches(newExclusionMatchText) === 1 ? "" : "s"} — check the wording before adding, especially for a common word.
+              </p>
+            )}
             <div className="exclude-toggle-group">
               <label className="checkbox-label">
                 <input
@@ -2189,7 +2209,16 @@ export default function SettingsPage({ appData, actions }) {
                 </div>
                 <button className="primary-button" onClick={runExclusionRules}>Apply rules now</button>
               </div>
-              {exclusionApplyStatus && <div className="import-status-box">{exclusionApplyStatus}</div>}
+              {exclusionApplyStatus && (
+                <div className="import-status-box">
+                  {exclusionApplyStatus}
+                  {lastApplyChanges && lastApplyChanges.length > 0 && (
+                    <button type="button" className="secondary-button small" onClick={undoLastApply}>
+                      Undo last apply ({lastApplyChanges.length})
+                    </button>
+                  )}
+                </div>
+              )}
             </>
           )}
         </section>

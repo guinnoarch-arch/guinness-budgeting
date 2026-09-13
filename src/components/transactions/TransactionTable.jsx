@@ -108,8 +108,15 @@ export default function TransactionTable({ appData, actions, transactions }) {
                       {txn.title}
                     </strong>
                     {matchingRules.length > 0 && (
-                      <span className={`pill rule-match-pill ${txn.ruleExempt ? "exempt" : ""}`}>
-                        {txn.ruleExempt ? "Rule exempt" : "Rule applied"}
+                      <span
+                        className={`pill rule-match-pill ${txn.ruleExempt ? "exempt" : ""}`}
+                        title={matchingRules.length > 1 ? `Matches: ${matchingRules.map(rule => rule.matchText).join(", ")}` : undefined}
+                      >
+                        {txn.ruleExempt
+                          ? "Rule exempt"
+                          : matchingRules.length === 1
+                            ? `Rule: ${matchingRules[0].matchText}`
+                            : `${matchingRules.length} rules matched`}
                       </span>
                     )}
                     {txn.note && <small>{txn.note}</small>}
