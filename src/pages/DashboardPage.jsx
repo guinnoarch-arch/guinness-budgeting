@@ -10,7 +10,7 @@ import RecentTransactionsPanel from "../components/dashboard/RecentTransactionsP
 import BudgetWarningsPanel from "../components/dashboard/BudgetWarningsPanel.jsx";
 import SavingsGoalsPanel from "../components/dashboard/SavingsGoalsPanel.jsx";
 import MajorSpendsModal from "../components/dashboard/MajorSpendsModal.jsx";
-import { calculateAccountBalance, calculateMonthSummary, getMajorSpends, MAJOR_SPEND_THRESHOLD } from "../utils/calculations.js";
+import { calculateAccountBalance, calculateMonthSummary, getMajorSpends } from "../utils/calculations.js";
 import { formatMoney } from "../utils/money.js";
 
 function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpendingInCharts, onIncludeExcludedSpendingChange, onBreakdown, onMajorSpends }) {
@@ -110,6 +110,7 @@ export default function DashboardPage({ appData, actions }) {
     accountId: accountIdForCalculations,
     includeExcluded: includeExcludedInMajorSpends
   }), [appData, actions.selectedMonth, accountIdForCalculations, includeExcludedInMajorSpends]);
+  const majorSpendThreshold = Number(appData.settings?.largeExpenseThreshold || 200);
   const dashboardLayout = appData.settings?.dashboardLayout || "full";
 
   function getBreakdownRows(title) {
@@ -259,7 +260,7 @@ export default function DashboardPage({ appData, actions }) {
         <MajorSpendsModal
           appData={appData}
           spends={majorSpends}
-          threshold={MAJOR_SPEND_THRESHOLD}
+          threshold={majorSpendThreshold}
           includeExcluded={includeExcludedInMajorSpends}
           onIncludeExcludedChange={setIncludeExcludedInMajorSpends}
           onEdit={transaction => {

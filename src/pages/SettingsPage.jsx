@@ -1736,7 +1736,7 @@ export default function SettingsPage({ appData, actions }) {
           <div>
             <p className="eyebrow">Budget logic</p>
             <h3>Budget behaviour</h3>
-            <p className="muted-text">Controls the large-expense warning, budget affordability reminder, and budget-left calculation behaviour.</p>
+            <p className="muted-text">Controls the large-expense warning, the dashboard's major spends list, the budget affordability reminder, and budget-left calculation behaviour.</p>
           </div>
           <div className="settings-accordion-heading-side"><span className="pill">V2.6.9</span><SectionChevron sectionId="budgetBehaviour" /></div>
         </div>
@@ -1751,7 +1751,7 @@ export default function SettingsPage({ appData, actions }) {
               value={settings.largeExpenseThreshold || 200}
               onChange={event => updateBudgetBehaviourSetting("largeExpenseThreshold", Number(event.target.value || 0))}
             />
-            <small>CSV import and Add Transaction highlight the exclude-from-budget option above this amount.</small>
+            <small>CSV import and Add Transaction highlight the exclude-from-budget option above this amount, and it sets the minimum for the dashboard's major spends list.</small>
           </label>
 
           <label>
