@@ -190,6 +190,21 @@ export function getTransactionsForMonth(transactions, monthKey) {
   return transactions.filter(txn => isInMonth(txn.date, monthKey));
 }
 
+export const MAJOR_SPEND_THRESHOLD = 200;
+
+// Big-ticket expenses for the "Spent" drill-down. By default this mirrors
+// what the Spent figure and budgets actually count - leaving out anything
+// excluded from the Spent total or ruled out of budgets - since those are
+// the two exclusion checkboxes on a transaction; includeExcluded brings
+// both categories back in for someone who wants the full picture.
+export function getMajorSpends(data, monthKey, { accountId = null, threshold = MAJOR_SPEND_THRESHOLD, includeExcluded = false } = {}) {
+  return getTransactionsForMonth(data.transactions || [], monthKey)
+    .filter(transaction => expenseMatchesAccount(transaction, accountId))
+    .filter(transaction => includeExcluded || (!transaction.excludeFromTotal && !transaction.excludeFromBudget))
+    .filter(transaction => Math.abs(transaction.amount) >= threshold)
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+}
+
 function getMonthKeysEndingAt(monthKey, count) {
   const [year, month] = monthKey.split("-").map(Number);
 
