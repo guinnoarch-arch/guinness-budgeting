@@ -4820,6 +4820,37 @@ button[disabled] {
   gap: 8px;
 }
 
+/* Phone mode trades the explanatory subtitle under a heading (e.g. "Open
+   one section at a time...") for screen space - the heading text alone is
+   enough once you're tapping through a phone-sized layout. */
+.app-shell.phone-mode .section-header .muted-text,
+.app-shell.phone-mode .compact-header .muted-text,
+.app-shell.phone-mode .page-title-row .muted-text,
+.app-shell.phone-mode .settings-page-intro .muted-text {
+  display: none;
+}
+
+/* Below 720px a heading's status pill (Critical, Local profile, a rule
+   count, ...) drops onto its own full-width row underneath the title
+   (see the plain @media (max-width: 720px) rule above) - that was fine
+   when the title had a subtitle of its own to fill that space, but now
+   the subtitle is gone it just leaves a short title floating over an
+   oversized second row. Phone mode puts the pill back next to the title
+   instead, letting only the title text itself wrap if it has to. */
+.app-shell.phone-mode .settings-accordion-heading {
+  flex-direction: row;
+  flex-wrap: nowrap;
+}
+
+.app-shell.phone-mode .settings-accordion-heading > div:first-child {
+  min-width: 0;
+}
+
+.app-shell.phone-mode .settings-accordion-heading-side {
+  width: auto;
+  flex-shrink: 0;
+}
+
 .app-shell.phone-mode .summary-grid,
 .app-shell.phone-mode .summary-grid.summary-grid-two,
 .app-shell.phone-mode .summary-grid.summary-grid-three,
@@ -4848,6 +4879,39 @@ button[disabled] {
 .app-shell.phone-mode .budget-detail-grid,
 .app-shell.phone-mode .loan-link-split-grid {
   grid-template-columns: 1fr;
+}
+
+/* The money-left card's label and figure stack into two lines by default
+   (with a description line below, hidden above), which on a phone makes it
+   the tallest thing on the dashboard for not much information. Putting the
+   label and figure on one row shrinks it down to a single compact banner. */
+.app-shell.phone-mode .money-left-card {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  padding: 14px 16px;
+}
+
+.app-shell.phone-mode .money-left-card > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.app-shell.phone-mode .money-left-card .eyebrow {
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+.app-shell.phone-mode .money-left-card h2 {
+  font-size: 1.7rem;
+}
+
+.app-shell.phone-mode .money-left-card > p {
+  display: none;
 }
 
 .app-shell.phone-mode .dashboard-summary-grid,
@@ -4886,11 +4950,17 @@ button[disabled] {
   min-width: 0;
 }
 
-.app-shell.phone-mode .dashboard-summary-grid .summary-card .muted-text,
 .app-shell.phone-mode .dashboard-summary-grid .summary-card .positive-text,
 .app-shell.phone-mode .dashboard-summary-grid .summary-card .negative-text {
   font-size: 0.72rem;
   line-height: 1.15;
+}
+
+/* The "detail" caption ("Budget-linked accounts", "Not counted in
+   budgets", ...) is a nice-to-have on desktop but on a phone-sized card it
+   roughly doubles the card's height for a few words of fine print. */
+.app-shell.phone-mode .dashboard-summary-grid .summary-card .muted-text {
+  display: none;
 }
 
 .app-shell.phone-mode .dashboard-summary-grid .summary-change-full {

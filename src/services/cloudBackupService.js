@@ -1614,5 +1614,15 @@ create policy "GH users can delete own backups"
 create index if not exists gh_cloud_backups_user_created_idx
   on public.gh_cloud_backups (user_id, created_at desc);
 
-${houseSharingSetupSql}`;
+${houseSharingSetupSql}
+
+-- Supabase's PostgREST layer normally picks up new/changed functions via an
+-- event trigger almost instantly, but that can lag or miss entirely when
+-- SQL is pasted in one big batch (as this whole script is meant to be) -
+-- leaving newly (re)created RPCs like gh_admin_send_broadcast erroring with
+-- "Could not find the function ... in the schema cache" until something
+-- forces a reload. Asking for that reload explicitly, every time this
+-- script runs, means re-running it after an update is always enough on its
+-- own - no separate trip to Supabase's dashboard needed.
+notify pgrst, 'reload schema';`;
 }
