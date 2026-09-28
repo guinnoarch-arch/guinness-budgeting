@@ -1402,6 +1402,50 @@ th {
   font-weight: 600;
 }
 
+.import-verification-row.trusted {
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.import-verification-row > small {
+  flex-basis: 100%;
+  font-weight: 400;
+  color: var(--text);
+}
+
+[data-theme="dark"] .import-verification-row.trusted {
+  color: #93c5fd;
+}
+
+.import-diagnosis-section {
+  display: grid;
+  gap: 3px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] .import-diagnosis-section {
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+.import-diagnosis-section ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.import-diagnosis-label {
+  font-weight: 600;
+}
+
+.import-info-note {
+  display: block;
+  color: #1d4ed8;
+}
+
+[data-theme="dark"] .import-info-note {
+  color: #93c5fd;
+}
+
 [data-theme="dark"] .import-verification-panel {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.12);
