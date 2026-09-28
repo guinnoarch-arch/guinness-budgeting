@@ -994,6 +994,7 @@ export function normaliseAppData(data) {
     accentColor: baseSettings.accentColor || "#0b5d45",
     dashboardLayout: baseSettings.dashboardLayout || "full",
     largeExpenseThreshold: Number(baseSettings.largeExpenseThreshold || 200),
+    largeIncomeThreshold: Number(baseSettings.largeIncomeThreshold || 200),
     budgetWarningThresholds: {
       greenMax: Number(baseSettings.budgetWarningThresholds?.greenMax ?? 75),
       orangeMax: Number(baseSettings.budgetWarningThresholds?.orangeMax ?? 100)

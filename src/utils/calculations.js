@@ -207,6 +207,19 @@ export function getMajorSpends(data, monthKey, { accountId = null, includeExclud
     .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
 }
 
+// The income side of getMajorSpends: real income (not the receiving leg of a
+// transfer between the user's own accounts) at or above the large income
+// threshold, biggest first. Income marked "exclude from total" is left out
+// unless includeExcluded, matching what the Income figure counts.
+export function getMajorIncomes(data, monthKey, { accountId = null, includeExcluded = false } = {}) {
+  const threshold = Number(data.settings?.largeIncomeThreshold || 200);
+  return getTransactionsForMonth(data.transactions || [], monthKey)
+    .filter(transaction => incomeMatchesAccount(transaction, accountId))
+    .filter(transaction => includeExcluded || !transaction.excludeFromTotal)
+    .filter(transaction => Math.abs(transaction.amount) >= threshold)
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+}
+
 function getMonthKeysEndingAt(monthKey, count) {
   const [year, month] = monthKey.split("-").map(Number);
 

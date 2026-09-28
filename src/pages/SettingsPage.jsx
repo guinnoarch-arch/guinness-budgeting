@@ -1755,6 +1755,18 @@ export default function SettingsPage({ appData, actions }) {
           </label>
 
           <label>
+            Large income threshold
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={settings.largeIncomeThreshold || 200}
+              onChange={event => updateBudgetBehaviourSetting("largeIncomeThreshold", Number(event.target.value || 0))}
+            />
+            <small>The minimum for the dashboard's big incomes list (click the Income card). Transfers between your own accounts aren't counted as income.</small>
+          </label>
+
+          <label>
             Budget affordability warning threshold
             <input
               type="number"
