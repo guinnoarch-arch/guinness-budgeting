@@ -278,6 +278,7 @@ export function calculateHouseSummary(data = {}, house = {}) {
   const manualTotal = sum(contributions.filter(item => item.sourceType === "manualAdjustment").map(item => item.amount));
   const propertyValue = Number(house.propertyValue || 0);
   const mortgageBalance = Number(house.mortgage?.currentBalance || 0);
+  const purchasePrice = Number(house.purchasePrice || 0);
   const manualTotalPercentage = sum(splits.map(item => item.percentage));
 
   return {
@@ -297,6 +298,12 @@ export function calculateHouseSummary(data = {}, house = {}) {
     propertyValue,
     mortgageBalance,
     estimatedEquity: propertyValue - mortgageBalance,
+    // Loan to value: what's still owed on the mortgage as a percentage of
+    // the house's current value (null until a value is entered), plus the
+    // same against the purchase price when one is recorded.
+    loanToValuePercent: calculateLoanToValue(mortgageBalance, propertyValue),
+    purchasePrice,
+    loanToPurchasePricePercent: calculateLoanToValue(mortgageBalance, purchasePrice),
     manualTotalPercentage,
     manualSplitValid: Math.abs(manualTotalPercentage - 100) < 0.01
   };
@@ -313,8 +320,18 @@ export function calculateHousesSummary(data = {}) {
     totalHouseValue: sum(activeHouses.map(house => house.propertyValue)),
     totalMortgageBalance: sum(activeHouses.map(house => house.mortgage?.currentBalance)),
     totalContributed: sum(summaries.filter(item => activeHouses.some(house => house.id === item.house.id)).map(item => item.summary.totalContributed)),
-    totalEquity: sum(activeHouses.map(house => Number(house.propertyValue || 0) - Number(house.mortgage?.currentBalance || 0)))
+    totalEquity: sum(activeHouses.map(house => Number(house.propertyValue || 0) - Number(house.mortgage?.currentBalance || 0))),
+    totalLoanToValuePercent: calculateLoanToValue(
+      sum(activeHouses.map(house => house.mortgage?.currentBalance)),
+      sum(activeHouses.map(house => house.propertyValue))
+    )
   };
+}
+
+export function calculateLoanToValue(balance, value) {
+  const amount = Number(value || 0);
+  if (!(amount > 0)) return null;
+  return (Math.max(0, Number(balance || 0)) / amount) * 100;
 }
 
 function sum(values) {

@@ -14,6 +14,7 @@ import {
   HOUSE_SOURCE_TYPES,
   calculateHouseSummary,
   calculateHousesSummary,
+  calculateLoanToValue,
   normaliseHouseRecord
 } from "../utils/houseTracking.js";
 import { formatMoney } from "../utils/money.js";
@@ -1112,6 +1113,10 @@ function HouseSection({
           <small>Total contributed</small>
           <strong>{formatMoney(houseSummary.totalContributed)}</strong>
         </div>
+        <div className="sub-card loan-detail-card">
+          <small>Loan to value</small>
+          <strong>{formatLoanToValue(houseSummary.totalLoanToValuePercent)}</strong>
+        </div>
       </div>
 
       {houseSummary.houses.length === 0 ? (
@@ -1136,7 +1141,7 @@ function HouseSection({
                     <span className="loan-summary-type">{house.archived ? "Archived house" : "House"}</span>
                     <strong>{house.name}</strong>
                     <span className="loan-summary-amount">{formatMoney(summary.estimatedEquity, false)}</span>
-                    <small>{formatMoney(summary.mortgageBalance, false)} mortgage · {summary.people.length} people</small>
+                    <small>{formatMoney(summary.mortgageBalance, false)} mortgage{summary.loanToValuePercent !== null ? ` · ${formatLoanToValue(summary.loanToValuePercent)} LTV` : ""} · {summary.people.length} people</small>
                   </button>
                 );
               })}
@@ -1301,6 +1306,7 @@ function HouseDetailPanel({
             <InfoMetric label="Property value" value={formatMoney(summary.propertyValue)} />
             <InfoMetric label="Mortgage balance" value={formatMoney(summary.mortgageBalance)} />
             <InfoMetric label="Estimated equity" value={formatMoney(summary.estimatedEquity)} />
+            <LoanToValueMetric balance={summary.mortgageBalance} value={summary.propertyValue} purchasePrice={summary.purchasePrice} />
             <InfoMetric label="Total contributed" value={formatMoney(summary.totalContributed)} />
           </div>
           <p className="muted-text">Contribution split is a tracking estimate only, not legal ownership.</p>
@@ -1472,6 +1478,7 @@ function HouseMortgagePanel({ house, summary, mortgageLoan, mortgageEstimate, mo
         <InfoMetric label="Current mortgage balance" value={formatMoney(mortgageLoan.currentBalance)} />
         <InfoMetric label="Original borrowed" value={formatMoney(mortgageLoan.originalAmount)} />
         <InfoMetric label="Total paid off" value={formatMoney(Math.max(0, Number(mortgageLoan.originalAmount || 0) - Number(mortgageLoan.currentBalance || 0)))} />
+        <LoanToValueMetric balance={mortgageLoan.currentBalance} value={summary.propertyValue} purchasePrice={summary.purchasePrice} />
         <InfoMetric label="Monthly repayment" value={formatMoney(details.monthlyPayment || 0)} />
         <InfoMetric label="Interest rate" value={`${Number(details.currentRate || 0).toFixed(2)}% ${details.interestType || ""}`} />
         <InfoMetric label="Fixed/rate ends" value={details.fixedUntil || "Not set"} />
@@ -1731,12 +1738,35 @@ function MortgageOverpaymentMiniCalculator({ house }) {
   );
 }
 
-function InfoMetric({ label, value }) {
+function InfoMetric({ label, value, detail = null }) {
   return (
     <div className="loan-detail-card sub-card">
       <small>{label}</small>
       <strong>{value}</strong>
+      {detail && <small className="loan-detail-note">{detail}</small>}
     </div>
+  );
+}
+
+function formatLoanToValue(percent) {
+  return percent === null || percent === undefined ? "Add house value" : `${percent.toFixed(1)}%`;
+}
+
+// Loan to value: the mortgage still owed today as a percentage of the
+// house's current value, with the working shown, plus the same against the
+// purchase price when that's recorded and different.
+function LoanToValueMetric({ balance, value, purchasePrice }) {
+  const ltv = calculateLoanToValue(balance, value);
+  const purchaseLtv = calculateLoanToValue(balance, purchasePrice);
+  const showPurchase = purchaseLtv !== null && Number(purchasePrice) !== Number(value);
+  return (
+    <InfoMetric
+      label="Loan to value (LTV)"
+      value={formatLoanToValue(ltv)}
+      detail={ltv === null
+        ? "Enter the house value to work this out."
+        : `${formatMoney(balance)} owed ÷ ${formatMoney(value)} value${showPurchase ? ` · ${formatLoanToValue(purchaseLtv)} of the ${formatMoney(purchasePrice)} purchase price` : ""}`}
+    />
   );
 }
 
