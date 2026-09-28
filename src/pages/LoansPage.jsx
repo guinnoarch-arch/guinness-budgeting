@@ -1193,6 +1193,28 @@ function HouseSection({
   );
 }
 
+// House sections as tabs (one full-width section at a time) rather than a
+// grid of narrow columns. The last tab used is remembered per browser.
+const HOUSE_TABS = [
+  ["overview", "Overview"],
+  ["mortgage", "Mortgage"],
+  ["contributions", "Contributions"],
+  ["people", "People / Splits"],
+  ["agreement", "Agreement notes"],
+  ["sharing", "Sharing"],
+  ["linked", "Linked payments"]
+];
+const HOUSE_TAB_STORAGE_KEY = "gb.house.activeTab";
+
+function readHouseTab() {
+  try {
+    const stored = window.localStorage.getItem(HOUSE_TAB_STORAGE_KEY);
+    return HOUSE_TABS.some(([key]) => key === stored) ? stored : "overview";
+  } catch {
+    return "overview";
+  }
+}
+
 function HouseDetailPanel({
   house,
   summary,
@@ -1225,6 +1247,15 @@ function HouseDetailPanel({
   const canEditHouse = !isRemoteSharedHouse && role === "owner";
   const canAddContribution = role === "owner" || role === "editor";
   const canEditContributions = !isRemoteSharedHouse && role === "owner";
+  const [activeTab, setActiveTab] = useState(readHouseTab);
+  const selectTab = key => {
+    setActiveTab(key);
+    try {
+      window.localStorage.setItem(HOUSE_TAB_STORAGE_KEY, key);
+    } catch {
+      // Storage blocked — the tab just won't be remembered.
+    }
+  };
   const splitLabel = house.ownershipMode === "manualOwnership"
     ? "Manual ownership split"
     : house.ownershipMode === "contributionEstimate"
@@ -1246,8 +1277,25 @@ function HouseDetailPanel({
         </div>
       </div>
 
-      <div className="house-tab-grid">
-        <section className="sub-card house-tab-card">
+      <div className="house-tabs" role="tablist" aria-label="House sections">
+        {HOUSE_TABS.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            id={`house-tab-${key}`}
+            aria-selected={activeTab === key}
+            aria-controls={`house-tab-panel-${key}`}
+            className={`filter-chip ${activeTab === key ? "active" : ""}`}
+            onClick={() => selectTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "overview" && (
+        <section className="sub-card house-tab-card" role="tabpanel" id="house-tab-panel-overview" aria-labelledby="house-tab-overview">
           <h4>Overview</h4>
           <div className="loan-detail-grid">
             <InfoMetric label="Property value" value={formatMoney(summary.propertyValue)} />
@@ -1258,14 +1306,9 @@ function HouseDetailPanel({
           <p className="muted-text">Contribution split is a tracking estimate only, not legal ownership.</p>
           <ContributionSplitList summary={summary} />
         </section>
-
-        <section className="sub-card house-tab-card">
-          <h4>Agreement notes</h4>
-          <p className="muted-text">Personal tracking note. Not legal advice and not proof of legal ownership.</p>
-          <p>{house.agreementNotes || "No agreement notes recorded yet."}</p>
-        </section>
-
-        <section className="sub-card house-tab-card">
+      )}
+      {activeTab === "mortgage" && (
+        <section className="sub-card house-tab-card" role="tabpanel" id="house-tab-panel-mortgage" aria-labelledby="house-tab-mortgage">
           <HouseMortgagePanel
             house={house}
             summary={summary}
@@ -1276,8 +1319,9 @@ function HouseDetailPanel({
             linkedAccount={linkedAccount}
           />
         </section>
-
-        <section className="sub-card house-tab-card">
+      )}
+      {activeTab === "contributions" && (
+        <section className="sub-card house-tab-card" role="tabpanel" id="house-tab-panel-contributions" aria-labelledby="house-tab-contributions">
           <h4>Contributions</h4>
           <div className="loan-detail-grid">
             <InfoMetric label="Deposits" value={formatMoney(summary.depositTotal)} />
@@ -1289,8 +1333,9 @@ function HouseDetailPanel({
           </div>
           <HouseContributionTable contributions={summary.contributions} people={summary.people} onEditContribution={onEditContribution} onDeleteContribution={onDeleteContribution} canEdit={canEditContributions} />
         </section>
-
-        <section className="sub-card house-tab-card">
+      )}
+      {activeTab === "people" && (
+        <section className="sub-card house-tab-card" role="tabpanel" id="house-tab-panel-people" aria-labelledby="house-tab-people">
           <h4>People / Splits</h4>
           {summary.people.length === 0 ? (
             <p className="muted-text">Add people to attribute deposits, mortgage payments and other house costs.</p>
@@ -1321,8 +1366,16 @@ function HouseDetailPanel({
           )}
           <HouseBalanceEstimate summary={summary} />
         </section>
-
-        <section className="sub-card house-tab-card">
+      )}
+      {activeTab === "agreement" && (
+        <section className="sub-card house-tab-card" role="tabpanel" id="house-tab-panel-agreement" aria-labelledby="house-tab-agreement">
+          <h4>Agreement notes</h4>
+          <p className="muted-text">Personal tracking note. Not legal advice and not proof of legal ownership.</p>
+          <p>{house.agreementNotes || "No agreement notes recorded yet."}</p>
+        </section>
+      )}
+      {activeTab === "sharing" && (
+        <section className="sub-card house-tab-card" role="tabpanel" id="house-tab-panel-sharing" aria-labelledby="house-tab-sharing">
           <HouseSharingPanel
             house={house}
             members={(appData.houseMembers || []).filter(member => member.houseId === house.id)}
@@ -1341,12 +1394,13 @@ function HouseDetailPanel({
             onRemoveMember={onRemoveMember}
           />
         </section>
-
-        <section className="sub-card house-tab-card">
+      )}
+      {activeTab === "linked" && (
+        <section className="sub-card house-tab-card" role="tabpanel" id="house-tab-panel-linked" aria-labelledby="house-tab-linked">
           <h4>Linked payments</h4>
           <p className="muted-text">{linkedTransactions.length} tracked app transaction(s) link to this house. Shared users should only see the safe contribution summary, not private account balances or unrelated transaction details.</p>
         </section>
-      </div>
+      )}
     </div>
   );
 }

@@ -361,3 +361,30 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* House detail: sections as tabs */
+.house-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.house-tabs .filter-chip {
+  cursor: pointer;
+}
+
+@media (max-width: 720px) {
+  .house-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .house-tabs .filter-chip {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
