@@ -5711,3 +5711,49 @@ button[disabled] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Import: "Replace this period with the CSV" */
+.import-replace-box {
+  margin-top: 10px;
+}
+
+.import-replace-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.import-replace-item {
+  display: grid;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+}
+
+.import-replace-item .checkbox-label {
+  align-items: flex-start;
+}
+
+.import-replace-partner {
+  margin-left: 24px;
+  font-size: 12.5px;
+}
+
+[data-theme="dark"] .import-replace-item {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.import-replace-item .checkbox-label {
+  font-weight: 400;
+}
+
+.import-replace-item .checkbox-label > span,
+.import-replace-item .checkbox-label > span strong,
+.import-replace-item .checkbox-label > span small {
+  display: inline;
+}
+
+.import-replace-item .checkbox-label > span strong {
+  font-weight: 700;
+}

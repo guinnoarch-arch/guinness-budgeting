@@ -271,7 +271,7 @@ export function findSavedCsvColumnMapping(data, headers = []) {
   return (data.csvColumnMappings || []).find(mapping => mapping.headerSignature === signature) || null;
 }
 
-export function analyseCsvImport(data, { accountId, fileName, headers, rows, columnMap }) {
+export function analyseCsvImport(data, { accountId, fileName, headers, rows, columnMap, replacedRange = null }) {
   const now = new Date().toISOString();
   const safeRows = Array.isArray(rows) ? rows : [];
   const normalisedMappings = data.externalAccountMappings || [];
@@ -306,6 +306,9 @@ export function analyseCsvImport(data, { accountId, fileName, headers, rows, col
   const priorCoverage = getPriorImportCoverage(data, accountId);
   previewRows.forEach(row => {
     if (row.action === "duplicate" || row.infoNote) return;
+    // A period being replaced has been cleared on purpose, so rows in it
+    // aren't "missing from the earlier import" — they're its replacement.
+    if (replacedRange && row.date >= replacedRange.fromDate && row.date <= replacedRange.toDate) return;
     const covering = priorCoverage.find(item => item.firstDate && item.lastDate && row.date >= item.firstDate && row.date <= item.lastDate);
     if (!covering) return;
     row.likelyClearedPending = true;
@@ -1124,19 +1127,239 @@ export function undoCsvImport(data, importBatchId) {
   const accountAdjustments = (data.accountAdjustments || []).filter(adjustment => adjustment.importBatchId !== importBatchId);
   const removedAdjustments = beforeAdjustments - accountAdjustments.length;
 
+  // An import that replaced a period gets back everything it cleared out,
+  // restored last so the originals win over the unlink/revert above.
+  const { data: restoredData, restored } = restoreReplacedData({
+    ...data,
+    transactions: reconciledTransactions,
+    accountAdjustments
+  }, batch.replacedData);
+
   return {
     data: {
-      ...data,
-      transactions: reconciledTransactions,
-      accountAdjustments,
+      ...restoredData,
       importBatches: (data.importBatches || []).filter(item => item.id !== importBatchId)
     },
     result: {
       removedTransactions,
       unlinkedTransactions,
-      removedAdjustments
+      removedAdjustments,
+      restoredItems: restored
     }
   };
+}
+
+// ---------------------------------------------------------------------------
+// "Replace this period with the CSV"
+//
+// A new statement normally only *adds* what's missing. When an earlier import
+// (or a hand-entered item or an earlier adjustment) got something wrong, the
+// user can instead have the CSV replace everything the app holds for that
+// account between the statement's first and last day: imported rows are
+// removed, planned items that an import matched go back to planned, and
+// balance adjustments are removed. The CSV is then imported fresh against
+// the cleared data. Anything the user hasn't obviously got from a bank
+// statement (hand-entered items, reconcile adjustments) is listed but left
+// unticked, so nothing personal disappears without them choosing it.
+//
+// A transfer has two sides. When one side goes, its other side (in another
+// account) is listed too: ticked when it has no bank evidence of its own —
+// e.g. both halves of a hand-entered transfer that never happened —
+// otherwise kept and re-opened as "waiting for its other side", so the new
+// import can link to it again.
+// ---------------------------------------------------------------------------
+export function planReplacePeriod(data, accountId, fromDate, toDate) {
+  const accountNames = new Map((data.accounts || []).map(account => [account.id, account.name]));
+  const batchesById = new Map((data.importBatches || []).map(batch => [batch.id, batch]));
+  const transactionsById = new Map((data.transactions || []).map(transaction => [transaction.id, transaction]));
+  const inRange = date => Boolean(date) && date >= fromDate && date <= toDate;
+
+  const items = [];
+  (data.transactions || []).forEach(transaction => {
+    if (transaction.accountId !== accountId || !inRange(transaction.date)) return;
+    if (transaction.type !== "income" && transaction.type !== "expense") return;
+
+    const fromBank = (transaction.matchedBankRows || []).length > 0;
+    const wasPlanned = Boolean(transaction.plannedDate) || (transaction.plannedAmount !== null && transaction.plannedAmount !== undefined);
+    const category = fromBank ? (wasPlanned ? "matched_planned" : "imported") : "manual";
+    const batch = fromBank ? batchesById.get(transaction.matchedBankRows[0]?.importBatchId) : null;
+
+    const partnerTransaction = transaction.transferLinkId ? transactionsById.get(transaction.transferLinkId) : null;
+    const partner = partnerTransaction && partnerTransaction.accountId !== accountId
+      ? {
+          id: partnerTransaction.id,
+          accountId: partnerTransaction.accountId,
+          accountName: accountNames.get(partnerTransaction.accountId) || "Another account",
+          date: partnerTransaction.date,
+          title: partnerTransaction.title || "Transaction",
+          signedAmount: signedFor(partnerTransaction),
+          fromBank: (partnerTransaction.matchedBankRows || []).length > 0,
+          defaultSelected: (partnerTransaction.matchedBankRows || []).length === 0
+        }
+      : null;
+
+    items.push({
+      id: transaction.id,
+      kind: "transaction",
+      date: transaction.date,
+      title: transaction.title || "Transaction",
+      signedAmount: signedFor(transaction),
+      category,
+      action: category === "matched_planned" ? "revert" : "remove",
+      defaultSelected: category !== "manual",
+      source: category === "manual"
+        ? (transaction.recurringItemId || transaction.isRecurring || transaction.status === "planned" ? "Planned / recurring" : "Entered by hand")
+        : `Imported from "${batch?.fileName || "a CSV"}"${category === "matched_planned" ? " (matched to a planned item — it goes back to planned)" : ""}`,
+      partner
+    });
+  });
+
+  (data.accountAdjustments || []).forEach(adjustment => {
+    if (adjustment.accountId !== accountId || !inRange(adjustment.date)) return;
+    const fromImport = adjustment.source === "csv_import_reconciliation" || Boolean(adjustment.importBatchId);
+    items.push({
+      id: adjustment.id,
+      kind: "adjustment",
+      date: adjustment.date,
+      title: "Balance adjustment",
+      signedAmount: Number(adjustment.amount || 0),
+      category: fromImport ? "csv_adjustment" : "other_adjustment",
+      action: "remove",
+      defaultSelected: true,
+      source: adjustment.note || (fromImport ? "Added by a CSV import" : "Added by reconcile"),
+      partner: null
+    });
+  });
+
+  items.sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
+  return { accountId, fromDate, toDate, items };
+}
+
+// Applies one or more replace plans. Each plan: { accountId, fromDate,
+// toDate, selectedIds: [], selectedPartnerIds: [] }. Returns the cleared data
+// plus, per account, the originals of everything removed or changed, so the
+// import batch can put them back on undo.
+export function applyReplacePlans(data, plans = []) {
+  const activePlans = plans.filter(plan => plan && (plan.selectedIds?.length || plan.selectedPartnerIds?.length));
+  if (!activePlans.length) return { data, replacedByAccount: {} };
+
+  const now = new Date().toISOString();
+  const transactionsById = new Map((data.transactions || []).map(transaction => [transaction.id, transaction]));
+  const adjustmentsById = new Map((data.accountAdjustments || []).map(adjustment => [adjustment.id, adjustment]));
+
+  const removeIds = new Set();
+  const revertIds = new Set();
+  const removeAdjustmentIds = new Set();
+  const ownerAccount = new Map();
+
+  activePlans.forEach(plan => {
+    (plan.selectedIds || []).forEach(id => {
+      ownerAccount.set(id, plan.accountId);
+      if (adjustmentsById.has(id)) {
+        removeAdjustmentIds.add(id);
+        return;
+      }
+      const transaction = transactionsById.get(id);
+      if (!transaction) return;
+      const fromBank = (transaction.matchedBankRows || []).length > 0;
+      const wasPlanned = Boolean(transaction.plannedDate) || (transaction.plannedAmount !== null && transaction.plannedAmount !== undefined);
+      if (fromBank && wasPlanned) revertIds.add(id);
+      else removeIds.add(id);
+    });
+    (plan.selectedPartnerIds || []).forEach(id => {
+      if (!transactionsById.has(id)) return;
+      if (!ownerAccount.has(id)) ownerAccount.set(id, plan.accountId);
+      removeIds.add(id);
+      revertIds.delete(id);
+    });
+  });
+
+  // Other sides of transfers that are staying: unlinked, and re-opened as
+  // waiting for their pair when they're real bank rows.
+  const reopenIds = new Map();
+  [...removeIds, ...revertIds].forEach(id => {
+    const partnerId = transactionsById.get(id)?.transferLinkId;
+    if (!partnerId || removeIds.has(partnerId) || revertIds.has(partnerId) || !transactionsById.has(partnerId)) return;
+    reopenIds.set(partnerId, transactionsById.get(id).accountId);
+    if (!ownerAccount.has(partnerId)) ownerAccount.set(partnerId, ownerAccount.get(id));
+  });
+
+  const replacedByAccount = {};
+  const record = (id, key, value) => {
+    const accountId = ownerAccount.get(id);
+    if (!accountId) return;
+    if (!replacedByAccount[accountId]) replacedByAccount[accountId] = { removedTransactions: [], changedTransactions: [], removedAdjustments: [] };
+    replacedByAccount[accountId][key].push(value);
+  };
+
+  const transactions = [];
+  (data.transactions || []).forEach(transaction => {
+    if (removeIds.has(transaction.id)) {
+      record(transaction.id, "removedTransactions", transaction);
+      return;
+    }
+    if (revertIds.has(transaction.id)) {
+      record(transaction.id, "changedTransactions", transaction);
+      const hasPlannedAmount = transaction.plannedAmount !== null && transaction.plannedAmount !== undefined;
+      transactions.push({
+        ...transaction,
+        date: transaction.plannedDate || transaction.date,
+        amount: hasPlannedAmount ? transaction.plannedAmount : transaction.amount,
+        actualDate: null,
+        actualAmount: null,
+        status: transaction.plannedDate || hasPlannedAmount ? "planned" : "confirmed",
+        importSource: transaction.importSource === "csv" ? null : transaction.importSource,
+        matchedBankRows: [],
+        transferLinkId: null,
+        updatedAt: now
+      });
+      return;
+    }
+    if (reopenIds.has(transaction.id)) {
+      record(transaction.id, "changedTransactions", transaction);
+      const fromBank = (transaction.matchedBankRows || []).length > 0;
+      transactions.push({
+        ...transaction,
+        transferLinkId: null,
+        status: fromBank ? "one_side_imported" : transaction.status,
+        linkedAccountId: fromBank ? reopenIds.get(transaction.id) : transaction.linkedAccountId || null,
+        updatedAt: now
+      });
+      return;
+    }
+    transactions.push(transaction);
+  });
+
+  const accountAdjustments = (data.accountAdjustments || []).filter(adjustment => {
+    if (!removeAdjustmentIds.has(adjustment.id)) return true;
+    record(adjustment.id, "removedAdjustments", adjustment);
+    return false;
+  });
+
+  return { data: { ...data, transactions, accountAdjustments }, replacedByAccount };
+}
+
+// Puts back whatever a "replace this period" import removed or changed.
+function restoreReplacedData(data, replaced) {
+  if (!replaced) return { data, restored: 0 };
+  const changedById = new Map((replaced.changedTransactions || []).map(transaction => [transaction.id, transaction]));
+  const existingIds = new Set((data.transactions || []).map(transaction => transaction.id));
+  const transactions = (data.transactions || []).map(transaction => changedById.get(transaction.id) || transaction);
+  const restoredRemoved = (replaced.removedTransactions || []).filter(transaction => !existingIds.has(transaction.id));
+  const existingAdjustmentIds = new Set((data.accountAdjustments || []).map(adjustment => adjustment.id));
+  const restoredAdjustments = (replaced.removedAdjustments || []).filter(adjustment => !existingAdjustmentIds.has(adjustment.id));
+  return {
+    data: {
+      ...data,
+      transactions: [...restoredRemoved, ...transactions],
+      accountAdjustments: [...restoredAdjustments, ...(data.accountAdjustments || [])]
+    },
+    restored: restoredRemoved.length + changedById.size + restoredAdjustments.length
+  };
+}
+
+function signedFor(transaction) {
+  return transaction.type === "income" ? Number(transaction.amount || 0) : -Number(transaction.amount || 0);
 }
 
 function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalisedMappings, transferRules, importRules, matchIndex, claimedDuplicateIds = new Set() }) {

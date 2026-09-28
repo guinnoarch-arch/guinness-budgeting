@@ -15,7 +15,9 @@ import {
   alignAccountToCsvTimeline,
   diagnoseCsvBalanceGaps,
   compareCsvOverlapWithApp,
-  getPriorImportCoverageForAccount
+  getPriorImportCoverageForAccount,
+  planReplacePeriod,
+  applyReplacePlans
 } from "../services/csvImportService.js";
 import { calculateAccountBalance, calculateAccountBalanceAtDate } from "../utils/calculations.js";
 import { createId } from "../utils/ids.js";
@@ -553,6 +555,121 @@ function OverlapCell({ description, amount, tag = "", flag = false, note = "" })
   );
 }
 
+// The date range each account's statement(s) cover in this import.
+function getAccountRanges(analysis) {
+  const ranges = new Map();
+  (analysis?.files || []).forEach(fileAnalysis => {
+    const from = fileAnalysis.firstCsvDate;
+    const to = fileAnalysis.reconciliation?.latestCsvDate || fileAnalysis.firstCsvDate;
+    if (!from || !to) return;
+    const current = ranges.get(fileAnalysis.accountId);
+    ranges.set(fileAnalysis.accountId, {
+      accountId: fileAnalysis.accountId,
+      fromDate: current && current.fromDate < from ? current.fromDate : from,
+      toDate: current && current.toDate > to ? current.toDate : to
+    });
+  });
+  return [...ranges.values()];
+}
+
+// Saves what a "replace this period" import cleared out onto that account's
+// import batch (the last one, if several statements were for it), so Undo
+// import can put it all back.
+function attachReplacedData(data, batches, replacedByAccount) {
+  const accountIds = Object.keys(replacedByAccount || {});
+  if (!accountIds.length) return data;
+  const batchIdByAccount = new Map();
+  (batches || []).forEach(batch => batchIdByAccount.set(batch.accountId, batch.id));
+  const batchReplaced = new Map();
+  accountIds.forEach(accountId => {
+    const batchId = batchIdByAccount.get(accountId) || batches?.at(-1)?.id;
+    if (!batchId) return;
+    const existing = batchReplaced.get(batchId) || { removedTransactions: [], changedTransactions: [], removedAdjustments: [] };
+    const replaced = replacedByAccount[accountId];
+    batchReplaced.set(batchId, {
+      removedTransactions: [...existing.removedTransactions, ...(replaced.removedTransactions || [])],
+      changedTransactions: [...existing.changedTransactions, ...(replaced.changedTransactions || [])],
+      removedAdjustments: [...existing.removedAdjustments, ...(replaced.removedAdjustments || [])]
+    });
+  });
+  return {
+    ...data,
+    importBatches: (data.importBatches || []).map(batch => batchReplaced.has(batch.id) ? { ...batch, replacedData: batchReplaced.get(batch.id) } : batch)
+  };
+}
+
+function ReplacePeriodPanel({ range, accountName, appData, activePlan, editor, openEditor, updateEditor, applyEditor, stopReplacing }) {
+  const plan = useMemo(
+    () => planReplacePeriod(appData, range.accountId, range.fromDate, range.toDate),
+    [appData, range.accountId, range.fromDate, range.toDate]
+  );
+  if (!plan.items.length && !activePlan) return null;
+
+  const removingCount = activePlan ? activePlan.selectedIds.length + activePlan.selectedPartnerIds.length : 0;
+
+  function toggle(setName, id, checked) {
+    const next = new Set(editor[setName]);
+    if (checked) next.add(id);
+    else next.delete(id);
+    updateEditor({ ...editor, [setName]: next });
+  }
+
+  return (
+    <div className={`import-reconciliation-box ${activePlan ? "warning" : "muted-box"} import-replace-box`}>
+      <div>
+        <strong>{accountName}: {range.fromDate} to {range.toDate}</strong>
+        {activePlan ? (
+          <span>Replacing this period with the CSV: {removingCount} existing item(s) will be removed or put back to planned, then the CSV is imported fresh. Nothing is saved until Confirm import, and Undo import puts them back.</span>
+        ) : (
+          <span>The app already has {plan.items.length} item(s) for this account in these dates. Normally the CSV only adds what's missing, so anything wrong from an earlier import stays. Replace the period to rebuild it from this CSV instead.</span>
+        )}
+      </div>
+      {!editor && (
+        <span className="import-diagnosis-fix-row">
+          <button type="button" className="secondary-button small" onClick={() => openEditor(range)}>
+            {activePlan ? "Change what's replaced" : "Replace this period with the CSV…"}
+          </button>
+          {activePlan && <button type="button" className="secondary-button small" onClick={() => stopReplacing(range.accountId)}>Stop replacing</button>}
+        </span>
+      )}
+      {editor && (
+        <div className="import-replace-editor">
+          <small className="muted-text">Ticked items are removed (planned items that an import matched go back to planned). Hand-entered items and reconcile adjustments start unticked — tick them if they're wrong.</small>
+          {editor.plan.items.map(item => (
+            <div key={item.id} className="import-replace-item">
+              <label className="checkbox-label">
+                <input type="checkbox" checked={editor.selectedIds.has(item.id)} onChange={event => toggle("selectedIds", item.id, event.target.checked)} />
+                <span>
+                  {item.date} · {item.title} · <strong className={item.signedAmount >= 0 ? "positive-text" : "negative-text"}>{signedMoney(item.signedAmount)}</strong>
+                  <small className="muted"> — {item.source}</small>
+                </span>
+              </label>
+              {item.partner && (
+                <label className="checkbox-label import-replace-partner">
+                  <input
+                    type="checkbox"
+                    disabled={!editor.selectedIds.has(item.id)}
+                    checked={editor.selectedIds.has(item.id) && editor.selectedPartnerIds.has(item.partner.id)}
+                    onChange={event => toggle("selectedPartnerIds", item.partner.id, event.target.checked)}
+                  />
+                  <span>
+                    Also remove its other side in <strong>{item.partner.accountName}</strong>: {item.partner.date} · {item.partner.title} · {signedMoney(item.partner.signedAmount)}
+                    <small className="muted"> — {item.partner.fromBank ? "from that account's bank statement; if kept it waits to be linked again" : "entered by hand, not from a bank statement"}</small>
+                  </span>
+                </label>
+              )}
+            </div>
+          ))}
+          <span className="import-diagnosis-fix-row">
+            <button type="button" className="primary-button small" onClick={applyEditor}>Replace and re-check</button>
+            <button type="button" className="secondary-button small" onClick={() => updateEditor(null)}>Cancel</button>
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BalanceChainCheckBox({ check, label }) {
   if (!check?.checked) {
     return (
@@ -626,6 +743,10 @@ export default function ImportPage({ appData, actions }) {
   const [rowEdits, setRowEdits] = useState({});
   const [trustCsvByDefault, setTrustCsvByDefault] = useState(readTrustCsvPreference);
   const [trustOverrides, setTrustOverrides] = useState({});
+  // accountId -> { fromDate, toDate, selectedIds, selectedPartnerIds }: the
+  // accounts whose statement period the CSV replaces rather than adds to.
+  const [replacePlans, setReplacePlans] = useState({});
+  const [replaceEditor, setReplaceEditor] = useState(null);
   const [activeFilter, setActiveFilter] = useState("all");
   const [status, setStatus] = useState("");
   const [importVerification, setImportVerification] = useState(null);
@@ -640,6 +761,11 @@ export default function ImportPage({ appData, actions }) {
   const latestImportBatches = (appData.importBatches || []).slice(0, 5);
   const effectiveRowEdits = isMultiAnalysis ? multiRowEdits : rowEdits;
   const visibleRows = analysis ? analysis.rows.filter(row => rowMatchesFilter(row, effectiveRowEdits, activeFilter)) : [];
+  // What the import is analysed and applied against: the real data, minus
+  // whatever the chosen "replace this period" plans clear out. Nothing is
+  // saved until Confirm import.
+  const importBase = useMemo(() => applyReplacePlans(appData, Object.values(replacePlans)), [appData, replacePlans]);
+  const baseData = importBase.data;
   const isAccountTrusted = accountId => trustOverrides[accountId] ?? trustCsvByDefault;
   // Derived rather than stored, so flipping "Trust the CSV" updates the
   // preview straight away without re-running the whole projection.
@@ -672,6 +798,8 @@ export default function ImportPage({ appData, actions }) {
     setAnalysis(null);
     setMultiRowEdits({});
     setTrustOverrides({});
+    setReplacePlans({});
+    setReplaceEditor(null);
     setActiveFilter("all");
 
     try {
@@ -739,6 +867,8 @@ export default function ImportPage({ appData, actions }) {
   function updateUploadItem(fileId, field, value) {
     setUploadItems(prev => prev.map(item => item.id === fileId ? { ...item, [field]: value } : item));
     setAnalysis(null);
+    setReplacePlans({});
+    setReplaceEditor(null);
   }
 
   function updateUploadItemMap(fileId, field, value) {
@@ -752,6 +882,8 @@ export default function ImportPage({ appData, actions }) {
   function removeUploadItem(fileId) {
     setUploadItems(prev => prev.filter(item => item.id !== fileId));
     setAnalysis(null);
+    setReplacePlans({});
+    setReplaceEditor(null);
     setMultiRowEdits({});
   }
 
@@ -841,7 +973,9 @@ export default function ImportPage({ appData, actions }) {
     closeAccountModal();
   }
 
-  function analyseImport() {
+  function analyseImport(baseOverride = null, plansOverride = null) {
+    const base = baseOverride || baseData;
+    const plans = plansOverride || replacePlans;
     const files = uploadItems.length
       ? uploadItems.filter(item => item.rows.length)
       : (rows.length ? [{
@@ -859,12 +993,13 @@ export default function ImportPage({ appData, actions }) {
     if (invalid) return setStatus(`Check the account and column mapping for "${invalid.fileName}".`);
 
     const analyses = files.map(item => ({
-      ...analyseCsvImport(appData, {
+      ...analyseCsvImport(base, {
         accountId: item.accountId,
         fileName: item.fileName,
         headers: item.headers,
         rows: item.rows,
-        columnMap: item.columnMap
+        columnMap: item.columnMap,
+        replacedRange: plans[item.accountId] || null
       }),
       fileId: item.id,
       accountId: item.accountId
@@ -894,7 +1029,7 @@ export default function ImportPage({ appData, actions }) {
 
     setAnalysis({
       id: createId("analysis"),
-      fileName: `${files.length} CSV files`,
+      fileName: files.length === 1 ? files[0].fileName : `${files.length} CSV files`,
       accountId: files[0].accountId,
       headers: [],
       columnMap: null,
@@ -1111,6 +1246,51 @@ export default function ImportPage({ appData, actions }) {
   // *before* anything is actually saved. Nothing here is persisted — only
   // actions.updateAppData in confirmImport (and fixOpeningBalance above)
   // ever writes real data.
+  // "Replace this period with the CSV": the plan is always built from the
+  // real, saved data. Applying it re-runs the analysis against the cleared
+  // data, which resets row edits — it's meant to be chosen before reviewing.
+  function openReplaceEditor(range) {
+    const plan = planReplacePeriod(appData, range.accountId, range.fromDate, range.toDate);
+    const existing = replacePlans[range.accountId];
+    setReplaceEditor({
+      accountId: range.accountId,
+      plan,
+      selectedIds: new Set(existing ? existing.selectedIds : plan.items.filter(item => item.defaultSelected).map(item => item.id)),
+      selectedPartnerIds: new Set(existing ? existing.selectedPartnerIds : plan.items.filter(item => item.partner?.defaultSelected).map(item => item.partner.id))
+    });
+  }
+
+  function applyReplaceEditor() {
+    if (!replaceEditor) return;
+    const { plan } = replaceEditor;
+    // A ticked "other side" only goes if its own item is going too.
+    const selectedIds = [...replaceEditor.selectedIds];
+    const selectedPartnerIds = plan.items
+      .filter(item => item.partner && replaceEditor.selectedIds.has(item.id) && replaceEditor.selectedPartnerIds.has(item.partner.id))
+      .map(item => item.partner.id);
+    const nextPlans = { ...replacePlans };
+    if (selectedIds.length) {
+      nextPlans[plan.accountId] = { accountId: plan.accountId, fromDate: plan.fromDate, toDate: plan.toDate, selectedIds, selectedPartnerIds };
+    } else {
+      delete nextPlans[plan.accountId];
+    }
+    setReplacePlans(nextPlans);
+    setReplaceEditor(null);
+    analyseImport(applyReplacePlans(appData, Object.values(nextPlans)).data, nextPlans);
+    setStatus(selectedIds.length
+      ? `Replacing ${plan.fromDate} to ${plan.toDate}: ${selectedIds.length + selectedPartnerIds.length} item(s) will be removed and the CSV imported fresh. Nothing is saved until you confirm, and Undo import puts them back.`
+      : "Nothing selected to replace, so the CSV will only add what's missing.");
+  }
+
+  function stopReplacing(accountId) {
+    const nextPlans = { ...replacePlans };
+    delete nextPlans[accountId];
+    setReplacePlans(nextPlans);
+    setReplaceEditor(null);
+    analyseImport(applyReplacePlans(appData, Object.values(nextPlans)).data, nextPlans);
+    setStatus("Stopped replacing — the CSV will only add what's missing for that account.");
+  }
+
   // The projection deliberately leaves out "Trust the CSV" adjustments, so
   // the check and "Diagnose problem" show the real calculated gap; the
   // adjustments trusting would add are worked out on top of it (see
@@ -1123,10 +1303,10 @@ export default function ImportPage({ appData, actions }) {
     if (analysis.isMulti) {
       const validFileIds = new Set(uploadItems.map(item => item.id));
       ({ data: projectedData, missingTransferFileName } = applyMultiCsvImport(
-        appData, analysis.files, analysis.rows, multiRowEdits, validFileIds
+        baseData, analysis.files, analysis.rows, multiRowEdits, validFileIds
       ));
     } else {
-      projectedData = applyCsvImport(appData, analysis, rowEdits, { trustCsvBalance: false }).data;
+      projectedData = applyCsvImport(baseData, analysis, rowEdits, { trustCsvBalance: false }).data;
     }
 
     setPreviewProjection(projectedData);
@@ -1155,7 +1335,7 @@ export default function ImportPage({ appData, actions }) {
     if (analysis.isMulti) {
       const validFileIds = new Set(uploadItems.map(item => item.id));
       const { data: workingData, result: aggregate, missingTransferFileName } = applyMultiCsvImport(
-        appData, analysis.files, analysis.rows, multiRowEdits, validFileIds, { trustAccountIds }
+        baseData, analysis.files, analysis.rows, multiRowEdits, validFileIds, { trustAccountIds }
       );
 
       if (missingTransferFileName) {
@@ -1164,7 +1344,8 @@ export default function ImportPage({ appData, actions }) {
         return;
       }
 
-      actions.updateAppData(workingData, { major: true, reason: "Multiple CSV imports completed" });
+      const savedData = attachReplacedData(workingData, aggregate.batches, importBase.replacedByAccount);
+      actions.updateAppData(savedData, { major: true, reason: "Multiple CSV imports completed" });
       const verification = verifyImportBalances(workingData, timelines, groupAdjustmentsByAccount(aggregate.reconciliationAdjustments));
       setImportVerification(verification.length > 0 ? verification : null);
       setStatus(`Import complete: ${aggregate.batches.length} statement(s), ${aggregate.importedTransactionIds.length} new, ${aggregate.linkedTransactionIds.length} linked, ${aggregate.skippedRows.length} skipped${aggregate.reconciliationAdjustments.length ? `, ${aggregate.reconciliationAdjustments.length} balance adjustment(s) to match the CSV` : ""}.`);
@@ -1176,6 +1357,8 @@ export default function ImportPage({ appData, actions }) {
       setMultiRowEdits({});
       setIsMultiAnalysis(false);
       setTrustOverrides({});
+      setReplacePlans({});
+      setReplaceEditor(null);
       setActiveFilter("all");
       return;
     }
@@ -1195,11 +1378,14 @@ export default function ImportPage({ appData, actions }) {
       return;
     }
 
-    const result = applyCsvImport(appData, analysis, rowEdits, {
+    const result = applyCsvImport(baseData, analysis, rowEdits, {
       trustCsvBalance: trustAccountIds.has(analysis.accountId)
     });
 
-    actions.updateAppData(result.data, { major: true, reason: "CSV import completed" });
+    actions.updateAppData(
+      attachReplacedData(result.data, [result.result.importBatch], importBase.replacedByAccount),
+      { major: true, reason: "CSV import completed" }
+    );
     const adjustments = result.result.reconciliationAdjustments || [];
     const verification = verifyImportBalances(result.data, timelines, groupAdjustmentsByAccount(adjustments));
     setImportVerification(verification.length > 0 ? verification : null);
@@ -1212,6 +1398,8 @@ export default function ImportPage({ appData, actions }) {
     setRowEdits({});
     setMultiRowEdits({});
     setTrustOverrides({});
+    setReplacePlans({});
+    setReplaceEditor(null);
     setActiveFilter("all");
   }
 
@@ -1305,7 +1493,7 @@ export default function ImportPage({ appData, actions }) {
         {fileName && !uploadItems.length && <p className="muted-text">Loaded file: <strong>{fileName}</strong> · {rows.length} raw row(s)</p>}
         {status && <div className="import-status-box">{status}</div>}
         <BalanceVerificationPanel verification={importVerification} mode="result" />
-        {uploadItems.length > 0 && <div className="modal-actions"><button type="button" className="primary-button" onClick={analyseImport}>Analyse all CSVs</button></div>}
+        {uploadItems.length > 0 && <div className="modal-actions"><button type="button" className="primary-button" onClick={() => analyseImport()}>Analyse all CSVs</button></div>}
       </section>
 
       {headers.length > 0 && uploadItems.length === 0 && (
@@ -1315,7 +1503,7 @@ export default function ImportPage({ appData, actions }) {
               <h3>2. Map columns</h3>
               <p className="muted-text">Auto-detected values are only a starting point. Change anything that looks wrong.</p>
             </div>
-            <button className="primary-button" onClick={analyseImport}>Analyse import</button>
+            <button className="primary-button" onClick={() => analyseImport()}>Analyse import</button>
           </div>
 
           <div className="form-grid import-map-grid">
@@ -1364,13 +1552,27 @@ export default function ImportPage({ appData, actions }) {
               <>
                 <BalanceChainCheckBox check={analysis.balanceChainCheck} />
                 <ReconciliationPreview
-                  appData={appData}
+                  appData={baseData}
                   analysis={analysis}
                   rowEdits={rowEdits}
                   trusted={isAccountTrusted(analysis.accountId)}
                 />
               </>
             )}
+            {getAccountRanges(analysis).map(range => (
+              <ReplacePeriodPanel
+                key={range.accountId}
+                range={range}
+                accountName={appData.accounts.find(account => account.id === range.accountId)?.name || "Account"}
+                appData={appData}
+                activePlan={replacePlans[range.accountId] || null}
+                editor={replaceEditor?.accountId === range.accountId ? replaceEditor : null}
+                openEditor={openReplaceEditor}
+                updateEditor={setReplaceEditor}
+                applyEditor={applyReplaceEditor}
+                stopReplacing={stopReplacing}
+              />
+            ))}
           </section>
 
           <section className="table-card import-preview-card">
@@ -1399,7 +1601,7 @@ export default function ImportPage({ appData, actions }) {
               mode="preview"
               analysis={analysis}
               rowEdits={effectiveRowEdits}
-              appData={appData}
+              appData={baseData}
               projectedData={previewProjection}
               isTrusted={isAccountTrusted}
               onSetTrusted={setAccountTrusted}
@@ -1441,7 +1643,7 @@ export default function ImportPage({ appData, actions }) {
                   const action = edit.action || row.action;
                   const categoryOptions = type === "income" ? incomeCategories : expenseCategories;
                   const transferText = getTransferText(row, edit, selectedAccountId, appData.accounts);
-                  const matchedTransaction = getMatchedTransactionInfo(row, edit, analysis, appData, appData.accounts);
+                  const matchedTransaction = getMatchedTransactionInfo(row, edit, analysis, baseData, appData.accounts);
                   const displayDate = edit.date || row.date;
                   const displayDescription = edit.description || row.description;
                   const displayAmount = Number(edit.amount ?? row.amount);
@@ -1834,7 +2036,11 @@ function buildUndoMessage(batch) {
     `- ${adjustment} reconciliation adjustment(s)`,
     "",
     "This will not delete planned transactions that were only matched.",
-    `It will unlink ${linked} matched row(s) and keep ${skipped} skipped row(s) skipped.`
+    `It will unlink ${linked} matched row(s) and keep ${skipped} skipped row(s) skipped.`,
+    ...(batch.replacedData ? [
+      "",
+      `This import replaced a period, so it will also put back ${(batch.replacedData.removedTransactions || []).length + (batch.replacedData.changedTransactions || []).length} transaction(s) and ${(batch.replacedData.removedAdjustments || []).length} adjustment(s) it removed or changed.`
+    ] : [])
   ].join("\n");
 }
 
