@@ -1402,6 +1402,50 @@ th {
   font-weight: 600;
 }
 
+.import-verification-row.trusted {
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.import-verification-row > small {
+  flex-basis: 100%;
+  font-weight: 400;
+  color: var(--text);
+}
+
+[data-theme="dark"] .import-verification-row.trusted {
+  color: #93c5fd;
+}
+
+.import-diagnosis-section {
+  display: grid;
+  gap: 3px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] .import-diagnosis-section {
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+.import-diagnosis-section ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.import-diagnosis-label {
+  font-weight: 600;
+}
+
+.import-info-note {
+  display: block;
+  color: #1d4ed8;
+}
+
+[data-theme="dark"] .import-info-note {
+  color: #93c5fd;
+}
+
 [data-theme="dark"] .import-verification-panel {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.12);
@@ -5455,5 +5499,215 @@ button[disabled] {
 
   .feature-flag-row {
     padding: 0.75rem;
+  }
+}
+
+/* Diagnose problem: bank CSV vs the app, side by side for shared days */
+.import-overlap-compare {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.import-overlap-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.import-overlap-head {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted, #6b7280);
+}
+
+.import-overlap-day {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.import-overlap-day.problem {
+  border-color: #fca5a5;
+}
+
+.import-overlap-day-header {
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.import-overlap-day.problem .import-overlap-day-header span:last-child {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.import-overlap-cell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.import-overlap-cell small {
+  grid-column: 1 / -1;
+}
+
+.import-overlap-cell.flag {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #fef2f2;
+}
+
+.import-overlap-cell.flag small {
+  color: #b91c1c;
+}
+
+.import-overlap-empty {
+  color: var(--muted, #9ca3af);
+}
+
+[data-theme="dark"] .import-overlap-day {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="dark"] .import-overlap-day.problem {
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+[data-theme="dark"] .import-overlap-cell.flag {
+  background: rgba(248, 113, 113, 0.12);
+}
+
+[data-theme="dark"] .import-overlap-cell.flag small {
+  color: #fca5a5;
+}
+
+.import-overlap-gap {
+  white-space: nowrap;
+}
+
+/* Accounts: "Check account" day-by-day view */
+.account-check-modal {
+  display: grid;
+  gap: 12px;
+  width: min(960px, 100%);
+}
+
+.account-check-controls {
+  display: grid;
+  gap: 8px;
+}
+
+.account-check-dates {
+  grid-template-columns: repeat(2, minmax(0, 200px));
+}
+
+.account-check-dates input {
+  min-width: 0;
+  width: 100%;
+}
+
+.account-check-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.account-check-days {
+  display: grid;
+  gap: 8px;
+}
+
+.account-check-day-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  font-size: 13px;
+}
+
+.account-check-out {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.account-check-in {
+  color: #15803d;
+}
+
+.account-check-item {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.account-check-flag {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+.account-check-flag.likely {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.account-check-flag.possible {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.account-check-flag.info {
+  color: #15803d;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.account-check-candidate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex-basis: 100%;
+  color: var(--text);
+}
+
+[data-theme="dark"] .account-check-flag.likely {
+  background: rgba(248, 113, 113, 0.14);
+  color: #fca5a5;
+}
+
+[data-theme="dark"] .account-check-flag.possible {
+  background: rgba(245, 158, 11, 0.14);
+  color: #fcd34d;
+}
+
+[data-theme="dark"] .account-check-flag.info,
+[data-theme="dark"] .account-check-in {
+  color: #86efac;
+}
+
+[data-theme="dark"] .account-check-out {
+  color: #fca5a5;
+}
+
+@media (max-width: 600px) {
+  .account-check-dates {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

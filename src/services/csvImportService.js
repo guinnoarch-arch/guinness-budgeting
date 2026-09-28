@@ -1,6 +1,6 @@
 import { createId } from "../utils/ids.js";
 import { calculateAccountBalanceAtDate } from "../utils/calculations.js";
-import { formatIsoDateLocal, todayIsoDate } from "../utils/dates.js";
+import { addDaysToIsoDate, formatIsoDateLocal, todayIsoDate } from "../utils/dates.js";
 
 // "started date" sits ahead of "completed date" on purpose: for a bank that
 // exports both (Revolut among them), the started/initiated timestamp is the
@@ -280,6 +280,7 @@ export function analyseCsvImport(data, { accountId, fileName, headers, rows, col
   // Built once per import instead of re-scanning every existing transaction
   // for every CSV row (previously 4 full linear scans per row).
   const matchIndex = buildTransactionMatchIndex(data.transactions, data.accounts);
+  const claimedDuplicateIds = new Set();
 
   const previewRows = safeRows
     .map((row, rowIndex) => buildPreviewRow({
@@ -292,9 +293,24 @@ export function analyseCsvImport(data, { accountId, fileName, headers, rows, col
       transferRules,
       importRules,
       matchIndex,
+      claimedDuplicateIds,
       now
     }))
     .filter(Boolean);
+
+  // Lloyds (and others) leave pending transactions off a statement until
+  // they clear, then list them on the *next* one under their original date —
+  // inside the date range an earlier import already covered. That's
+  // expected, not an error: say so on the row rather than leaving it looking
+  // like a suspicious late addition.
+  const priorCoverage = getPriorImportCoverage(data, accountId);
+  previewRows.forEach(row => {
+    if (row.action === "duplicate" || row.infoNote) return;
+    const covering = priorCoverage.find(item => item.firstDate && item.lastDate && row.date >= item.firstDate && row.date <= item.lastDate);
+    if (!covering) return;
+    row.likelyClearedPending = true;
+    row.infoNote = `Wasn't on your earlier import "${covering.fileName}" even though it covered ${covering.firstDate} to ${covering.lastDate} — most likely still pending when that statement was downloaded, so it's being added now.`;
+  });
 
   const csvBalanceRows = previewRows.filter(row => row.balance !== null && row.balance !== undefined && row.date);
   const balanceChainCheck = checkCsvBalanceChain(csvBalanceRows);
@@ -315,11 +331,22 @@ export function analyseCsvImport(data, { accountId, fileName, headers, rows, col
       }).at(-1)
     : null;
 
-  const latestCsvDate = previewRows
+  const sortedCsvDates = previewRows
     .filter(row => row.date)
     .map(row => row.date)
-    .sort()
-    .at(-1) || null;
+    .sort();
+  const latestCsvDate = sortedCsvDates.at(-1) || null;
+  const firstCsvDate = sortedCsvDates[0] || null;
+
+  // The bank's balance at the end of each day on the statement — the last
+  // row of each day in true chronological order. Comparing day by day
+  // (rather than row by row) sidesteps the order of same-day rows, and is
+  // what the diagnosis, overlap checks and "Trust the CSV" all work from.
+  const endOfDayBalances = new Map();
+  [...csvBalanceRows]
+    .sort((a, b) => a.date.localeCompare(b.date) || (newestFirst ? b.rowIndex - a.rowIndex : a.rowIndex - b.rowIndex))
+    .forEach(row => endOfDayBalances.set(row.date, row.balance));
+  const csvDailyBalances = [...endOfDayBalances].map(([date, balance]) => ({ date, balance }));
 
   const today = todayIsoDate();
   const hasNewerGbTransactions = latestCsvDate
@@ -358,7 +385,376 @@ export function analyseCsvImport(data, { accountId, fileName, headers, rows, col
     rows: previewRows,
     totals: summarisePreviewRows(previewRows),
     reconciliation,
-    balanceChainCheck
+    balanceChainCheck,
+    firstCsvDate,
+    csvDailyBalances
+  };
+}
+
+// Date ranges (and, for imports made since they started being recorded,
+// end-of-day balances) of every earlier import into this account. Older
+// batches didn't store their first date, so it's recovered from the bank
+// rows they left on transactions.
+function getPriorImportCoverage(data, accountId) {
+  const batches = (data.importBatches || []).filter(batch => batch.accountId === accountId && batch.latestCsvDate);
+  if (!batches.length) return [];
+
+  const missingFirst = new Set(batches.filter(batch => !batch.firstCsvDate).map(batch => batch.id));
+  const derivedFirst = new Map();
+  if (missingFirst.size) {
+    (data.transactions || []).forEach(transaction => {
+      (transaction.matchedBankRows || []).forEach(bankRow => {
+        if (!bankRow?.date || !missingFirst.has(bankRow.importBatchId)) return;
+        const current = derivedFirst.get(bankRow.importBatchId);
+        if (!current || bankRow.date < current) derivedFirst.set(bankRow.importBatchId, bankRow.date);
+      });
+    });
+  }
+
+  return batches.map(batch => ({
+    batchId: batch.id,
+    fileName: batch.fileName || "CSV import",
+    importedAt: batch.importedAt,
+    firstDate: batch.firstCsvDate || derivedFirst.get(batch.id) || null,
+    lastDate: batch.latestCsvDate,
+    dailyBalances: Array.isArray(batch.csvDailyBalances) ? batch.csvDailyBalances : []
+  }));
+}
+
+// One authoritative bank balance per day for an account, from every
+// statement for it in this import. Where statements overlap, the one that
+// runs later wins for every day it covers: it was downloaded after the
+// others, so it includes anything that was still pending on them. The
+// other statements' figures for that day are kept alongside for the
+// diagnosis to explain the difference.
+export function buildCsvBalanceTimeline(fileAnalyses) {
+  const files = (fileAnalyses || [])
+    .map((fileAnalysis, index) => ({ fileAnalysis, index, days: fileAnalysis?.csvDailyBalances || [] }))
+    .filter(item => item.days.length > 0)
+    .sort((a, b) => (
+      b.days.at(-1).date.localeCompare(a.days.at(-1).date)
+      || b.days[0].date.localeCompare(a.days[0].date)
+      || b.index - a.index
+    ));
+
+  const byDate = new Map();
+  files.forEach(({ fileAnalysis, days }) => {
+    days.forEach(day => {
+      const existing = byDate.get(day.date);
+      if (!existing) {
+        byDate.set(day.date, { date: day.date, balance: Number(day.balance), fileId: fileAnalysis.fileId || null, fileName: fileAnalysis.fileName || "CSV", otherReports: [] });
+      } else {
+        existing.otherReports.push({ fileName: fileAnalysis.fileName || "CSV", balance: Number(day.balance) });
+      }
+    });
+  });
+
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function getPriorImportCoverageForAccount(data, accountId) {
+  return getPriorImportCoverage(data, accountId);
+}
+
+// Works out *where* an account stops agreeing with its CSV(s), using the
+// projected data (the real import logic run against a throwaway copy, so
+// duplicates, transfers and planned matches are all counted exactly as they
+// will be). Compares end-of-day balances, which avoids the order of
+// same-day rows, and reports:
+//  - startGap: how far out the account already was *before* the first
+//    statement day (opening balance / earlier history)
+//  - each day the gap changes, with the CSV rows that aren't in the app and
+//    the app items that aren't on the CSV for that day
+//  - days where overlapping statements (in this import or an earlier one)
+//    disagree about the balance — normally a pending item that cleared later
+// `csvRows`: this account's rows as [{ id, date, signedAmount, description,
+// sourceRowHash, fileId, status, likelyClearedPending }] where status is
+// "imported" | "unticked" | "duplicate" | "overlap_duplicate".
+export function diagnoseCsvBalanceGaps(data, accountId, timeline, csvRows, { priorCoverage = [], maxExplainedDays = 6 } = {}) {
+  if (!timeline?.length) return null;
+  const account = (data.accounts || []).find(item => item.id === accountId);
+  if (!account) return null;
+
+  const firstDay = timeline[0];
+  const dayBeforeFirst = addDaysToIsoDate(firstDay.date, -1);
+  const firstDayRows = csvRows.filter(row => row.date === firstDay.date && (row.fileId ?? null) === (firstDay.fileId ?? null));
+  const csvBefore = roundMoney(firstDay.balance - firstDayRows.reduce((total, row) => total + Number(row.signedAmount || 0), 0));
+  const ghBefore = roundMoney(calculateAccountBalanceAtDate(data, accountId, dayBeforeFirst));
+  const startGap = roundMoney(ghBefore - csvBefore);
+
+  let previousGap = startGap;
+  const days = timeline.map(day => {
+    const ghBalance = roundMoney(calculateAccountBalanceAtDate(data, accountId, day.date));
+    const gap = roundMoney(ghBalance - day.balance);
+    const change = roundMoney(gap - previousGap);
+    previousGap = gap;
+    return { ...day, csvBalance: day.balance, ghBalance, gap, change };
+  });
+
+  const changedDays = days
+    .filter(day => Math.abs(day.change) >= 0.005)
+    .slice(0, maxExplainedDays)
+    .map(day => ({ ...day, ...explainCsvDay(data, accountId, day, csvRows) }));
+
+  const hasPriorHistory = (data.transactions || []).some(transaction => transaction.accountId === accountId && transaction.date && transaction.date <= dayBeforeFirst)
+    || (data.accountAdjustments || []).some(adjustment => adjustment.accountId === accountId && (!adjustment.date || adjustment.date <= dayBeforeFirst));
+
+  const overlapDifferences = [];
+  days.forEach(day => {
+    (day.otherReports || []).forEach(report => {
+      const difference = roundMoney(day.csvBalance - report.balance);
+      if (Math.abs(difference) >= 0.005) {
+        overlapDifferences.push({ date: day.date, fileName: day.fileName, balance: day.csvBalance, otherFileName: report.fileName, otherBalance: report.balance, difference, earlierImport: false });
+      }
+    });
+  });
+  const csvByDate = new Map(days.map(day => [day.date, day]));
+  priorCoverage.forEach(prior => {
+    (prior.dailyBalances || []).forEach(priorDay => {
+      const day = csvByDate.get(priorDay.date);
+      if (!day) return;
+      const difference = roundMoney(day.csvBalance - Number(priorDay.balance));
+      if (Math.abs(difference) >= 0.005) {
+        overlapDifferences.push({ date: day.date, fileName: day.fileName, balance: day.csvBalance, otherFileName: prior.fileName, otherBalance: Number(priorDay.balance), difference, earlierImport: true });
+      }
+    });
+  });
+
+  const finalDay = days.at(-1);
+  return {
+    firstDate: firstDay.date,
+    lastDate: finalDay.date,
+    ghBefore,
+    csvBefore,
+    startGap,
+    finalGap: finalDay.gap,
+    matches: Math.abs(finalDay.gap) < 0.005,
+    daysOut: days.filter(day => Math.abs(day.gap) >= 0.005).length,
+    totalDays: days.length,
+    changedDays,
+    moreChangedDays: Math.max(0, days.filter(day => Math.abs(day.change) >= 0.005).length - changedDays.length),
+    overlapDifferences: overlapDifferences.slice(0, 8),
+    likelyPendingRows: csvRows.filter(row => row.likelyClearedPending && row.status === "imported").slice(0, 8),
+    canFixOpeningBalance: Math.abs(startGap) >= 0.005 && !hasPriorHistory,
+    impliedOpeningBalance: roundMoney(Number(account.openingBalance || 0) - startGap)
+  };
+}
+
+// For one statement day: which CSV rows have no counterpart in the app, and
+// which app items (transactions or adjustments) have no counterpart on the
+// CSV. Bank-row hashes are matched first (exact), then plain signed amount.
+// Side-by-side check of the days a CSV shares with what's already in the
+// app (e.g. the app is up to date to the 10th and the CSV starts on the
+// 5th). `baseData` is the data *before* this import, so the right-hand side
+// is exactly what the app had. For each shared day it pairs each bank row
+// with the saved item it corresponds to — bank-row hash first, then amount
+// and wording, then amount alone — and lists whatever is left over on
+// either side, plus both end-of-day balances. Leftovers a day apart with the
+// same amount are cross-referenced, since that's usually the same payment
+// dated differently rather than a real error.
+export function compareCsvOverlapWithApp(baseData, accountId, timeline, csvRows, { maxDays = 31 } = {}) {
+  if (!timeline?.length) return null;
+  const csvFirst = timeline[0].date;
+  const csvLast = timeline.at(-1).date;
+  const today = todayIsoDate();
+
+  // How far the app is "up to date": its latest bank-imported item for this
+  // account, or failing that its latest item that isn't in the future.
+  const accountTransactions = (baseData.transactions || []).filter(transaction => transaction.accountId === accountId && transaction.date);
+  const fromBank = accountTransactions.filter(transaction => (transaction.matchedBankRows || []).length > 0 || transaction.importSource === "csv");
+  const pool = fromBank.length ? fromBank : accountTransactions.filter(transaction => transaction.date <= today);
+  const appLatestDate = pool.map(transaction => transaction.date).sort().at(-1) || null;
+  if (!appLatestDate || appLatestDate < csvFirst) return null;
+
+  const endDate = appLatestDate < csvLast ? appLatestDate : csvLast;
+  const sharedDays = timeline.filter(day => day.date >= csvFirst && day.date <= endDate);
+  const truncatedDays = Math.max(0, sharedDays.length - maxDays);
+
+  const days = sharedDays.slice(-maxDays).map(day => {
+    const appBalance = roundMoney(calculateAccountBalanceAtDate(baseData, accountId, day.date));
+    const dayRows = csvRows.filter(row => row.date === day.date && (row.fileId ?? null) === (day.fileId ?? null));
+    const appItems = getAppItemsOnDate(baseData, accountId, day.date);
+
+    const used = new Set();
+    const pairs = [];
+    const unpaired = [];
+    const tests = [
+      (row, item) => row.sourceRowHash && item.hashes.has(row.sourceRowHash),
+      (row, item) => item.kind === "transaction" && Math.abs(item.signedAmount - Number(row.signedAmount)) <= 0.005 && overlapTextMatches({ description: row.description }, { description: item.title }),
+      (row, item) => item.kind === "transaction" && Math.abs(item.signedAmount - Number(row.signedAmount)) <= 0.005
+    ];
+    let remaining = dayRows;
+    tests.forEach(test => {
+      const stillUnpaired = [];
+      remaining.forEach(row => {
+        const item = appItems.find(candidate => !used.has(candidate.id) && test(row, candidate));
+        if (item) {
+          used.add(item.id);
+          pairs.push({ csv: row, app: stripHashes(item) });
+        } else {
+          stillUnpaired.push(row);
+        }
+      });
+      remaining = stillUnpaired;
+    });
+    unpaired.push(...remaining);
+
+    return {
+      date: day.date,
+      fileName: day.fileName,
+      csvBalance: roundMoney(day.balance),
+      appBalance,
+      gap: roundMoney(appBalance - day.balance),
+      pairs,
+      onlyCsv: unpaired.map(row => ({ ...row })),
+      onlyApp: appItems.filter(item => !used.has(item.id)).map(stripHashes)
+    };
+  });
+
+  // Same amount, a day or two apart, left over on opposite sides.
+  const leftoverApp = days.flatMap(day => day.onlyApp.map(item => ({ item, date: day.date })));
+  const claimedApp = new Set();
+  days.forEach(day => {
+    day.onlyCsv.forEach(row => {
+      const partner = leftoverApp.find(entry => (
+        !claimedApp.has(entry.item.id)
+        && entry.date !== day.date
+        && daysBetween(entry.date, day.date) <= 2
+        && entry.item.kind === "transaction"
+        && Math.abs(entry.item.signedAmount - Number(row.signedAmount)) <= 0.005
+      ));
+      if (!partner) return;
+      claimedApp.add(partner.item.id);
+      row.possiblyDatedDifferently = partner.date;
+      partner.item.possiblyDatedDifferently = day.date;
+    });
+  });
+
+  return {
+    startDate: csvFirst,
+    endDate,
+    appLatestDate,
+    truncatedDays,
+    days,
+    problemDays: days.filter(day => Math.abs(day.gap) >= 0.005 || day.onlyCsv.length > 0 || day.onlyApp.length > 0).length
+  };
+}
+
+function getAppItemsOnDate(data, accountId, date) {
+  return [
+    ...(data.transactions || [])
+      .filter(transaction => transaction.accountId === accountId && transaction.date === date && (transaction.type === "income" || transaction.type === "expense"))
+      .map(transaction => ({
+        id: transaction.id,
+        kind: "transaction",
+        title: transaction.title || "Transaction",
+        signedAmount: transaction.type === "income" ? Number(transaction.amount || 0) : -Number(transaction.amount || 0),
+        hashes: new Set((transaction.matchedBankRows || []).map(bankRow => bankRow?.sourceRowHash).filter(Boolean)),
+        fromBank: (transaction.matchedBankRows || []).length > 0,
+        isTransfer: Boolean(transaction.transferLinkId || transaction.linkedAccountId)
+      })),
+    ...(data.accountAdjustments || [])
+      .filter(adjustment => adjustment.accountId === accountId && adjustment.date === date)
+      .map(adjustment => ({
+        id: adjustment.id,
+        kind: "adjustment",
+        title: adjustment.note || "Balance adjustment",
+        signedAmount: Number(adjustment.amount || 0),
+        hashes: new Set(),
+        fromBank: false,
+        isTransfer: false
+      }))
+  ];
+}
+
+function stripHashes({ hashes, ...item }) {
+  return item;
+}
+
+function explainCsvDay(data, accountId, day, csvRows) {
+  const dayRows = csvRows.filter(row => row.date === day.date && (row.fileId ?? null) === (day.fileId ?? null));
+  const appItems = [
+    ...(data.transactions || [])
+      .filter(transaction => transaction.accountId === accountId && transaction.date === day.date && (transaction.type === "income" || transaction.type === "expense"))
+      .map(transaction => ({
+        id: transaction.id,
+        kind: "transaction",
+        title: transaction.title || "Transaction",
+        signedAmount: transaction.type === "income" ? Number(transaction.amount || 0) : -Number(transaction.amount || 0),
+        hashes: new Set((transaction.matchedBankRows || []).map(bankRow => bankRow?.sourceRowHash).filter(Boolean)),
+        fromBank: (transaction.matchedBankRows || []).length > 0
+      })),
+    ...(data.accountAdjustments || [])
+      .filter(adjustment => adjustment.accountId === accountId && adjustment.date === day.date)
+      .map(adjustment => ({
+        id: adjustment.id,
+        kind: "adjustment",
+        title: adjustment.note || "Balance adjustment",
+        signedAmount: Number(adjustment.amount || 0),
+        hashes: new Set(),
+        fromBank: false
+      }))
+  ];
+
+  const usedItems = new Set();
+  const unmatchedRows = [];
+  dayRows.forEach(row => {
+    const byHash = appItems.find(item => !usedItems.has(item.id) && row.sourceRowHash && item.hashes.has(row.sourceRowHash));
+    if (byHash) {
+      usedItems.add(byHash.id);
+      return;
+    }
+    unmatchedRows.push(row);
+  });
+  const missingFromApp = [];
+  unmatchedRows.forEach(row => {
+    const byAmount = appItems.find(item => !usedItems.has(item.id) && item.kind === "transaction" && Math.abs(item.signedAmount - Number(row.signedAmount)) <= 0.005);
+    if (byAmount) {
+      usedItems.add(byAmount.id);
+      return;
+    }
+    missingFromApp.push(row);
+  });
+
+  return {
+    missingFromApp,
+    notOnCsv: appItems.filter(item => !usedItems.has(item.id)).map(({ hashes, ...item }) => item)
+  };
+}
+
+// "Trust the CSV": after the rows are in, add a dated adjustment wherever
+// the app's calculated balance still differs from the bank's end-of-day
+// balance, so the account matches the statement on every day it covers
+// (not just the last one). Each adjustment is only the *change* in the gap
+// since the previous day, so a single missing/extra item produces a single
+// adjustment on the day it happened rather than one per day after it.
+// Adjustments carry the import batch id, so undoing the import removes them.
+export function alignAccountToCsvTimeline(data, accountId, timeline, { importBatchId = null, fileName = "CSV import", now = new Date().toISOString() } = {}) {
+  const adjustments = [];
+  let previousGap = 0;
+
+  (timeline || []).forEach(day => {
+    const gap = roundMoney(Number(day.balance) - calculateAccountBalanceAtDate(data, accountId, day.date));
+    const step = roundMoney(gap - previousGap);
+    previousGap = gap;
+    if (Math.abs(step) < 0.005) return;
+
+    adjustments.push({
+      id: createId("adj"),
+      accountId,
+      date: day.date,
+      amount: step,
+      note: `Trusted CSV balance from ${day.fileName || fileName}: the bank showed ${formatAmountForNote(day.balance)} at the end of ${day.date}, the app had ${formatAmountForNote(Number(day.balance) - gap)}.`,
+      source: "csv_import_reconciliation",
+      importBatchId,
+      createdAt: now
+    });
+  });
+
+  if (!adjustments.length) return { data, adjustments };
+  return {
+    data: { ...data, accountAdjustments: [...adjustments, ...(data.accountAdjustments || [])] },
+    adjustments
   };
 }
 
@@ -588,28 +984,23 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
     rememberCategoryRule(nextData, effectivePreviewRow, finalCategoryId, finalType, now);
   });
 
-  let reconciliationAdjustment = null;
+  // The CSV is the bank's own record, so when asked to trust it the account
+  // is brought into line with it day by day (see alignAccountToCsvTimeline).
+  // `createReconciliationAdjustment` is the older name for the same option.
+  let reconciliationAdjustments = [];
+  const trustCsvBalance = Boolean(options.trustCsvBalance ?? options.createReconciliationAdjustment);
+  const balanceTimeline = options.balanceTimeline || buildCsvBalanceTimeline([analysis]);
 
-  if (options.createReconciliationAdjustment && analysis.reconciliation?.available) {
-    const checkDate = analysis.reconciliation.latestCsvDate;
-    const csvBalance = Number(analysis.reconciliation.csvClosingBalance);
-    const gbBalanceAtDate = calculateAccountBalanceAtDate(nextData, accountId, checkDate);
-    const difference = roundMoney(csvBalance - gbBalanceAtDate);
-
-    if (Math.abs(difference) >= 0.005) {
-      reconciliationAdjustment = {
-        id: createId("adj"),
-        accountId,
-        date: checkDate,
-        amount: difference,
-        note: `CSV balance reconciliation from ${analysis.fileName || "CSV import"}. Matched bank balance ${formatAmountForNote(csvBalance)} on ${checkDate}.`,
-        source: "csv_import_reconciliation",
-        importBatchId,
-        createdAt: now
-      };
-      nextData.accountAdjustments = [reconciliationAdjustment, ...nextData.accountAdjustments];
-    }
+  if (trustCsvBalance && balanceTimeline.length > 0) {
+    const aligned = alignAccountToCsvTimeline(nextData, accountId, balanceTimeline, {
+      importBatchId,
+      fileName: analysis.fileName || "CSV import",
+      now
+    });
+    nextData = aligned.data;
+    reconciliationAdjustments = aligned.adjustments;
   }
+  const reconciliationAdjustment = reconciliationAdjustments.at(-1) || null;
 
   rememberCsvColumnMapping(nextData, analysis, accountId, now);
 
@@ -625,14 +1016,17 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
     transactionIds: importedTransactionIds,
     linkedTransactionIds,
     skippedRowDetails: skippedRows,
+    firstCsvDate: analysis.firstCsvDate || null,
     latestCsvDate: analysis.reconciliation?.latestCsvDate || null,
     csvClosingBalance: analysis.reconciliation?.csvClosingBalance ?? null,
-    reconciliationStatus: reconciliationAdjustment
+    csvDailyBalances: analysis.csvDailyBalances || [],
+    reconciliationStatus: reconciliationAdjustments.length
       ? "adjustment_created"
       : analysis.reconciliation?.available
         ? "checked_no_adjustment_created"
         : "not_available",
     reconciliationAdjustmentId: reconciliationAdjustment?.id || null,
+    reconciliationAdjustmentIds: reconciliationAdjustments.map(adjustment => adjustment.id),
     columnMap: analysis.columnMap,
     headerSignature: buildCsvHeaderSignature(analysis.headers || []),
     actionCounts: summarisePreviewRows(analysis.rows || [])
@@ -647,7 +1041,8 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
       importedTransactionIds,
       linkedTransactionIds,
       skippedRows,
-      reconciliationAdjustment
+      reconciliationAdjustment,
+      reconciliationAdjustments
     }
   };
 }
@@ -744,7 +1139,7 @@ export function undoCsvImport(data, importBatchId) {
   };
 }
 
-function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalisedMappings, transferRules, importRules, matchIndex }) {
+function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalisedMappings, transferRules, importRules, matchIndex, claimedDuplicateIds = new Set() }) {
   const rawDate = getCell(row, columnMap.date);
   const rawDescription = getCell(row, columnMap.description);
   const description = rawDescription || `CSV row ${rowIndex + 2}`;
@@ -768,7 +1163,12 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
   const sourceRowHash = createSourceRowHash({ accountId, date, amount: signedAmount, description });
 
   const oppositeAccountMatch = findOppositeSignAccountMatch(matchIndex, accountId, date, time, signedAmount, description);
-  const existingDuplicate = oppositeAccountMatch ? null : findExistingImportedRow(matchIndex, sourceRowHash, accountId, date, time, signedAmount, description);
+  const existingDuplicate = oppositeAccountMatch ? null : findExistingImportedRow(matchIndex, sourceRowHash, accountId, date, time, signedAmount, description, claimedDuplicateIds);
+  // Would have been a duplicate if an identical row earlier in this file
+  // hadn't already claimed that saved transaction — i.e. this is a second,
+  // real, identical transaction the previous import never saw.
+  const identicalToClaimedRow = !oppositeAccountMatch && !existingDuplicate && claimedDuplicateIds.size > 0
+    && Boolean(findExistingImportedRow(matchIndex, sourceRowHash, accountId, date, time, signedAmount, description));
   const mappedExternalAccount = findExternalAccountMatch(normalisedMappings, description);
   const transferRule = findTransferRule(transferRules, accountId, description);
   const likelyTransfer = Boolean(transferRule || mappedExternalAccount || isLikelyTransferDescription(description));
@@ -831,6 +1231,7 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
     actionLabel = "Already imported / duplicate";
     defaultInclude = false;
     matchTransactionId = existingDuplicate.id;
+    claimedDuplicateIds.add(existingDuplicate.id);
     warning = "This looks like an existing transaction. Compare both before deciding.";
   } else if (plannedMatch) {
     action = "match_planned";
@@ -884,6 +1285,11 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
     actionLabel,
     defaultInclude,
     warning,
+    // Informational only (shown, but doesn't put the row in "Needs review").
+    infoNote: identicalToClaimedRow
+      ? "Identical to another row on this statement that's already imported — this second one is new (most likely it was still pending last time), so it's being added."
+      : "",
+    identicalToClaimedRow,
     suggestedExcludeFromBudget,
     externalAccountName,
     confidence: getConfidenceLabel(action, plannedMatch, existingTransferMatch),
@@ -1265,6 +1671,115 @@ function hasCorroboratedTiming(pair) {
   return Boolean(pair.a.time) && Boolean(pair.b.time) && pair.gapMinutes <= 10;
 }
 
+// Two statements for the same account uploaded together (e.g. last month's
+// and this month's, downloaded with a few days' overlap to catch pending
+// transactions) contain the same rows for the days they share. Without this,
+// neither copy exists in the app yet at preview time, so both would be
+// imported and every overlapping transaction double-counted.
+//
+// The statement that runs later is treated as the truth for the days they
+// share — it was downloaded after the other, so anything that was pending on
+// the older one has cleared onto it. Each older-statement row is paired off
+// against the newer statement (same amount, matching wording, same day first,
+// then up to 5 days apart for a re-dated pending item): paired rows are
+// skipped as "also on the newer statement", newer rows with no partner are
+// flagged as "was pending", and older rows with no partner are unticked
+// because the newer statement's balance doesn't include them.
+function markSameAccountOverlaps(analyses, combinedRows) {
+  const rowsByFile = new Map();
+  combinedRows.forEach(row => {
+    if (!rowsByFile.has(row.fileId)) rowsByFile.set(row.fileId, []);
+    rowsByFile.get(row.fileId).push(row);
+  });
+
+  const filesByAccount = new Map();
+  analyses.forEach((fileAnalysis, index) => {
+    const rows = (rowsByFile.get(fileAnalysis.fileId) || []).filter(row => row.date);
+    if (!rows.length) return;
+    const dates = rows.map(row => row.date).sort();
+    const entry = { fileAnalysis, index, rows, firstDate: dates[0], lastDate: dates.at(-1) };
+    if (!filesByAccount.has(fileAnalysis.accountId)) filesByAccount.set(fileAnalysis.accountId, []);
+    filesByAccount.get(fileAnalysis.accountId).push(entry);
+  });
+
+  filesByAccount.forEach(files => {
+    if (files.length < 2) return;
+    files.sort((a, b) => b.lastDate.localeCompare(a.lastDate) || b.firstDate.localeCompare(a.firstDate) || b.index - a.index);
+
+    files.forEach((older, olderPosition) => {
+      files.slice(0, olderPosition).forEach(newer => {
+        const overlapStart = older.firstDate > newer.firstDate ? older.firstDate : newer.firstDate;
+        const overlapEnd = older.lastDate < newer.lastDate ? older.lastDate : newer.lastDate;
+        if (overlapStart > overlapEnd) return;
+
+        const inOverlap = row => row.date >= overlapStart && row.date <= overlapEnd;
+        // Rows that are already duplicates of something saved in the app are
+        // handled by that match and take no part in the pairing.
+        const olderRows = older.rows.filter(row => inOverlap(row) && row.action !== "duplicate" && !row.overlapDuplicateOf);
+        const newerRows = newer.rows.filter(row => row.date >= addDaysToIsoDate(overlapStart, -5) && row.date <= addDaysToIsoDate(overlapEnd, 5) && row.action !== "duplicate" && !row.overlapDuplicateOf);
+        const claimed = new Set();
+
+        const passes = [
+          (a, b) => a.date === b.date && overlapTextMatches(a, b),
+          (a, b) => daysBetween(a.date, b.date) <= 1 && overlapTextMatches(a, b),
+          (a, b) => daysBetween(a.date, b.date) <= 5 && overlapTextMatches(a, b)
+        ];
+        const partners = new Map();
+        passes.forEach(test => {
+          olderRows.forEach(olderRow => {
+            if (partners.has(olderRow.id)) return;
+            const partner = newerRows.find(newerRow => (
+              !claimed.has(newerRow.id)
+              && Math.abs(Number(newerRow.signedAmount) - Number(olderRow.signedAmount)) <= 0.005
+              && test(olderRow, newerRow)
+            ));
+            if (!partner) return;
+            claimed.add(partner.id);
+            partners.set(olderRow.id, partner);
+          });
+        });
+
+        const olderName = older.fileAnalysis.fileName || "the older statement";
+        const newerName = newer.fileAnalysis.fileName || "the newer statement";
+
+        olderRows.forEach(olderRow => {
+          const partner = partners.get(olderRow.id);
+          if (partner) {
+            olderRow.action = "duplicate";
+            olderRow.actionLabel = "Also on newer statement";
+            olderRow.type = olderRow.baseType;
+            olderRow.linkedAccountId = null;
+            olderRow.matchTransactionId = null;
+            olderRow.defaultInclude = false;
+            olderRow.confidence = "High";
+            olderRow.warning = "";
+            olderRow.overlapDuplicateOf = partner.id;
+            olderRow.infoNote = `Same transaction is on ${newerName}${partner.date !== olderRow.date ? ` (dated ${partner.date} there)` : ""}, which is newer — it's imported from there instead, so it only counts once.`;
+            return;
+          }
+          olderRow.overlapConflict = true;
+          olderRow.defaultInclude = false;
+          olderRow.warning = `Not on ${newerName}, even though that newer statement also covers ${olderRow.date}. The bank may have cancelled or re-dated it (common with pending payments), so it's unticked and the newer statement's balance is used. Tick it if it really happened.`;
+        });
+
+        newerRows.filter(row => inOverlap(row) && !claimed.has(row.id)).forEach(newerRow => {
+          newerRow.likelyClearedPending = true;
+          if (!newerRow.infoNote) {
+            newerRow.infoNote = `Not on ${olderName}, although that statement covers ${newerRow.date} — most likely still pending when it was downloaded. Kept, as ${newerName} is the newer statement.`;
+          }
+        });
+      });
+    });
+  });
+}
+
+function overlapTextMatches(a, b) {
+  const textA = normaliseText(a.description);
+  const textB = normaliseText(b.description);
+  if (!textA || !textB) return textA === textB;
+  return textA === textB || textA.includes(textB.slice(0, 14)) || textB.includes(textA.slice(0, 14));
+}
+
 export function combineCsvAnalyses(analyses) {
   const combinedRows = [];
   analyses.forEach(fileAnalysis => {
@@ -1279,6 +1794,8 @@ export function combineCsvAnalyses(analyses) {
       });
     });
   });
+
+  markSameAccountOverlaps(analyses, combinedRows);
 
   // Score every plausible opposite-sign, different-account pair by how close
   // together (in time, using the Time column when it's mapped) they
@@ -1298,6 +1815,9 @@ export function combineCsvAnalyses(analyses) {
     // since that guess is exactly what cross-file pairing is meant to
     // confirm or correct.
     && row.action !== "match_existing_transfer"
+    // Left off by the newer overlapping statement for the same account —
+    // don't let transfer pairing quietly tick it back on.
+    && !row.overlapConflict
   ));
 
   const candidatePairs = [];
@@ -1410,9 +1930,10 @@ export function combineCsvAnalyses(analyses) {
 // combinedRows' `${fileId}__${rowId}` ids. `validFileIds`, if given, skips
 // any analysis entry whose fileId isn't in the set (mirrors the UI's guard
 // against a file having been removed from the upload list).
-export function applyMultiCsvImport(appData, analyses, combinedRows, rowEditsByCombinedId, validFileIds) {
+export function applyMultiCsvImport(appData, analyses, combinedRows, rowEditsByCombinedId, validFileIds, options = {}) {
   let workingData = appData;
-  const aggregate = { importedTransactionIds: [], linkedTransactionIds: [], skippedRows: [], batches: [] };
+  const aggregate = { importedTransactionIds: [], linkedTransactionIds: [], skippedRows: [], batches: [], reconciliationAdjustments: [] };
+  const batchIdByAccount = new Map();
 
   for (const fileAnalysis of analyses) {
     if (validFileIds && !validFileIds.has(fileAnalysis.fileId)) continue;
@@ -1493,7 +2014,37 @@ export function applyMultiCsvImport(appData, analyses, combinedRows, rowEditsByC
     aggregate.linkedTransactionIds.push(...result.result.linkedTransactionIds);
     aggregate.skippedRows.push(...result.result.skippedRows);
     aggregate.batches.push(result.result.importBatch);
+    batchIdByAccount.set(fileAnalysis.accountId, result.result.importBatch.id);
   }
+
+  // Trusting the CSV is done per account once every file is in, against the
+  // combined timeline of all that account's statements — aligning after each
+  // file would "fix" gaps that a later, overlapping statement then fills in
+  // for real (a pending transaction that has since cleared).
+  const trustAccountIds = options.trustAccountIds || new Set();
+  const now = new Date().toISOString();
+  batchIdByAccount.forEach((importBatchId, accountId) => {
+    if (!trustAccountIds.has(accountId)) return;
+    const timeline = buildCsvBalanceTimeline(analyses.filter(item => item.accountId === accountId && (!validFileIds || validFileIds.has(item.fileId))));
+    if (!timeline.length) return;
+
+    const aligned = alignAccountToCsvTimeline(workingData, accountId, timeline, { importBatchId, now });
+    if (!aligned.adjustments.length) return;
+
+    const ids = aligned.adjustments.map(adjustment => adjustment.id);
+    workingData = {
+      ...aligned.data,
+      importBatches: (aligned.data.importBatches || []).map(batch => batch.id === importBatchId
+        ? {
+            ...batch,
+            reconciliationStatus: "adjustment_created",
+            reconciliationAdjustmentId: ids.at(-1),
+            reconciliationAdjustmentIds: [...(batch.reconciliationAdjustmentIds || []), ...ids]
+          }
+        : batch)
+    };
+    aggregate.reconciliationAdjustments.push(...aligned.adjustments);
+  });
 
   return { data: workingData, result: aggregate, missingTransferFileName: null };
 }
@@ -1586,10 +2137,14 @@ function buildTransactionMatchIndex(transactions, accounts) {
   const plannedCandidates = [];
 
   list.forEach(transaction => {
+    // A list per hash, not just the first transaction: two genuinely separate
+    // identical rows (same day, amount and wording) both hash the same, and
+    // each needs its own existing transaction to be a duplicate of.
     (transaction.matchedBankRows || []).forEach(row => {
-      if (row?.sourceRowHash && !sourceRowHashIndex.has(row.sourceRowHash)) {
-        sourceRowHashIndex.set(row.sourceRowHash, transaction);
-      }
+      if (!row?.sourceRowHash) return;
+      if (!sourceRowHashIndex.has(row.sourceRowHash)) sourceRowHashIndex.set(row.sourceRowHash, []);
+      const bucket = sourceRowHashIndex.get(row.sourceRowHash);
+      if (!bucket.includes(transaction)) bucket.push(transaction);
     });
 
     const amountKey = roundMoney(Math.abs(Number(transaction.amount || 0)));
@@ -1608,13 +2163,21 @@ function getAmountCandidates(matchIndex, amount) {
   return matchIndex.amountIndex.get(roundMoney(Math.abs(Number(amount || 0)))) || [];
 }
 
-function findExistingImportedRow(matchIndex, sourceRowHash, accountId, date, time, signedAmount, description) {
-  const directMatch = matchIndex.sourceRowHashIndex.get(sourceRowHash);
+// `claimedIds` holds existing transactions already claimed as the duplicate of
+// an earlier row in this same CSV. One saved transaction is one bank row, so
+// it can only ever be the duplicate of one CSV row. Without this, two
+// identical rows on the same day (e.g. two £20 transfers to savings, one of
+// which was still pending when the previous statement was downloaded and so
+// never imported) both get marked "duplicate" of the one that was — and the
+// newly-cleared one silently goes missing from the balance.
+function findExistingImportedRow(matchIndex, sourceRowHash, accountId, date, time, signedAmount, description, claimedIds = new Set()) {
+  const directMatch = (matchIndex.sourceRowHashIndex.get(sourceRowHash) || []).find(transaction => !claimedIds.has(transaction.id));
   if (directMatch) return directMatch;
 
   const text = normaliseText(description);
   const candidates = getAmountCandidates(matchIndex, signedAmount)
     .filter(transaction => {
+      if (claimedIds.has(transaction.id)) return false;
       const touchesAccount = transactionTouchesAccount(transaction, accountId);
       // A one-day tolerance instead of an exact match: the same transaction can
       // carry a slightly different posted/value date across overlapping bank
