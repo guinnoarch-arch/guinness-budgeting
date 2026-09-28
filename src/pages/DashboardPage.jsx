@@ -10,10 +10,10 @@ import RecentTransactionsPanel from "../components/dashboard/RecentTransactionsP
 import BudgetWarningsPanel from "../components/dashboard/BudgetWarningsPanel.jsx";
 import SavingsGoalsPanel from "../components/dashboard/SavingsGoalsPanel.jsx";
 import MajorSpendsModal from "../components/dashboard/MajorSpendsModal.jsx";
-import { calculateAccountBalance, calculateMonthSummary, getMajorSpends } from "../utils/calculations.js";
+import { calculateAccountBalance, calculateMonthSummary, getMajorIncomes, getMajorSpends } from "../utils/calculations.js";
 import { formatMoney } from "../utils/money.js";
 
-function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpendingInCharts, onIncludeExcludedSpendingChange, onBreakdown, onMajorSpends }) {
+function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpendingInCharts, onIncludeExcludedSpendingChange, onBreakdown, onMajorSpends, onMajorIncomes }) {
   if (isSavingsView) {
     return (
       <div className="summary-grid summary-grid-two dashboard-summary-grid">
@@ -25,7 +25,7 @@ function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpending
 
   return (
     <div className="summary-grid summary-grid-five dashboard-summary-grid">
-      <SummaryCard label="Income" value={summary.income} change={summary.incomeChange} tone="positive" onClick={() => onBreakdown("Income")} />
+      <SummaryCard label="Income" value={summary.income} change={summary.incomeChange} tone="positive" onClick={onMajorIncomes} />
       <SummaryCard label="Spent" value={summary.expenses} change={summary.expenseChange} tone="negative" onClick={onMajorSpends} />
       <SummaryCard label="Saved" value={summary.savingsTransfers} change={summary.savingsChange} tone="positive" onClick={() => onBreakdown("Saved")} />
       <SummaryCard label="Available balance" value={summary.spendableBalance} tone="neutral" detail="Budget-linked accounts" onClick={() => onBreakdown("Available Balance")} />
@@ -102,6 +102,8 @@ export default function DashboardPage({ appData, actions }) {
   const [breakdown, setBreakdown] = useState(null);
   const [showMajorSpends, setShowMajorSpends] = useState(false);
   const [includeExcludedInMajorSpends, setIncludeExcludedInMajorSpends] = useState(false);
+  const [showMajorIncomes, setShowMajorIncomes] = useState(false);
+  const [includeExcludedInMajorIncomes, setIncludeExcludedInMajorIncomes] = useState(false);
   const summary = calculateMonthSummary(appData, actions.selectedMonth, {
     accountId: accountIdForCalculations,
     includeExcludedSpendingInCharts
@@ -111,6 +113,11 @@ export default function DashboardPage({ appData, actions }) {
     includeExcluded: includeExcludedInMajorSpends
   }), [appData, actions.selectedMonth, accountIdForCalculations, includeExcludedInMajorSpends]);
   const majorSpendThreshold = Number(appData.settings?.largeExpenseThreshold || 200);
+  const majorIncomes = useMemo(() => getMajorIncomes(appData, actions.selectedMonth, {
+    accountId: accountIdForCalculations,
+    includeExcluded: includeExcludedInMajorIncomes
+  }), [appData, actions.selectedMonth, accountIdForCalculations, includeExcludedInMajorIncomes]);
+  const majorIncomeThreshold = Number(appData.settings?.largeIncomeThreshold || 200);
   const dashboardLayout = appData.settings?.dashboardLayout || "full";
 
   function getBreakdownRows(title) {
@@ -188,6 +195,7 @@ export default function DashboardPage({ appData, actions }) {
         onIncludeExcludedSpendingChange={setIncludeExcludedSpendingInCharts}
         onBreakdown={openBreakdown}
         onMajorSpends={() => setShowMajorSpends(true)}
+        onMajorIncomes={() => setShowMajorIncomes(true)}
       />
 
       {!isSavingsView && summary.carryForward !== 0 && (
@@ -268,6 +276,25 @@ export default function DashboardPage({ appData, actions }) {
             actions.openEditTransaction(transaction);
           }}
           onClose={() => setShowMajorSpends(false)}
+        />
+      )}
+      {showMajorIncomes && (
+        <MajorSpendsModal
+          kind="incomes"
+          appData={appData}
+          spends={majorIncomes}
+          threshold={majorIncomeThreshold}
+          includeExcluded={includeExcludedInMajorIncomes}
+          onIncludeExcludedChange={setIncludeExcludedInMajorIncomes}
+          onEdit={transaction => {
+            setShowMajorIncomes(false);
+            actions.openEditTransaction(transaction);
+          }}
+          onShowBreakdown={() => {
+            setShowMajorIncomes(false);
+            openBreakdown("Income");
+          }}
+          onClose={() => setShowMajorIncomes(false)}
         />
       )}
     </div>
