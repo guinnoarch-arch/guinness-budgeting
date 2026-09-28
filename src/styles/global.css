@@ -5501,3 +5501,94 @@ button[disabled] {
     padding: 0.75rem;
   }
 }
+
+/* Diagnose problem: bank CSV vs the app, side by side for shared days */
+.import-overlap-compare {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.import-overlap-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.import-overlap-head {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted, #6b7280);
+}
+
+.import-overlap-day {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.import-overlap-day.problem {
+  border-color: #fca5a5;
+}
+
+.import-overlap-day-header {
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.import-overlap-day.problem .import-overlap-day-header span:last-child {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.import-overlap-cell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.import-overlap-cell small {
+  grid-column: 1 / -1;
+}
+
+.import-overlap-cell.flag {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #fef2f2;
+}
+
+.import-overlap-cell.flag small {
+  color: #b91c1c;
+}
+
+.import-overlap-empty {
+  color: var(--muted, #9ca3af);
+}
+
+[data-theme="dark"] .import-overlap-day {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="dark"] .import-overlap-day.problem {
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+[data-theme="dark"] .import-overlap-cell.flag {
+  background: rgba(248, 113, 113, 0.12);
+}
+
+[data-theme="dark"] .import-overlap-cell.flag small {
+  color: #fca5a5;
+}
+
+.import-overlap-gap {
+  white-space: nowrap;
+}

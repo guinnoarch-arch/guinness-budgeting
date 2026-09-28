@@ -32,3 +32,13 @@ but the import handled that badly:
   The adjustments belong to the import batch, so **Undo import** removes them too.
 - Fixed the single-file reconciliation preview leaving out rows linked to an existing transfer (they create
   this account's own leg, so they do move its balance).
+
+## Side-by-side overlap check
+When a CSV starts before the date the app is already up to date to (e.g. the app is up to date to the 10th
+and the CSV goes back to the 5th), "Diagnose problem" includes an **Overlap with what's already in the app**
+section. For each shared day it shows the bank CSV on the left and what the app already had on the right,
+with both end-of-day balances. Matching items sit on the same line, and anything on only one side is
+highlighted with the likely reason: this import adds it (e.g. a cleared pending payment), unticked or marked
+duplicate, added manually or planned, an earlier balance adjustment, or the same payment dated a day or two
+differently. It opens automatically when the statement is already out on its first day, and can be filtered
+to only the days that don't line up.

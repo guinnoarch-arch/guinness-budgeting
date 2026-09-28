@@ -543,6 +543,134 @@ export function diagnoseCsvBalanceGaps(data, accountId, timeline, csvRows, { pri
 // For one statement day: which CSV rows have no counterpart in the app, and
 // which app items (transactions or adjustments) have no counterpart on the
 // CSV. Bank-row hashes are matched first (exact), then plain signed amount.
+// Side-by-side check of the days a CSV shares with what's already in the
+// app (e.g. the app is up to date to the 10th and the CSV starts on the
+// 5th). `baseData` is the data *before* this import, so the right-hand side
+// is exactly what the app had. For each shared day it pairs each bank row
+// with the saved item it corresponds to — bank-row hash first, then amount
+// and wording, then amount alone — and lists whatever is left over on
+// either side, plus both end-of-day balances. Leftovers a day apart with the
+// same amount are cross-referenced, since that's usually the same payment
+// dated differently rather than a real error.
+export function compareCsvOverlapWithApp(baseData, accountId, timeline, csvRows, { maxDays = 31 } = {}) {
+  if (!timeline?.length) return null;
+  const csvFirst = timeline[0].date;
+  const csvLast = timeline.at(-1).date;
+  const today = todayIsoDate();
+
+  // How far the app is "up to date": its latest bank-imported item for this
+  // account, or failing that its latest item that isn't in the future.
+  const accountTransactions = (baseData.transactions || []).filter(transaction => transaction.accountId === accountId && transaction.date);
+  const fromBank = accountTransactions.filter(transaction => (transaction.matchedBankRows || []).length > 0 || transaction.importSource === "csv");
+  const pool = fromBank.length ? fromBank : accountTransactions.filter(transaction => transaction.date <= today);
+  const appLatestDate = pool.map(transaction => transaction.date).sort().at(-1) || null;
+  if (!appLatestDate || appLatestDate < csvFirst) return null;
+
+  const endDate = appLatestDate < csvLast ? appLatestDate : csvLast;
+  const sharedDays = timeline.filter(day => day.date >= csvFirst && day.date <= endDate);
+  const truncatedDays = Math.max(0, sharedDays.length - maxDays);
+
+  const days = sharedDays.slice(-maxDays).map(day => {
+    const appBalance = roundMoney(calculateAccountBalanceAtDate(baseData, accountId, day.date));
+    const dayRows = csvRows.filter(row => row.date === day.date && (row.fileId ?? null) === (day.fileId ?? null));
+    const appItems = getAppItemsOnDate(baseData, accountId, day.date);
+
+    const used = new Set();
+    const pairs = [];
+    const unpaired = [];
+    const tests = [
+      (row, item) => row.sourceRowHash && item.hashes.has(row.sourceRowHash),
+      (row, item) => item.kind === "transaction" && Math.abs(item.signedAmount - Number(row.signedAmount)) <= 0.005 && overlapTextMatches({ description: row.description }, { description: item.title }),
+      (row, item) => item.kind === "transaction" && Math.abs(item.signedAmount - Number(row.signedAmount)) <= 0.005
+    ];
+    let remaining = dayRows;
+    tests.forEach(test => {
+      const stillUnpaired = [];
+      remaining.forEach(row => {
+        const item = appItems.find(candidate => !used.has(candidate.id) && test(row, candidate));
+        if (item) {
+          used.add(item.id);
+          pairs.push({ csv: row, app: stripHashes(item) });
+        } else {
+          stillUnpaired.push(row);
+        }
+      });
+      remaining = stillUnpaired;
+    });
+    unpaired.push(...remaining);
+
+    return {
+      date: day.date,
+      fileName: day.fileName,
+      csvBalance: roundMoney(day.balance),
+      appBalance,
+      gap: roundMoney(appBalance - day.balance),
+      pairs,
+      onlyCsv: unpaired.map(row => ({ ...row })),
+      onlyApp: appItems.filter(item => !used.has(item.id)).map(stripHashes)
+    };
+  });
+
+  // Same amount, a day or two apart, left over on opposite sides.
+  const leftoverApp = days.flatMap(day => day.onlyApp.map(item => ({ item, date: day.date })));
+  const claimedApp = new Set();
+  days.forEach(day => {
+    day.onlyCsv.forEach(row => {
+      const partner = leftoverApp.find(entry => (
+        !claimedApp.has(entry.item.id)
+        && entry.date !== day.date
+        && daysBetween(entry.date, day.date) <= 2
+        && entry.item.kind === "transaction"
+        && Math.abs(entry.item.signedAmount - Number(row.signedAmount)) <= 0.005
+      ));
+      if (!partner) return;
+      claimedApp.add(partner.item.id);
+      row.possiblyDatedDifferently = partner.date;
+      partner.item.possiblyDatedDifferently = day.date;
+    });
+  });
+
+  return {
+    startDate: csvFirst,
+    endDate,
+    appLatestDate,
+    truncatedDays,
+    days,
+    problemDays: days.filter(day => Math.abs(day.gap) >= 0.005 || day.onlyCsv.length > 0 || day.onlyApp.length > 0).length
+  };
+}
+
+function getAppItemsOnDate(data, accountId, date) {
+  return [
+    ...(data.transactions || [])
+      .filter(transaction => transaction.accountId === accountId && transaction.date === date && (transaction.type === "income" || transaction.type === "expense"))
+      .map(transaction => ({
+        id: transaction.id,
+        kind: "transaction",
+        title: transaction.title || "Transaction",
+        signedAmount: transaction.type === "income" ? Number(transaction.amount || 0) : -Number(transaction.amount || 0),
+        hashes: new Set((transaction.matchedBankRows || []).map(bankRow => bankRow?.sourceRowHash).filter(Boolean)),
+        fromBank: (transaction.matchedBankRows || []).length > 0,
+        isTransfer: Boolean(transaction.transferLinkId || transaction.linkedAccountId)
+      })),
+    ...(data.accountAdjustments || [])
+      .filter(adjustment => adjustment.accountId === accountId && adjustment.date === date)
+      .map(adjustment => ({
+        id: adjustment.id,
+        kind: "adjustment",
+        title: adjustment.note || "Balance adjustment",
+        signedAmount: Number(adjustment.amount || 0),
+        hashes: new Set(),
+        fromBank: false,
+        isTransfer: false
+      }))
+  ];
+}
+
+function stripHashes({ hashes, ...item }) {
+  return item;
+}
+
 function explainCsvDay(data, accountId, day, csvRows) {
   const dayRows = csvRows.filter(row => row.date === day.date && (row.fileId ?? null) === (day.fileId ?? null));
   const appItems = [

@@ -14,6 +14,7 @@ import {
   buildCsvBalanceTimeline,
   alignAccountToCsvTimeline,
   diagnoseCsvBalanceGaps,
+  compareCsvOverlapWithApp,
   getPriorImportCoverageForAccount
 } from "../services/csvImportService.js";
 import { calculateAccountBalance, calculateAccountBalanceAtDate } from "../utils/calculations.js";
@@ -303,11 +304,15 @@ function BalanceVerificationPanel({ verification, mode, analysis, rowEdits, appD
       {visibleVerification.map(item => {
         const trusted = mode === "preview" && !item.matches && isTrusted?.(item.accountId);
         const timeline = diagnosing ? timelines.find(entry => entry.accountId === item.accountId)?.timeline : null;
+        const diagnosisRows = timeline ? buildDiagnosisRows(analysis, rowEdits, item.accountId) : [];
         const diagnosis = timeline
-          ? diagnoseCsvBalanceGaps(projectedData, item.accountId, timeline, buildDiagnosisRows(analysis, rowEdits, item.accountId), {
+          ? diagnoseCsvBalanceGaps(projectedData, item.accountId, timeline, diagnosisRows, {
               priorCoverage: getPriorImportCoverageForAccount(appData, item.accountId)
             })
           : null;
+        // Compared against appData (before this import), so the right-hand
+        // side is exactly what the app already had for those days.
+        const overlap = timeline ? compareCsvOverlapWithApp(appData, item.accountId, timeline, diagnosisRows) : null;
         const adjustmentTotal = (item.trustAdjustments || []).reduce((total, adjustment) => total + Number(adjustment.amount || 0), 0);
         const rowState = item.matches ? "ok" : trusted ? "trusted" : "mismatch";
 
@@ -339,7 +344,7 @@ function BalanceVerificationPanel({ verification, mode, analysis, rowEdits, appD
                 </button>
               </span>
             )}
-            {diagnosis && <DiagnosisDetails diagnosis={diagnosis} accountId={item.accountId} onFixOpeningBalance={onFixOpeningBalance} />}
+            {diagnosis && <DiagnosisDetails diagnosis={diagnosis} overlap={overlap} accountId={item.accountId} onFixOpeningBalance={onFixOpeningBalance} />}
           </div>
         );
       })}
@@ -355,9 +360,12 @@ function BalanceVerificationPanel({ verification, mode, analysis, rowEdits, appD
   );
 }
 
-function DiagnosisDetails({ diagnosis, accountId, onFixOpeningBalance }) {
+function DiagnosisDetails({ diagnosis, overlap, accountId, onFixOpeningBalance }) {
   const startIsOut = Math.abs(diagnosis.startGap) >= 0.005;
   const nothingChanges = diagnosis.changedDays.length === 0;
+  // Opened straight away when the statement is already out on its first
+  // day — that's exactly when seeing the shared days side by side helps.
+  const [showOverlap, setShowOverlap] = useState(startIsOut);
 
   return (
     <div className="import-diagnosis-box">
@@ -418,6 +426,22 @@ function DiagnosisDetails({ diagnosis, accountId, onFixOpeningBalance }) {
         <span>No single day explains it — check rows dated after the last statement day.</span>
       )}
 
+      {overlap && (
+        <div className="import-diagnosis-section">
+          <strong>Overlap with what's already in the app</strong>
+          <span>
+            The app is up to date to <strong>{overlap.appLatestDate}</strong> and this CSV starts on <strong>{overlap.startDate}</strong>, so {overlap.startDate} to {overlap.endDate} is in both.
+            {" "}{overlap.problemDays === 0 ? "Every shared day lines up." : `${overlap.problemDays} shared day(s) don't line up.`}
+          </span>
+          <span className="import-diagnosis-fix-row">
+            <button type="button" className="secondary-button small" onClick={() => setShowOverlap(value => !value)}>
+              {showOverlap ? "Hide side-by-side" : "Compare side by side"}
+            </button>
+          </span>
+          {showOverlap && <OverlapComparison overlap={overlap} />}
+        </div>
+      )}
+
       {diagnosis.overlapDifferences.length > 0 && (
         <div className="import-diagnosis-section">
           <strong>Overlapping statements disagree</strong>
@@ -443,6 +467,89 @@ function DiagnosisDetails({ diagnosis, accountId, onFixOpeningBalance }) {
         </div>
       )}
     </div>
+  );
+}
+
+// Bank CSV on the left, what the app already had on the right, one block per
+// shared day, with each day's two end-of-day balances in its header.
+function OverlapComparison({ overlap }) {
+  const [problemsOnly, setProblemsOnly] = useState(false);
+  const days = problemsOnly
+    ? overlap.days.filter(day => Math.abs(day.gap) >= 0.005 || day.onlyCsv.length > 0 || day.onlyApp.length > 0)
+    : overlap.days;
+
+  return (
+    <div className="import-overlap-compare">
+      <label className="checkbox-label">
+        <input type="checkbox" checked={problemsOnly} onChange={event => setProblemsOnly(event.target.checked)} />
+        Only show days that don't line up
+      </label>
+      {overlap.truncatedDays > 0 && <small className="muted-text">Showing the last {overlap.days.length} shared days ({overlap.truncatedDays} earlier ones hidden).</small>}
+      <div className="import-overlap-grid import-overlap-head">
+        <span>Bank CSV</span>
+        <span>In the app now</span>
+      </div>
+      {days.map(day => {
+        const dayOk = Math.abs(day.gap) < 0.005 && day.onlyCsv.length === 0 && day.onlyApp.length === 0;
+        return (
+          <div key={day.date} className={`import-overlap-day ${dayOk ? "ok" : "problem"}`}>
+            <div className="import-overlap-grid import-overlap-day-header">
+              <span><strong>{day.date}</strong> · end of day {formatMoney(day.csvBalance)}</span>
+              <span>
+                end of day {formatMoney(day.appBalance)}
+                {dayOk ? " ✓" : Math.abs(day.gap) >= 0.005 ? <span className="import-overlap-gap"> ({signedMoney(day.gap)})</span> : ""}
+              </span>
+            </div>
+            {day.pairs.map(pair => (
+              <div key={pair.csv.id} className="import-overlap-grid">
+                <OverlapCell description={pair.csv.description} amount={pair.csv.signedAmount} />
+                <OverlapCell description={pair.app.kind === "adjustment" ? "Balance adjustment" : pair.app.title} amount={pair.app.signedAmount} tag={pair.app.isTransfer ? "transfer" : ""} />
+              </div>
+            ))}
+            {day.onlyCsv.map(row => (
+              <div key={row.id} className="import-overlap-grid">
+                <OverlapCell
+                  description={row.description}
+                  amount={row.signedAmount}
+                  flag
+                  note={row.possiblyDatedDifferently
+                    ? `In the app on ${row.possiblyDatedDifferently} instead`
+                    : row.status === "imported" ? "Not in the app yet — this import adds it" : `Not in the app — ${describeRowStatus(row.status)}`}
+                />
+                <span className="import-overlap-empty">—</span>
+              </div>
+            ))}
+            {day.onlyApp.map(item => (
+              <div key={item.id} className="import-overlap-grid">
+                <span className="import-overlap-empty">—</span>
+                <OverlapCell
+                  description={item.kind === "adjustment" ? "Balance adjustment" : item.title}
+                  amount={item.signedAmount}
+                  tag={item.isTransfer ? "transfer" : ""}
+                  flag
+                  note={item.possiblyDatedDifferently
+                    ? `On the CSV on ${item.possiblyDatedDifferently} instead`
+                    : item.kind === "adjustment" ? "Earlier balance adjustment, not a bank row" : item.fromBank ? "Not on this CSV — check the earlier import" : "Added manually or planned, not on the bank statement"}
+                />
+              </div>
+            ))}
+            {day.pairs.length === 0 && day.onlyCsv.length === 0 && day.onlyApp.length === 0 && (
+              <div className="import-overlap-grid"><span className="import-overlap-empty">No transactions</span><span className="import-overlap-empty">No transactions</span></div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function OverlapCell({ description, amount, tag = "", flag = false, note = "" }) {
+  return (
+    <span className={`import-overlap-cell ${flag ? "flag" : ""}`}>
+      <span>{description}{tag && <em> · {tag}</em>}</span>
+      <strong className={amount >= 0 ? "positive-text" : "negative-text"}>{signedMoney(amount)}</strong>
+      {note && <small>{note}</small>}
+    </span>
   );
 }
 
