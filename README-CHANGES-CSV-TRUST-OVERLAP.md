@@ -57,3 +57,20 @@ Each account card has a **Check account** button. It opens a day-by-day view of 
   If a matching unlinked transaction exists in the other account it's listed with a **Link as transfer** button.
 
 Filters narrow it to possible duplicates, transfer gaps, or days where the gap to the bank moves.
+
+## Replace this period with the CSV
+Normally a new CSV only adds what's missing, so a mistake from an earlier import (or a wrong hand-entered
+item or adjustment) stays. After analysing, each account whose statement dates already have items in the app
+gets a **Replace this period with the CSV…** option. It lists everything the app holds for that account
+between the statement's first and last day, with checkboxes:
+- imported rows and balance adjustments: ticked (removed)
+- planned items an import matched: ticked (they go back to planned so the CSV can match them again)
+- hand-entered items: unticked; tick them if they're wrong
+- the **other side of a transfer** in another account is listed under its item. It's ticked if it's hand-entered,
+  e.g. both halves of a transfer that never happened. If it came from a bank statement it's kept and re-opened,
+  so the new import can link to it again.
+
+"Replace and re-check" re-analyses the CSV against the cleared data. Nothing is saved until Confirm import.
+The import batch keeps everything it removed or changed, and **Undo import** puts it all back.
+
+Also fixed: a single uploaded CSV was saved in the import history as "1 CSV files" instead of its file name.
