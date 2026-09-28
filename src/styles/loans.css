@@ -388,3 +388,11 @@
     white-space: nowrap;
   }
 }
+
+.loan-detail-card .loan-detail-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted);
+}
