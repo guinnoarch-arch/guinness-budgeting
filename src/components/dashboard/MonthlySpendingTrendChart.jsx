@@ -29,24 +29,25 @@ export default function MonthlySpendingTrendChart({ comparison }) {
       </div>
 
       <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={chartData} margin={{ top: 10, right: 24, left: 6, bottom: isSmallScreen ? 28 : 8 }}>
+        <LineChart data={chartData} margin={{ top: 10, right: 24, left: 6, bottom: isSmallScreen ? 28 : 18 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          {/* Only pass the phone-specific settings on small screens. Passing
+              them as `undefined` on larger screens overrides the chart
+              library's own defaults (e.g. the axis height), which left the
+              whole chart blank on a computer. */}
           <XAxis
             dataKey="day"
             tick={{ fill: "#4b5563" }}
-            interval={isSmallScreen ? 4 : undefined}
-            angle={isSmallScreen ? -40 : 0}
-            textAnchor={isSmallScreen ? "end" : "middle"}
-            height={isSmallScreen ? 56 : undefined}
-            tickMargin={isSmallScreen ? 8 : undefined}
-            label={isSmallScreen ? undefined : { value: "Day of month", position: "insideBottom", offset: -4, fill: "#4b5563" }}
+            {...(isSmallScreen
+              ? { interval: 4, angle: -40, textAnchor: "end", height: 56, tickMargin: 8 }
+              : { label: { value: "Day of month", position: "insideBottom", offset: -4, fill: "#4b5563" } })}
           />
           <YAxis tick={{ fill: "#4b5563" }} tickFormatter={(value) => formatMoney(value, false)} />
           <Tooltip
             labelFormatter={(day) => `Day ${day}`}
             formatter={(value, name) => [formatMoney(value), name]}
           />
-          <Legend />
+          <Legend wrapperStyle={{ paddingTop: isSmallScreen ? 0 : 12 }} />
           <Line
             type="monotone"
             dataKey="twoMonthsAgo"
