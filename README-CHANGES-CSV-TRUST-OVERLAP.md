@@ -42,3 +42,18 @@ highlighted with the likely reason: this import adds it (e.g. a cleared pending 
 duplicate, added manually or planned, an earlier balance adjustment, or the same payment dated a day or two
 differently. It opens automatically when the statement is already out on its first day, and can be filtered
 to only the days that don't line up.
+
+## Check account (Accounts page)
+Each account card has a **Check account** button. It opens a day-by-day view of that account (30 days, 90 days,
+1 year, all time, or custom dates), newest first. For each day it shows:
+- the app's end-of-day balance next to the bank's, taken from past CSV imports (the newest import wins where
+  imports overlap; older imports without saved daily balances are rebuilt from the balance on each bank row),
+  and how much the gap moved that day
+- every transaction and adjustment, with where it came from (which CSV, entered by hand, planned/recurring)
+- **possible duplicates**: same amount and direction a day or less apart, e.g. the same bank row imported
+  twice, or a payment entered by hand and then imported. Rows from the same statement are never flagged.
+  Each has a **Delete this one** button.
+- **transfer gaps**: a transfer whose other side is missing, deleted, a different amount or dated far apart.
+  If a matching unlinked transaction exists in the other account it's listed with a **Link as transfer** button.
+
+Filters narrow it to possible duplicates, transfer gaps, or days where the gap to the bank moves.

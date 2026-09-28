@@ -5592,3 +5592,122 @@ button[disabled] {
 .import-overlap-gap {
   white-space: nowrap;
 }
+
+/* Accounts: "Check account" day-by-day view */
+.account-check-modal {
+  display: grid;
+  gap: 12px;
+  width: min(960px, 100%);
+}
+
+.account-check-controls {
+  display: grid;
+  gap: 8px;
+}
+
+.account-check-dates {
+  grid-template-columns: repeat(2, minmax(0, 200px));
+}
+
+.account-check-dates input {
+  min-width: 0;
+  width: 100%;
+}
+
+.account-check-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.account-check-days {
+  display: grid;
+  gap: 8px;
+}
+
+.account-check-day-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  font-size: 13px;
+}
+
+.account-check-out {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.account-check-in {
+  color: #15803d;
+}
+
+.account-check-item {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.account-check-flag {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+.account-check-flag.likely {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.account-check-flag.possible {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.account-check-flag.info {
+  color: #15803d;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.account-check-candidate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex-basis: 100%;
+  color: var(--text);
+}
+
+[data-theme="dark"] .account-check-flag.likely {
+  background: rgba(248, 113, 113, 0.14);
+  color: #fca5a5;
+}
+
+[data-theme="dark"] .account-check-flag.possible {
+  background: rgba(245, 158, 11, 0.14);
+  color: #fcd34d;
+}
+
+[data-theme="dark"] .account-check-flag.info,
+[data-theme="dark"] .account-check-in {
+  color: #86efac;
+}
+
+[data-theme="dark"] .account-check-out {
+  color: #fca5a5;
+}
+
+@media (max-width: 600px) {
+  .account-check-dates {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -14,6 +14,7 @@ import {
 } from "../utils/calculations.js";
 import { formatMoney } from "../utils/money.js";
 import { createId } from "../utils/ids.js";
+import AccountCheckModal from "../components/accounts/AccountCheckModal.jsx";
 import { formatIsoDateLocal, todayIsoDate } from "../utils/dates.js";
 
 const emptyAccountForm = {
@@ -250,6 +251,7 @@ function BalanceChartTooltip({ active, payload, label }) {
 
 export default function AccountsPage({ appData, actions }) {
   const [reconciling, setReconciling] = useState(null);
+  const [checkingAccountId, setCheckingAccountId] = useState(null);
   const [reconcileAmount, setReconcileAmount] = useState("");
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
@@ -593,6 +595,12 @@ export default function AccountsPage({ appData, actions }) {
                 >
                   Edit account
                 </button>
+                <button
+                  className="secondary-button small"
+                  onClick={() => setCheckingAccountId(account.id)}
+                >
+                  Check account
+                </button>
               </div>
             </section>
           );
@@ -667,6 +675,15 @@ export default function AccountsPage({ appData, actions }) {
             </div>
           </form>
         </div>
+      )}
+
+      {checkingAccountId && accounts.some(account => account.id === checkingAccountId) && (
+        <AccountCheckModal
+          account={accounts.find(account => account.id === checkingAccountId)}
+          appData={appData}
+          actions={actions}
+          close={() => setCheckingAccountId(null)}
+        />
       )}
 
       {reconciling && (
