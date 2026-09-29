@@ -1,7 +1,8 @@
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import useIsSmallScreen from "../../hooks/useIsSmallScreen.js";
 import { smallMonthXAxisProps } from "../../utils/chartLabels.js";
 import { formatMoney } from "../../utils/money.js";
+import ExpandableChart from "../common/ExpandableChart.jsx";
 
 export default function SpendingComparisonChart({ summary }) {
   const isSmallScreen = useIsSmallScreen();
@@ -17,10 +18,9 @@ export default function SpendingComparisonChart({ summary }) {
       <div className="section-header compact-header chart-title-with-toggle">
         <div>
           <h3>{summary.comparisonChartTitle || `${metricName} - last 6 months`}</h3>
-          <p className="muted-text chart-subtitle">Monthly {metricName.toLowerCase()} total for the selected account view.</p>
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={240}>
+      <ExpandableChart title={summary.comparisonChartTitle || `${metricName} - last 6 months`} height={240}>
         <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: isSmallScreen ? 28 : 0 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis
@@ -33,7 +33,7 @@ export default function SpendingComparisonChart({ summary }) {
           <Tooltip formatter={(value) => formatMoney(value)} />
           <Line type="monotone" dataKey="spending" name={metricName} stroke="#0f766e" strokeWidth={3} />
         </LineChart>
-      </ResponsiveContainer>
+      </ExpandableChart>
     </section>
   );
 }

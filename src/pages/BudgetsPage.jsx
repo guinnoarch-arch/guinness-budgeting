@@ -408,7 +408,6 @@ export default function BudgetsPage({ appData, actions }) {
         <div>
           <p className="eyebrow">Budgets</p>
           <h2>Category limits</h2>
-          <p className="muted-text">Archive budgets or categories without removing old transactions. Edit transactions directly from a budget when something is in the wrong place.</p>
         </div>
         <div className="budget-title-actions">
           <div className="mini-total-card">
@@ -427,7 +426,7 @@ export default function BudgetsPage({ appData, actions }) {
         <div className="section-header compact-header">
           <div>
             <h3>Refresh categorisation</h3>
-            <p className="muted-text">Re-applies your saved category match texts (e.g. "Tesco" always goes in Food) to every transaction, including ones already in your data. Once you move a transaction to a different category by hand, refresh will never move it again.</p>
+            <p className="muted-text">Re-applies your category match texts to every transaction. Ones you've moved by hand are left alone.</p>
           </div>
           <div className="row-actions">
             <button type="button" className="secondary-button" onClick={() => actions.setActivePage("settings")}>Manage category match texts</button>
@@ -473,7 +472,6 @@ export default function BudgetsPage({ appData, actions }) {
         <div className="section-header compact-header">
           <div>
             <h3>Archived budgets</h3>
-            <p className="muted-text">Old budget limits are kept here for reference. Transactions are not removed.</p>
           </div>
         </div>
 
@@ -502,7 +500,6 @@ export default function BudgetsPage({ appData, actions }) {
         <div className="section-header compact-header">
           <div>
             <h3>Archived categories</h3>
-            <p className="muted-text">Archived categories are hidden from new transactions and budget warnings. Delete permanently only when you no longer need the category itself.</p>
           </div>
         </div>
 
@@ -537,7 +534,6 @@ export default function BudgetsPage({ appData, actions }) {
               <div>
                 <p className="eyebrow">Budget manager</p>
                 <h2>Categories and budgets</h2>
-                <p className="muted-text">One place to add categories, set this month’s limits, edit names, and archive old categories.</p>
               </div>
               <button type="button" className="icon-button" onClick={() => setShowBudgetManager(false)}>×</button>
             </div>

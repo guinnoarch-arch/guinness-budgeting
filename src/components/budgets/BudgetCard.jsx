@@ -46,7 +46,6 @@ export default function BudgetCard({
           <div className="section-header compact-header budget-transactions-heading">
             <div>
               <h4>Recent spending</h4>
-              <p className="muted-text">Scroll this list to review and edit spending without leaving Budgets.</p>
             </div>
           </div>
 

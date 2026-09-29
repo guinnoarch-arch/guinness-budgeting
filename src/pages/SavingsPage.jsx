@@ -167,7 +167,6 @@ export default function SavingsPage({ appData, actions }) {
         <div>
           <p className="eyebrow">Savings</p>
           <h2>Savings goals</h2>
-          <p className="muted-text">Edit active goals, archive old goals, or permanently remove archived goals when they are no longer needed.</p>
         </div>
         <button type="button" className="primary-button" onClick={openAddGoalModal}>+ Add savings goal</button>
       </div>
@@ -196,7 +195,6 @@ export default function SavingsPage({ appData, actions }) {
         <div className="section-header compact-header">
           <div>
             <h3>Archived savings goals</h3>
-            <p className="muted-text">Archived goals are hidden from the active goals area. Permanently deleting removes the goal record only.</p>
           </div>
         </div>
 

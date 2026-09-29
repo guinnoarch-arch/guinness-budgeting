@@ -23,9 +23,6 @@ export default function SavingsGoalsPanel({ appData, accountId = null, onViewAll
       <div className="section-header">
         <div>
           <h3>Savings goals</h3>
-          <p className="muted-text">
-            {accountId ? "Goals linked to this savings account." : "All active savings goals."}
-          </p>
         </div>
         <button className="text-button" onClick={onViewAll}>Manage goals</button>
       </div>

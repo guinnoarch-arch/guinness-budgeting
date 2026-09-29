@@ -175,7 +175,6 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
           <div>
             <p className="eyebrow">Guinness & Holley Budgeting</p>
             <h1>Sign in to open your budget</h1>
-            <p className="muted-text">Sign in to open your private local budget and cloud backup tools.</p>
           </div>
         </div>
 

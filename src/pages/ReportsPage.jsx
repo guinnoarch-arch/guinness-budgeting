@@ -7,7 +7,7 @@ import {
   Legend,
   Line,
   LineChart,
-  ResponsiveContainer,
+  
   Tooltip,
   XAxis,
   YAxis
@@ -22,6 +22,7 @@ import { formatMoney } from "../utils/money.js";
 import useIsSmallScreen from "../hooks/useIsSmallScreen.js";
 import { smallMonthXAxisProps } from "../utils/chartLabels.js";
 import MonthSelector from "../components/dashboard/MonthSelector.jsx";
+import ExpandableChart from "../components/common/ExpandableChart.jsx";
 
 function ReportCard({ label, value, detail, tone = "" }) {
   return (
@@ -70,7 +71,6 @@ export default function ReportsPage({ appData, actions }) {
         <div>
           <p className="eyebrow">Reports</p>
           <h2>Monthly report</h2>
-          <p className="muted-text">Analyse income, spending, savings, CSV imports, account balances, and planned-vs-actual performance.</p>
         </div>
         <MonthSelector selectedMonth={actions.selectedMonth} setSelectedMonth={actions.setSelectedMonth} />
       </div>
@@ -107,10 +107,9 @@ export default function ReportsPage({ appData, actions }) {
           <div className="section-header compact-header">
             <div>
               <h3>Income, expenses and savings trend</h3>
-              <p className="muted-text">Six-month view using the selected month as the end point.</p>
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={300}>
+          <ExpandableChart title={"Income, expenses and savings trend"} height={300}>
             <BarChart data={incomeExpenseChart} margin={{ top: 10, right: 18, left: 0, bottom: isSmallScreen ? 34 : 8 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" {...(isSmallScreen ? smallMonthXAxisProps() : {})} />
@@ -121,17 +120,16 @@ export default function ReportsPage({ appData, actions }) {
               <Bar dataKey="expenses" name="Expenses" fill="#dc2626" radius={[6, 6, 0, 0]} />
               <Bar dataKey="savings" name="Savings" fill="#0f766e" radius={[6, 6, 0, 0]} />
             </BarChart>
-          </ResponsiveContainer>
+          </ExpandableChart>
         </section>
 
         <section className="card chart-card report-chart-card">
           <div className="section-header compact-header">
             <div>
               <h3>Account balance trend</h3>
-              <p className="muted-text">Month-end account totals across all active accounts.</p>
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={300}>
+          <ExpandableChart title={"Account balance trend"} height={300}>
             <AreaChart data={report.accountBalanceTrend} margin={{ top: 10, right: 18, left: 0, bottom: isSmallScreen ? 34 : 8 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" {...(isSmallScreen ? smallMonthXAxisProps() : {})} />
@@ -142,7 +140,7 @@ export default function ReportsPage({ appData, actions }) {
               <Area type="monotone" dataKey="spendable" name="Spendable" stroke="#2563eb" fill="#dbeafe" strokeWidth={2} />
               <Area type="monotone" dataKey="savings" name="Savings" stroke="#d97706" fill="#fef3c7" strokeWidth={2} />
             </AreaChart>
-          </ResponsiveContainer>
+          </ExpandableChart>
         </section>
       </div>
 
@@ -150,7 +148,6 @@ export default function ReportsPage({ appData, actions }) {
         <div className="section-header compact-header">
           <div>
             <h3>Category spending and budgets</h3>
-            <p className="muted-text">Actual spending compared with category budgets for the selected month.</p>
           </div>
         </div>
         {categoryRows.length === 0 ? (
@@ -225,7 +222,6 @@ export default function ReportsPage({ appData, actions }) {
         <div className="section-header compact-header">
           <div>
             <h3>Planned vs actual</h3>
-            <p className="muted-text">Matched CSV rows keep the original planned amount/date and show the actual bank amount/date.</p>
           </div>
           <div className="report-mini-summary">
             <span>Planned {formatMoney(plannedVsActual.totalPlanned)}</span>
@@ -268,7 +264,6 @@ export default function ReportsPage({ appData, actions }) {
         <div className="section-header compact-header">
           <div>
             <h3>CSV import impact</h3>
-            <p className="muted-text">Shows how much of the month came from bank CSV import and reconciliation.</p>
           </div>
           <div className="report-mini-summary">
             <span>{importImpact.batchCount} batch(es)</span>
@@ -304,7 +299,6 @@ export default function ReportsPage({ appData, actions }) {
         <div className="section-header compact-header">
           <div>
             <h3>Loans summary</h3>
-            <p className="muted-text">Tracked loan balances and linked loan-payment activity for the selected month.</p>
           </div>
           <div className="report-mini-summary">
             <span>Total debt {formatMoney(loanSummary.totalDebt)}</span>
@@ -363,7 +357,6 @@ export default function ReportsPage({ appData, actions }) {
 
       <section className="card">
         <h3>Exports</h3>
-        <p className="muted-text">The PDF/print report now includes summary cards, category budget results, planned-vs-actual rows, CSV import impact, and largest expenses.</p>
         <div className="row-actions">
           <button className="primary-button" onClick={() => exportMonthlyReportHtml(appData, actions.selectedMonth)}>
             Export PDF / Print report

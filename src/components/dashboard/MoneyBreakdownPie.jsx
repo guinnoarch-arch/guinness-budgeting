@@ -1,5 +1,6 @@
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Cell, Pie, PieChart, Tooltip } from "recharts";
 import { formatMoney } from "../../utils/money.js";
+import ExpandableChart from "../common/ExpandableChart.jsx";
 
 const MONEY_COLORS = [
   "#ef4444",
@@ -184,7 +185,7 @@ export default function MoneyBreakdownPie({ summary, includeExcludedSpending = f
       ) : (
         <div className="money-pie-layout two-column-labels">
           <div className="money-pie-chart-wrap">
-            <ResponsiveContainer width="100%" height={330}>
+            <ExpandableChart title={isSavingsView ? "Where savings is saved for" : "Budget breakdown"} height={330}>
               <PieChart margin={{ top: 6, right: 210, bottom: 6, left: 210 }}>
                 <Pie
                   data={data}
@@ -216,7 +217,7 @@ export default function MoneyBreakdownPie({ summary, includeExcludedSpending = f
                   }}
                 />
               </PieChart>
-            </ResponsiveContainer>
+            </ExpandableChart>
           </div>
         </div>
       )}

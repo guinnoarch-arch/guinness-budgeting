@@ -710,7 +710,6 @@ function ImportAnalysisSummary({ analysis }) {
       <div className="section-header compact-header">
         <div>
           <h3>Import summary</h3>
-          <p className="muted-text">Check this before saving. Rows marked as duplicates are unticked by default.</p>
         </div>
       </div>
 
@@ -1421,7 +1420,6 @@ export default function ImportPage({ appData, actions }) {
         <div>
           <p className="eyebrow">Import</p>
           <h2>Bank CSV import</h2>
-          <p className="muted-text">Import real bank rows, match planned payments, link account transfers, avoid duplicates, and reconcile balances.</p>
         </div>
       </div>
 
@@ -1429,7 +1427,6 @@ export default function ImportPage({ appData, actions }) {
         <div className="section-header compact-header">
           <div>
             <h3>1. Upload statement CSV</h3>
-            <p className="muted-text">Choose the Guinness & Holley Budgeting account first. The CSV is treated as a statement for that account.</p>
           </div>
           <span className="pill">V2.2</span>
         </div>
@@ -1472,7 +1469,6 @@ export default function ImportPage({ appData, actions }) {
                   </div>
                   {!item.error && expanded && (
                     <div className="import-mapping-dropdown">
-                      <p className="muted-text">Mapping for this statement. Saved mappings are applied automatically but can be changed here.</p>
                       <div className="form-grid import-map-grid">
                         <ColumnSelect label="Date" field="date" value={item.columnMap.date} headers={item.headers} update={(field, value) => updateUploadItemMap(item.id, field, value)} required />
                         <ColumnSelect label="Time" field="time" value={item.columnMap.time} headers={item.headers} update={(field, value) => updateUploadItemMap(item.id, field, value)} />
@@ -1501,7 +1497,6 @@ export default function ImportPage({ appData, actions }) {
           <div className="section-header compact-header">
             <div>
               <h3>2. Map columns</h3>
-              <p className="muted-text">Auto-detected values are only a starting point. Change anything that looks wrong.</p>
             </div>
             <button className="primary-button" onClick={() => analyseImport()}>Analyse import</button>
           </div>
@@ -1535,7 +1530,6 @@ export default function ImportPage({ appData, actions }) {
             <div className="section-header compact-header">
               <div>
                 <h3>{analysis.isMulti ? "3. Review combined import" : "3. Balance reconciliation"}</h3>
-                <p className="muted-text">If the CSV includes a balance, the app checks the bank balance at the correct date rather than blindly comparing to today.</p>
               </div>
             </div>
             {analysis.isMulti ? (
@@ -1811,7 +1805,6 @@ export default function ImportPage({ appData, actions }) {
         <div className="section-header compact-header">
           <div>
             <h3>Recent import history</h3>
-            <p className="muted-text">Each import batch records imported, linked, skipped and reconciliation results.</p>
           </div>
         </div>
 
@@ -1871,7 +1864,6 @@ export default function ImportPage({ appData, actions }) {
             <div className="section-header">
               <div>
                 <h2>Add account</h2>
-                <p className="muted-text">Create the account now and use it immediately in this CSV import.</p>
               </div>
               <button type="button" className="icon-button" onClick={closeAccountModal}>×</button>
             </div>
@@ -1911,10 +1903,6 @@ export default function ImportPage({ appData, actions }) {
                 />
               </label>
             </div>
-
-            <p className="muted-text">
-              For transfer matching, an opening balance of 0 is normally fine unless this is a brand-new statement account you are adding.
-            </p>
 
             <div className="modal-actions">
               <button type="button" className="secondary-button" onClick={closeAccountModal}>Cancel</button>

@@ -97,7 +97,6 @@ export default function AccountCheckModal({ account, appData, actions, close }) 
         <div className="section-header">
           <div>
             <h2>Check {account.name}</h2>
-            <p className="muted-text">Every transaction day by day, with the bank's balance from your CSV imports alongside, to spot duplicates and missing transfers.</p>
           </div>
           <button type="button" className="icon-button" onClick={close}>×</button>
         </div>
