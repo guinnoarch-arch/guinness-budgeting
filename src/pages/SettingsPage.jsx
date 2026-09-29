@@ -587,6 +587,9 @@ export default function SettingsPage({ appData, actions }) {
       lastAutoCloudBackupAt: patch.lastAutoCloudBackupAt ?? cloudSettings.lastAutoCloudBackupAt ?? null,
       cloudConflict: patch.cloudConflict ?? cloudSettings.cloudConflict ?? null,
       lastCloudConflictAt: patch.lastCloudConflictAt ?? cloudSettings.lastCloudConflictAt ?? null,
+      autoSyncOnOpen: patch.autoSyncOnOpen ?? cloudSettings.autoSyncOnOpen ?? true,
+      lastCloudSyncAt: patch.lastCloudSyncAt ?? cloudSettings.lastCloudSyncAt ?? null,
+      lastCloudSyncMessage: patch.lastCloudSyncMessage ?? cloudSettings.lastCloudSyncMessage ?? null,
       appSessionDays: Number(patch.appSessionDays ?? cloudSettings.appSessionDays ?? 7),
       version: "1"
     };
@@ -2435,6 +2438,18 @@ export default function SettingsPage({ appData, actions }) {
                 />
                 Automatically back up to the cloud a little after each change, once signed in
               </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={cloudSettings.autoSyncOnOpen !== false}
+                  onChange={event => saveCloudSettings({ autoSyncOnOpen: event.target.checked })}
+                  disabled={!cloudSession.signedIn || !cloudConfigured}
+                />
+                Keep my devices in sync: each time the app opens (or you come back to it), open whichever version was changed most recently — this device's or the cloud's
+              </label>
+              {cloudSettings.lastCloudSyncAt && (
+                <p className="muted-text">Last sync check {formatDateTime(cloudSettings.lastCloudSyncAt)}: {cloudSettings.lastCloudSyncMessage || "up to date"}.</p>
+              )}
               <div className="cloud-sync-actions">
                 <button type="button" className="primary-button" onClick={uploadCloudBackupNow} disabled={!cloudSession.signedIn || !cloudConfigured}>
                   Back up now
