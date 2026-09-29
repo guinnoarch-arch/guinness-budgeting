@@ -18,7 +18,6 @@ export default function BudgetWarningsPanel({ appData, selectedMonth, accountId 
       <div className="section-header">
         <div>
           <h3>Budget warnings</h3>
-          <p className="muted-text">All category budgets for this month and account view.</p>
         </div>
         <button className="text-button" onClick={onViewAll}>Manage budgets</button>
       </div>

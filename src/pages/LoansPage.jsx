@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { studentLoanPlanOptions, getStudentLoanPlan } from "../data/studentLoanPlans.js";
 import {
   calculateLoanEstimate,
@@ -36,6 +36,7 @@ import {
   getMortgageOverpaymentSummary
 } from "../utils/loanLinking.js";
 import "../styles/loans.css";
+import ExpandableChart from "../components/common/ExpandableChart.jsx";
 
 const today = () => todayIsoDate();
 
@@ -851,7 +852,6 @@ export default function LoansPage({ appData, actions }) {
         <div>
           <p className="eyebrow">Loans</p>
           <h2>Loans tracker</h2>
-          <p className="muted">Open a tile only when you want the details. The default view keeps the debt information calm and simple.</p>
         </div>
         <div className="row-actions">
           <button type="button" className="primary-button" onClick={openAddHouseModal}>+ House</button>
@@ -900,7 +900,6 @@ export default function LoansPage({ appData, actions }) {
             <div className="section-header compact-header">
               <div>
                 <h3>Your loans</h3>
-                <p className="muted">Click a tile to open the balance, projection and extra details.</p>
               </div>
               <strong>{formatMoney(summary.totalDebt, false)} total tracked</strong>
             </div>
@@ -932,7 +931,6 @@ export default function LoansPage({ appData, actions }) {
           ) : (
             <section className="card loan-closed-state-card">
               <h3>No loan opened</h3>
-              <p className="muted">This page only shows the simple loan tiles until you choose one. That keeps the mortgage/student-loan detail out of view by default.</p>
             </section>
           )}
         </>
@@ -942,7 +940,6 @@ export default function LoansPage({ appData, actions }) {
         <div className="section-header compact-header">
           <div>
             <h3>Archived loans</h3>
-            <p className="muted-text">Archived loans stay out of active totals. You can restore or permanently remove them.</p>
           </div>
         </div>
 
@@ -1091,7 +1088,6 @@ function HouseSection({
         <div>
           <p className="eyebrow">House</p>
           <h3>House, mortgage and contributions</h3>
-          <p className="muted">Track the property, mortgage, deposits, house costs, external contributions and linked app-account payments.</p>
         </div>
         <button type="button" className="primary-button" onClick={onAddHouse}>Add house</button>
       </div>
@@ -1122,7 +1118,7 @@ function HouseSection({
       {houseSummary.houses.length === 0 ? (
         <div className="loan-closed-state-card sub-card">
           <h4>No houses yet</h4>
-          <p className="muted">Add a house to track property value, mortgage details and who paid what. Existing mortgage loans are kept and are migrated into house records when possible.</p>
+          <p className="muted">Add a house to track its value, mortgage and who paid what.</p>
         </div>
       ) : (
         <div className="house-layout-grid">
@@ -1309,7 +1305,6 @@ function HouseDetailPanel({
             <LoanToValueMetric balance={summary.mortgageBalance} value={summary.propertyValue} purchasePrice={summary.purchasePrice} />
             <InfoMetric label="Total contributed" value={formatMoney(summary.totalContributed)} />
           </div>
-          <p className="muted-text">Contribution split is a tracking estimate only, not legal ownership.</p>
           <ContributionSplitList summary={summary} />
         </section>
       )}
@@ -1376,7 +1371,6 @@ function HouseDetailPanel({
       {activeTab === "agreement" && (
         <section className="sub-card house-tab-card" role="tabpanel" id="house-tab-panel-agreement" aria-labelledby="house-tab-agreement">
           <h4>Agreement notes</h4>
-          <p className="muted-text">Personal tracking note. Not legal advice and not proof of legal ownership.</p>
           <p>{house.agreementNotes || "No agreement notes recorded yet."}</p>
         </section>
       )}
@@ -1470,7 +1464,6 @@ function HouseMortgagePanel({ house, summary, mortgageLoan, mortgageEstimate, mo
       <div className="section-header compact-header">
         <div>
           <h4>Mortgage</h4>
-          <p className="muted-text">Full mortgage tracking lives inside this House. Linked app transactions affect accounts once; external payments are house records only.</p>
         </div>
       </div>
 
@@ -1676,7 +1669,6 @@ function HouseBalanceEstimate({ summary }) {
   return (
     <div className="house-balance-estimate">
       <h5>Contribution balance</h5>
-      <p className="muted-text">Ahead / behind estimate only. This is not a legal debt record.</p>
       <div className="loan-event-table-wrap">
         <table className="loan-event-table">
           <thead><tr><th>Person</th><th>Expected</th><th>Actual</th><th>Difference</th></tr></thead>
@@ -2037,7 +2029,6 @@ function StudentLoanDetails({ loan, estimate, events, appData }) {
         <div className="sub-card loan-detail-card">
           <small>Current balance</small>
           <strong>{formatMoney(loan.currentBalance)}</strong>
-          <p className="muted">Manual/SLC statement balance.</p>
         </div>
         <div className="sub-card loan-detail-card">
           <small>Plan</small>
@@ -2047,7 +2038,6 @@ function StudentLoanDetails({ loan, estimate, events, appData }) {
         <div className="sub-card loan-detail-card">
           <small>Estimated monthly repayment</small>
           <strong>{formatMoney(estimate.monthlyRepayment)}</strong>
-          <p className="muted">Based on salary entered.</p>
         </div>
         <div className="sub-card loan-detail-card">
           <small>Write-off estimate</small>
@@ -2062,7 +2052,6 @@ function StudentLoanDetails({ loan, estimate, events, appData }) {
           <div className="sub-card loan-detail-card">
             <small>Salary used</small>
             <strong>{formatMoney(details.grossAnnualSalary || 0, false)}</strong>
-            <p className="muted">Annual estimate before tax.</p>
           </div>
           <div className="sub-card loan-detail-card">
             <small>Interest rate used</small>
@@ -2072,12 +2061,10 @@ function StudentLoanDetails({ loan, estimate, events, appData }) {
           <div className="sub-card loan-detail-card">
             <small>Monthly interest</small>
             <strong>{formatMoney(estimate.monthlyInterest)}</strong>
-            <p className="muted">Estimated interest added this month.</p>
           </div>
           <div className="sub-card loan-detail-card">
             <small>Balance movement</small>
             <strong className={estimate.monthlyCapitalPaid > 0 ? "positive-text" : "danger-text"}>{formatMoney(estimate.monthlyCapitalPaid)}</strong>
-            <p className="muted">Estimated capital reduction after interest.</p>
           </div>
         </div>
         <LoanEventList events={timelineEvents} />
@@ -2118,12 +2105,10 @@ function MortgageLoanDetails({ loan, estimate, events, transactions, appData }) 
         <div className="sub-card loan-detail-card mortgage-main-card">
           <small>Total balance</small>
           <strong>{formatMoney(currentBalance)}</strong>
-          <p className="muted">Current amount still owed.</p>
         </div>
         <div className="sub-card loan-detail-card mortgage-main-card positive-card-soft">
           <small>Total paid off</small>
           <strong>{formatMoney(totalPaidOff)}</strong>
-          <p className="muted">Original loan minus current balance.</p>
         </div>
         <div className="sub-card loan-detail-card mortgage-main-card">
           <small>Interest rate</small>
@@ -2138,12 +2123,10 @@ function MortgageLoanDetails({ loan, estimate, events, transactions, appData }) 
         <div className="sub-card loan-detail-card mortgage-main-card">
           <small>Fixed finish date</small>
           <strong>{details.fixedUntil || "Not set"}</strong>
-          <p className="muted">Used for rate-ending reminders.</p>
         </div>
         <div className="sub-card loan-detail-card mortgage-main-card">
           <small>Final finish date</small>
           <strong>{payoffDate || "Not enough data"}</strong>
-          <p className="muted">Projected from current balance, rate and payment.</p>
         </div>
       </div>
 
@@ -2152,10 +2135,9 @@ function MortgageLoanDetails({ loan, estimate, events, transactions, appData }) 
           <div className="section-header compact-header">
             <div>
               <h4>Mortgage balance projection</h4>
-              <p className="muted">Starts at the mortgage start date, shows total payments made so far, then fades the projected total paid line including future interest.</p>
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={260}>
+          <ExpandableChart title={"Mortgage balance projection"} height={260}>
             <LineChart data={chartData}>
               <XAxis
                 dataKey="timelineX"
@@ -2175,7 +2157,7 @@ function MortgageLoanDetails({ loan, estimate, events, transactions, appData }) 
                 <Line type="linear" dataKey="linkedPaymentBalance" name="Linked payment" stroke="var(--orange)" strokeWidth={0} dot={{ r: 5 }} activeDot={{ r: 7 }} connectNulls={false} />
               )}
             </LineChart>
-          </ResponsiveContainer>
+          </ExpandableChart>
         </div>
       ) : (
         <div className="card warning-row orange">
@@ -2190,22 +2172,18 @@ function MortgageLoanDetails({ loan, estimate, events, transactions, appData }) 
           <div className="sub-card loan-detail-card">
             <small>Monthly interest</small>
             <strong>{formatMoney(liveEstimate.monthlyInterest)}</strong>
-            <p className="muted">Estimated interest added this month.</p>
           </div>
           <div className="sub-card loan-detail-card">
             <small>Total interest gained/added</small>
             <strong>{trackedInterest > 0 ? formatMoney(trackedInterest) : "Not tracked yet"}</strong>
-            <p className="muted">Only counts logged interest events. Manual balance changes are kept separate.</p>
           </div>
           <div className="sub-card loan-detail-card">
             <small>Total projected amount paid at end</small>
             <strong>{totalProjectedPaidAtEnd !== null ? formatMoney(totalProjectedPaidAtEnd) : "Not enough data"}</strong>
-            <p className="muted">Total projected payments across the mortgage, including interest.</p>
           </div>
           <div className="sub-card loan-detail-card">
             <small>Total projected interest at end</small>
             <strong>{totalProjectedInterestAtEnd !== null ? formatMoney(totalProjectedInterestAtEnd) : formatMoney(liveEstimate.projectedTotalInterest || 0)}</strong>
-            <p className="muted">Projected total paid minus the original amount borrowed.</p>
           </div>
           <div className="sub-card loan-detail-card positive-card-soft">
             <small>Overpayment saving</small>
@@ -2247,7 +2225,6 @@ function LoanEventList({ events }) {
       <div className="section-header compact-header">
         <div>
           <h4>Loan event history</h4>
-          <p className="muted">Includes manual balance updates and linked loan-payment transactions.</p>
         </div>
         <span className="pill">{events.length} event(s)</span>
       </div>

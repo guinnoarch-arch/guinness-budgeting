@@ -3,7 +3,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
-  ResponsiveContainer,
+  
   Tooltip,
   XAxis,
   YAxis
@@ -16,6 +16,7 @@ import { formatMoney } from "../utils/money.js";
 import { createId } from "../utils/ids.js";
 import AccountCheckModal from "../components/accounts/AccountCheckModal.jsx";
 import { formatIsoDateLocal, todayIsoDate } from "../utils/dates.js";
+import ExpandableChart from "../components/common/ExpandableChart.jsx";
 
 const emptyAccountForm = {
   name: "",
@@ -439,7 +440,6 @@ export default function AccountsPage({ appData, actions }) {
         <div className="section-header compact-header">
           <div>
             <h3>All accounts summary</h3>
-            <p className="muted-text">Top-level totals across every active account.</p>
           </div>
           <span className="pill">{accounts.length} active account{accounts.length === 1 ? "" : "s"}</span>
         </div>
@@ -482,7 +482,6 @@ export default function AccountsPage({ appData, actions }) {
         <div className="section-header compact-header account-balance-chart-header">
           <div>
             <h3>Account balances over time</h3>
-            <p className="muted-text">Track account balances from opening balances, transactions, transfers, and reconciliation adjustments.</p>
           </div>
           <div className="account-chart-controls">
             <label className="compact-field account-range-select">
@@ -543,7 +542,7 @@ export default function AccountsPage({ appData, actions }) {
         {selectedChartAccounts.length === 0 ? (
           <p className="muted-text">Select at least one account to show the balance chart.</p>
         ) : (
-          <ResponsiveContainer width="100%" height={320}>
+          <ExpandableChart title={"Account balances over time"} height={320}>
             <LineChart data={balanceChartData} margin={{ top: 12, right: 22, left: 8, bottom: 16 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis
@@ -567,7 +566,7 @@ export default function AccountsPage({ appData, actions }) {
                 />
               ))}
             </LineChart>
-          </ResponsiveContainer>
+          </ExpandableChart>
         )}
       </section>
 
@@ -664,10 +663,6 @@ export default function AccountsPage({ appData, actions }) {
                 />
               </label>
             </div>
-
-            <p className="muted-text">
-              Opening balance is the starting amount for this account before transactions and reconciliation adjustments.
-            </p>
 
             <div className="modal-actions">
               <button type="button" className="secondary-button" onClick={closeAccountModal}>Cancel</button>

@@ -1,6 +1,7 @@
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import useIsSmallScreen from "../../hooks/useIsSmallScreen.js";
 import { formatMoney } from "../../utils/money.js";
+import ExpandableChart from "../common/ExpandableChart.jsx";
 
 const MONTH_LINE_COLOURS = {
   twoMonthsAgo: "#2563eb",
@@ -22,13 +23,10 @@ export default function MonthlySpendingTrendChart({ comparison }) {
       <div className="section-header compact-header chart-title-with-toggle">
         <div>
           <h3>{comparison?.title || "Spending through the month"}</h3>
-          <p className="muted-text">
-            {comparison?.description || "Cumulative spending by day of the month compared with the last two months."}
-          </p>
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={300}>
+      <ExpandableChart title={comparison?.title || "Spending through the month"} height={300}>
         <LineChart data={chartData} margin={{ top: 10, right: 24, left: 6, bottom: isSmallScreen ? 28 : 18 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           {/* Only pass the phone-specific settings on small screens. Passing
@@ -76,7 +74,7 @@ export default function MonthlySpendingTrendChart({ comparison }) {
             connectNulls={false}
           />
         </LineChart>
-      </ResponsiveContainer>
+      </ExpandableChart>
     </section>
   );
 }

@@ -210,7 +210,7 @@ export default function DashboardPage({ appData, actions }) {
           <section className="card simple-layout-note">
             <div>
               <h3>Simple view</h3>
-              <p className="muted-text">Charts are hidden in this layout. Use it when you only want the main cash position, upcoming bills, and the latest transactions.</p>
+              <p className="muted-text">Charts are hidden in this layout.</p>
             </div>
             <button className="secondary-button" onClick={() => updateDashboardLayout("full")}>Switch to full dashboard</button>
           </section>

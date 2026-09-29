@@ -14,7 +14,6 @@ export default function PwaInstallCard({ pwaInstall, actions, embedded = false }
           <div>
             <p className="eyebrow">Installable app</p>
             <h3>Install app and offline mode</h3>
-            <p className="muted-text">V2.6 improves the PWA setup so the app is easier to install, update, use offline and restore from cloud backup when signed in.</p>
           </div>
           <img className="settings-app-icon" src="/icons/gb-icon-192.png" alt="Guinness & Holley Budgeting app icon" />
         </div>

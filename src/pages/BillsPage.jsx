@@ -153,7 +153,6 @@ export default function BillsPage({ appData, actions }) {
         <div className="section-header compact-header">
           <div>
             <h3>Recurring payments</h3>
-            <p className="muted-text">Edit a subscription or archive it when it is cancelled. Past transactions are not changed.</p>
           </div>
         </div>
 

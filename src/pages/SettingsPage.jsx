@@ -1432,14 +1432,12 @@ export default function SettingsPage({ appData, actions }) {
     <div className="page-grid">
       <div className="settings-page-intro">
         <h2>App settings</h2>
-        <p className="muted-text">Open one section at a time. Headings expand without turning Settings into one long page.</p>
       </div>
 
       <section className={sectionClass("health", "settings-section-entry-card")}>
         <div className="section-header settings-accordion-heading" {...sectionHeaderProps("health")}>
           <div>
             <h3>App health check</h3>
-            <p className="muted-text">Quick trust checks for login, backups, example data, storage and updates.</p>
           </div>
           <SectionChevron sectionId="health" />
         </div>
@@ -1456,7 +1454,6 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header settings-accordion-heading" {...sectionHeaderProps("backupRisk")}>
           <div>
             <h3>Backup risk</h3>
-            <p className="muted-text">Backup status is always available here; the header button only appears for urgent risk.</p>
           </div>
           <div className="settings-accordion-heading-side"><span className="pill">{backupRisk}</span><SectionChevron sectionId="backupRisk" /></div>
         </div>
@@ -1475,7 +1472,6 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header compact-header settings-accordion-heading" {...sectionHeaderProps("profile")}>
           <div>
             <h3>Profile</h3>
-            <p className="muted-text">Local profile details for display, currency and month settings. Supabase email/password access is managed in Cloud backup.</p>
           </div>
           <div className="settings-accordion-heading-side"><span className="pill">Local profile</span><SectionChevron sectionId="profile" /></div>
         </div>
@@ -1648,7 +1644,6 @@ export default function SettingsPage({ appData, actions }) {
           <div>
             <p className="eyebrow">Display</p>
             <h3>Appearance and dashboard layout</h3>
-            <p className="muted-text">These settings are stored locally and only change how the app looks on this device/browser.</p>
           </div>
           <div className="settings-accordion-heading-side"><span className="pill">V2.6</span><SectionChevron sectionId="appearance" /></div>
         </div>
@@ -1739,7 +1734,6 @@ export default function SettingsPage({ appData, actions }) {
           <div>
             <p className="eyebrow">Budget logic</p>
             <h3>Budget behaviour</h3>
-            <p className="muted-text">Controls the large-expense warning, the dashboard's major spends list, the budget affordability reminder, and budget-left calculation behaviour.</p>
           </div>
           <div className="settings-accordion-heading-side"><span className="pill">V2.6.9</span><SectionChevron sectionId="budgetBehaviour" /></div>
         </div>
@@ -1797,7 +1791,6 @@ export default function SettingsPage({ appData, actions }) {
           <div>
             <p className="eyebrow">Settings section</p>
             <h3>Import Rules</h3>
-            <p className="muted-text">Open this to view, add, edit, or delete what CSV import has remembered. Sections open one at a time to avoid flooding the screen.</p>
           </div>
           <div className="settings-accordion-heading-side"><span className="pill">{(appData.importRules || []).length} rules</span><SectionChevron sectionId="importRules" /></div>
         </div>
@@ -1822,7 +1815,6 @@ export default function SettingsPage({ appData, actions }) {
           <div className="section-header compact-header">
             <div>
               <h3>Import Rules Manager</h3>
-              <p className="muted-text">Use this when the app has remembered a bank phrase incorrectly, for example “Uni” mapping to the wrong GH account.</p>
             </div>
             <span className="pill">V2.6</span>
           </div>
@@ -1855,7 +1847,6 @@ export default function SettingsPage({ appData, actions }) {
               <div className="section-header compact-header">
                 <div>
                   <h4>External account mappings</h4>
-                  <p className="muted-text">Bank/CSV names mapped to GH accounts. Example: “Uni” → Chase Savings.</p>
                 </div>
                 <span className="pill">{(appData.externalAccountMappings || []).length} saved</span>
               </div>
@@ -1927,7 +1918,6 @@ export default function SettingsPage({ appData, actions }) {
               <div className="section-header compact-header">
                 <div>
                   <h4>Category match texts</h4>
-                  <p className="muted-text">Choose one category at a time. The app uses these words to suggest categories during CSV import.</p>
                 </div>
                 <span className="pill">{savedCategoryRules.length} saved</span>
               </div>
@@ -2051,7 +2041,6 @@ export default function SettingsPage({ appData, actions }) {
               <div className="section-header compact-header">
                 <div>
                   <h4>Saved CSV column mappings</h4>
-                  <p className="muted-text">CSV layouts saved after imports so the same bank format maps faster next time.</p>
                 </div>
                 <span className="pill">{(appData.csvColumnMappings || []).length} saved</span>
               </div>
@@ -2101,7 +2090,6 @@ export default function SettingsPage({ appData, actions }) {
           <div>
             <p className="eyebrow">Settings section</p>
             <h3>Payment Rules</h3>
-            <p className="muted-text">Save a description (e.g. a person's name on a bank transfer) once, and any transaction whose description includes it can be excluded from spending/income totals, budgets, or charts — including transactions already in your data.</p>
           </div>
           <div className="settings-accordion-heading-side"><span className="pill">{(appData.exclusionRules || []).length} rules</span><SectionChevron sectionId="exclusionRules" /></div>
         </div>
@@ -2112,7 +2100,6 @@ export default function SettingsPage({ appData, actions }) {
           <div className="section-header compact-header">
             <div>
               <h3>Payment Rules Manager</h3>
-              <p className="muted-text">Rules match against a transaction's description (title), case-insensitively. Ticking a box only ever adds an exclusion — it never un-ticks one you set by hand on an individual transaction.</p>
             </div>
           </div>
 
@@ -2220,7 +2207,6 @@ export default function SettingsPage({ appData, actions }) {
 
               <div className="section-header compact-header">
                 <div>
-                  <p className="muted-text">Click below any time — e.g. after adding, editing, or removing a rule — to sweep all your transactions (past and future) and apply the ticked exclusions to every match. After a CSV import or a new transfer the app offers to do this for you, or does it straight away if the box below is ticked.</p>
                 </div>
                 <button className="primary-button" onClick={runExclusionRules}>Apply rules now</button>
               </div>
@@ -2254,7 +2240,6 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header compact-header settings-accordion-heading" {...sectionHeaderProps("storage")}>
           <div>
             <h3>Storage health</h3>
-            <p className="muted-text">Checks the local saved data before bigger storage or cloud-backup changes are added.</p>
           </div>
           <div className="settings-accordion-heading-side"><span className={storageHealth.ok ? "pill storage-ok" : "pill storage-bad"}>{storageHealth.status}</span><SectionChevron sectionId="storage" /></div>
         </div>
@@ -2298,7 +2283,6 @@ export default function SettingsPage({ appData, actions }) {
           <div className="section-header compact-header">
             <div>
               <h4>Storage and migration logs</h4>
-                <p className="muted-text">Shows IndexedDB migration/load/save problems and safe repair actions. This is for debugging before cloud-backup changes.</p>
             </div>
             <div className="row-actions">
               <button type="button" className="secondary-button small" onClick={refreshStorageLogList}>Refresh logs</button>
@@ -2314,7 +2298,6 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header compact-header settings-accordion-heading" {...sectionHeaderProps("cloud")}>
           <div>
             <h3>Cloud backup</h3>
-            <p className="muted-text">Optional Supabase manual cloud backup. Local IndexedDB remains the main storage.</p>
           </div>
           <div className="settings-accordion-heading-side">
             <span className={cloudSession.signedIn ? "pill storage-ok" : cloudConfigured ? "pill storage-warning" : "pill storage-bad"}>
@@ -2394,7 +2377,6 @@ export default function SettingsPage({ appData, actions }) {
                 <div className="section-header compact-header">
                   <div>
                     <h4>Sign in</h4>
-                    <p className="muted-text">Use your email or username. Passwords are checked by Supabase Auth and are not stored in app data.</p>
                   </div>
                 </div>
                 <div className="cloud-setup-grid">
@@ -2429,7 +2411,6 @@ export default function SettingsPage({ appData, actions }) {
               <div className="section-header compact-header">
                 <div>
                   <h4>Cloud backup</h4>
-                  <p className="muted-text">Cloud backup is an extra safety copy. Local storage remains the working source.</p>
                 </div>
               </div>
               <div className="storage-health-grid cloud-status-grid">
@@ -2478,7 +2459,6 @@ export default function SettingsPage({ appData, actions }) {
               <div className="section-header compact-header">
                 <div>
                   <h4>Local backup</h4>
-                  <p className="muted-text">Download a JSON backup before major changes or cloud restores.</p>
                 </div>
               </div>
               <div className="row-actions">
@@ -2512,7 +2492,6 @@ export default function SettingsPage({ appData, actions }) {
             <div className="section-header compact-header">
               <div>
                 <h4>Cloud backups</h4>
-                <p className="muted-text">Listed backups belong to the signed-in Supabase account.</p>
               </div>
               <span className="pill">{cloudBackups.length}</span>
             </div>
@@ -2573,7 +2552,6 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header compact-header settings-accordion-heading" {...sectionHeaderProps("validation")}>
           <div>
             <h3>Data validation and repair</h3>
-            <p className="muted-text">Checks links between transactions, accounts, categories, budgets, savings goals, recurring items and loans.</p>
           </div>
           <div className="settings-accordion-heading-side">
             <span className={validationReport?.issues?.length ? "pill storage-bad" : "pill storage-ok"}>
@@ -2611,7 +2589,6 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header settings-accordion-heading" {...sectionHeaderProps("backup")}>
           <div>
             <h3>Data backup and restore</h3>
-            <p className="muted-text">Export a full JSON backup before major changes, before resetting data, or before moving to another computer.</p>
           </div>
           <div className="settings-accordion-heading-side"><span className="pill">V{APP_VERSION}</span><SectionChevron sectionId="backup" /></div>
         </div>
@@ -2716,7 +2693,6 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header settings-accordion-heading" {...sectionHeaderProps("activity")}>
           <div>
             <h3>Activity log</h3>
-            <p className="muted-text">Recent safe app actions recorded from local changes. Undo is documented as future work.</p>
           </div>
           <SectionChevron sectionId="activity" />
         </div>
@@ -2738,7 +2714,6 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header settings-accordion-heading" {...sectionHeaderProps("monthClose")}>
           <div>
             <h3>Month close assistant</h3>
-            <p className="muted-text">Review the selected month and create one confirmed closed-month record.</p>
           </div>
           <SectionChevron sectionId="monthClose" />
         </div>
@@ -2771,7 +2746,6 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header settings-accordion-heading" {...sectionHeaderProps("budgetTemplates")}>
           <div>
             <h3>Budget templates</h3>
-            <p className="muted-text">Save this month's budgets as a reusable template and apply it deliberately later.</p>
           </div>
           <SectionChevron sectionId="budgetTemplates" />
         </div>
@@ -2797,7 +2771,6 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header settings-accordion-heading" {...sectionHeaderProps("planned")}>
           <div>
             <h3>Planned transactions</h3>
-            <p className="muted-text">Basic planned rows for wages, bills and expected payments. CSV matching can use planned amount/date fields.</p>
           </div>
           <SectionChevron sectionId="planned" />
         </div>
@@ -2829,7 +2802,6 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header settings-accordion-heading" {...sectionHeaderProps("about")}>
           <div>
             <h3>About / changelog</h3>
-            <p className="muted-text">Current version, update status and recent changes.</p>
           </div>
           <div className="settings-accordion-heading-side"><span className="pill">V{APP_VERSION}</span><SectionChevron sectionId="about" /></div>
         </div>
@@ -2850,7 +2822,6 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header settings-accordion-heading" {...sectionHeaderProps("install")}>
           <div>
             <h3>Install app and offline mode</h3>
-            <p className="muted-text">Install, update and use the local app shell with offline fallback and cloud backup/restore support.</p>
           </div>
           <div className="settings-accordion-heading-side"><img className="settings-app-icon compact" src="/icons/gb-icon-192.png" alt="" /><SectionChevron sectionId="install" /></div>
         </div>
@@ -2884,7 +2855,6 @@ export default function SettingsPage({ appData, actions }) {
         <div className="section-header settings-accordion-heading" {...sectionHeaderProps("future")}>
           <div>
             <h3>Future features</h3>
-            <p className="muted-text">See what is built now and what is still planned.</p>
           </div>
           <SectionChevron sectionId="future" />
         </div>
@@ -2895,7 +2865,6 @@ export default function SettingsPage({ appData, actions }) {
             <div className="suggestion-section">
               <div>
                 <h4>Suggestions</h4>
-                <p className="muted-text">Signed-in suggestions are sent to the Admin Control Centre. If cloud admin SQL is unavailable, a local copy is kept here.</p>
               </div>
 
               <form className="suggestion-form" onSubmit={addFutureSuggestion}>
@@ -2911,7 +2880,6 @@ export default function SettingsPage({ appData, actions }) {
               <div className="section-header compact-header">
                 <div>
                   <h4>Shared suggestions</h4>
-                  <p className="muted-text">Vote once per suggestion while signed in. Admin status updates appear here after SQL setup.</p>
                 </div>
                 <button type="button" className="secondary-button small" onClick={refreshSharedSuggestions}>Refresh</button>
               </div>
