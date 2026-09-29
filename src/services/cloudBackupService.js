@@ -48,6 +48,9 @@ export function normaliseCloudBackupSettings(settings = {}) {
     lastAutoCloudBackupAt: current.lastAutoCloudBackupAt || null,
     lastCloudConflictAt: current.lastCloudConflictAt || null,
     cloudConflict: current.cloudConflict || null,
+    autoSyncOnOpen: current.autoSyncOnOpen !== false,
+    lastCloudSyncAt: current.lastCloudSyncAt || null,
+    lastCloudSyncMessage: current.lastCloudSyncMessage || null,
     appSessionDays: Number(current.appSessionDays || DEFAULT_APP_SESSION_DAYS),
     tableName: current.tableName || CLOUD_BACKUP_TABLE,
     version: current.version || "1"
@@ -382,10 +385,27 @@ export async function fetchLatestSupabaseCloudBackup(settings) {
   const config = getCloudConfigOrThrow(settings);
   const rows = await supabaseRestFetch(
     settings,
-    `${config.tableName}?select=id,created_at,updated_at,backup_label,backup_json,counts,app_version,data_schema_version,backup_format_version,client_generated_at,source&order=created_at.desc&limit=1`,
+    // Safety copies saved while syncing (this device's unsynced edits, kept
+    // before it opened a newer version) are never "the latest version" —
+    // they stay in the backup list for restoring by hand only.
+    `${config.tableName}?select=id,created_at,updated_at,backup_label,backup_json,counts,app_version,data_schema_version,backup_format_version,client_generated_at,source&or=(source.is.null,source.neq.sync-safety-cloud-backup)&order=created_at.desc&limit=1`,
     { method: "GET" }
   );
 
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
+// Just enough about the latest backup to know whether it's newer than this
+// device — its id and when its data was last edited — without downloading
+// the whole backup. Safety copies are skipped, as in
+// fetchLatestSupabaseCloudBackup.
+export async function fetchLatestSupabaseCloudBackupMeta(settings) {
+  const config = getCloudConfigOrThrow(settings);
+  const rows = await supabaseRestFetch(
+    settings,
+    `${config.tableName}?select=id,created_at,client_generated_at,source,data_changed_at:backup_json->data->settings->>lastDataChangedAt&or=(source.is.null,source.neq.sync-safety-cloud-backup)&order=created_at.desc&limit=1`,
+    { method: "GET" }
+  );
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 

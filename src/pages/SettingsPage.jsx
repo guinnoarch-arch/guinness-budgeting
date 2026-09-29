@@ -587,6 +587,9 @@ export default function SettingsPage({ appData, actions }) {
       lastAutoCloudBackupAt: patch.lastAutoCloudBackupAt ?? cloudSettings.lastAutoCloudBackupAt ?? null,
       cloudConflict: patch.cloudConflict ?? cloudSettings.cloudConflict ?? null,
       lastCloudConflictAt: patch.lastCloudConflictAt ?? cloudSettings.lastCloudConflictAt ?? null,
+      autoSyncOnOpen: patch.autoSyncOnOpen ?? cloudSettings.autoSyncOnOpen ?? true,
+      lastCloudSyncAt: patch.lastCloudSyncAt ?? cloudSettings.lastCloudSyncAt ?? null,
+      lastCloudSyncMessage: patch.lastCloudSyncMessage ?? cloudSettings.lastCloudSyncMessage ?? null,
       appSessionDays: Number(patch.appSessionDays ?? cloudSettings.appSessionDays ?? 7),
       version: "1"
     };
@@ -2217,10 +2220,21 @@ export default function SettingsPage({ appData, actions }) {
 
               <div className="section-header compact-header">
                 <div>
-                  <p className="muted-text">Rules aren't applied automatically. Click below any time — after adding, editing, or removing a rule, or after importing new transactions — to sweep all your transactions (past and future) and apply the ticked exclusions to every match.</p>
+                  <p className="muted-text">Click below any time — e.g. after adding, editing, or removing a rule — to sweep all your transactions (past and future) and apply the ticked exclusions to every match. After a CSV import or a new transfer the app offers to do this for you, or does it straight away if the box below is ticked.</p>
                 </div>
                 <button className="primary-button" onClick={runExclusionRules}>Apply rules now</button>
               </div>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings.autoRefreshPaymentRules)}
+                  onChange={event => actions.updateAppData({
+                    ...appData,
+                    settings: { ...settings, autoRefreshPaymentRules: event.target.checked }
+                  }, { reason: event.target.checked ? "Payment rules set to refresh automatically" : "Payment rules set to ask before refreshing" })}
+                />
+                Refresh these rules automatically after every CSV import or new transfer (instead of asking in a banner)
+              </label>
               {exclusionApplyStatus && (
                 <div className="import-status-box">
                   {exclusionApplyStatus}
@@ -2435,6 +2449,18 @@ export default function SettingsPage({ appData, actions }) {
                 />
                 Automatically back up to the cloud a little after each change, once signed in
               </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={cloudSettings.autoSyncOnOpen !== false}
+                  onChange={event => saveCloudSettings({ autoSyncOnOpen: event.target.checked })}
+                  disabled={!cloudSession.signedIn || !cloudConfigured}
+                />
+                Keep my devices in sync: each time the app opens (or you come back to it), open whichever version was changed most recently — this device's or the cloud's
+              </label>
+              {cloudSettings.lastCloudSyncAt && (
+                <p className="muted-text">Last sync check {formatDateTime(cloudSettings.lastCloudSyncAt)}: {cloudSettings.lastCloudSyncMessage || "up to date"}.</p>
+              )}
               <div className="cloud-sync-actions">
                 <button type="button" className="primary-button" onClick={uploadCloudBackupNow} disabled={!cloudSession.signedIn || !cloudConfigured}>
                   Back up now

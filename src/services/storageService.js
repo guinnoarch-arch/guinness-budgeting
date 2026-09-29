@@ -662,6 +662,9 @@ function normaliseCloudBackupConfig(value = {}) {
     lastAutoCloudBackupAt: cloud.lastAutoCloudBackupAt || null,
     lastCloudConflictAt: cloud.lastCloudConflictAt || null,
     cloudConflict: cloud.cloudConflict || null,
+    autoSyncOnOpen: cloud.autoSyncOnOpen !== false,
+    lastCloudSyncAt: cloud.lastCloudSyncAt || null,
+    lastCloudSyncMessage: cloud.lastCloudSyncMessage || null,
     appSessionDays: Number(cloud.appSessionDays || 7),
     version: cloud.version || "1"
   };

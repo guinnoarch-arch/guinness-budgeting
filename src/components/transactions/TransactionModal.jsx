@@ -177,7 +177,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
   function linkToExistingTransaction(otherTransactionId) {
     if (!editingTransaction) return;
     const nextData = linkTransferPair(appData, editingTransaction.id, otherTransactionId);
-    actions.updateAppData(nextData, { reason: "Transfer linked" });
+    actions.updateAppData(nextData, { reason: "Transfer linked", rulesTrigger: "transfer" });
     actions.closeTransactionModal();
   }
 
@@ -336,7 +336,10 @@ export default function TransactionModal({ appData, actions, editingTransaction 
         isEditing ? transactionId : null
       );
 
-      actions.updateAppData(nextData, { reason: receiptFile ? "Transaction receipt attached" : "Transaction saved" });
+      actions.updateAppData(nextData, {
+        reason: receiptFile ? "Transaction receipt attached" : "Transaction saved",
+        rulesTrigger: form.type === "transfer" && !isEditing ? "transfer" : null
+      });
       actions.closeTransactionModal();
     } catch (error) {
       console.error("Could not save transaction or receipt:", error);

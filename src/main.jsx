@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles/global.css";
 
@@ -39,7 +39,8 @@ import { getMonthKey } from "./utils/dates.js";
 import { applyServiceWorkerUpdate, isStandaloneDisplayMode, registerAppServiceWorker } from "./services/pwaService.js";
 import {
   clearStoredCloudSession,
-  fetchLatestSupabaseCloudBackup,
+  fetchLatestSupabaseCloudBackupMeta,
+  fetchSupabaseCloudBackup,
   getStoredCloudSessionSummary,
   isCloudBackupConfigured,
   isCloudLoginGateRequired,
@@ -50,6 +51,14 @@ import {
 import { getDisplayUsernameFromSession } from "./services/authService.js";
 import { ADMIN_ROUTE_PATH, DEFAULT_ADMIN_ACCESS_STATE, DEFAULT_APP_NOTICES, fetchAdminAccessState, getAdminStatus, getAppNotices, getFeatureFlags } from "./services/adminService.js";
 import { buildDataFingerprint } from "./services/cloudMergeService.js";
+import { applyExclusionRules, undoExclusionRuleChanges } from "./services/transactionService.js";
+import {
+  SYNC_SAFETY_BACKUP_TYPE,
+  applyCloudDataForSync,
+  decideCloudSync,
+  describeSyncTime,
+  isFreshDevice
+} from "./services/cloudSyncService.js";
 import { clearLocalAccessSession, hasUsableLocalBudgetData, isLocalAccessSessionAllowed, storeLocalAccessSession } from "./services/localAccessService.js";
 
 
@@ -324,6 +333,24 @@ function App() {
   const [adminAccessState, setAdminAccessState] = useState(DEFAULT_ADMIN_ACCESS_STATE);
   const [appNotices, setAppNotices] = useState(DEFAULT_APP_NOTICES);
   const [dismissedBroadcastId, setDismissedBroadcastId] = useState(readStoredDismissedBroadcastId);
+  // Device sync: false until the first "is the cloud newer?" check has run
+  // (or isn't applicable), so nothing uploads this device's copy before
+  // we know it isn't an older version.
+  const [cloudSyncReady, setCloudSyncReady] = useState(false);
+  // Payment Rules after an import or new transfer: either a prompt to
+  // refresh them ({ mode: "prompt", count, trigger }) or the result of an
+  // automatic/confirmed refresh ({ mode: "applied", count, changes }) that
+  // can be undone.
+  const [rulesNotice, setRulesNotice] = useState(null);
+  // Latest values for event listeners and code that runs after an await.
+  const appDataRef = useRef(null);
+  appDataRef.current = appData;
+  const cloudSyncReadyRef = useRef(false);
+  cloudSyncReadyRef.current = cloudSyncReady;
+  const syncInFlightRef = useRef(false);
+  const lastSyncCheckRef = useRef(0);
+  const syncWithCloudRef = useRef(null);
+  const cloudBackupNowRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -487,6 +514,21 @@ function App() {
   }, [phoneMode]);
 
   function updateAppData(nextOrUpdater, options = {}) {
+    // A CSV import or a new transfer (options.rulesTrigger) brings in
+    // transactions the Payment Rules haven't seen. If refreshing them would
+    // change anything, either do it now (Settings > Payment Rules >
+    // "refresh automatically") or offer it in a banner.
+    if (options.rulesTrigger && nextOrUpdater && typeof nextOrUpdater !== "function") {
+      const trial = applyExclusionRules(nextOrUpdater);
+      if (trial.updatedCount > 0) {
+        if (nextOrUpdater.settings?.autoRefreshPaymentRules) {
+          nextOrUpdater = trial.data;
+          setRulesNotice({ mode: "applied", auto: true, trigger: options.rulesTrigger, count: trial.updatedCount, changes: trial.changes });
+        } else {
+          setRulesNotice({ mode: "prompt", trigger: options.rulesTrigger, count: trial.updatedCount });
+        }
+      }
+    }
     setAppData(prevData => {
       const nextData = typeof nextOrUpdater === "function" ? nextOrUpdater(prevData) : nextOrUpdater;
       return markAppDataChanged(nextData, options);
@@ -575,6 +617,7 @@ function App() {
   }
 
   async function cloudBackupNow({ backupType = "manual", requireConfirm = true } = {}) {
+    const appData = appDataRef.current;
     if (!appData) return null;
     if (adminAccessState.loaded && adminAccessState.isBlocked) {
       setCloudBackupStatus("Your account has been blocked. Contact the app admin.");
@@ -599,6 +642,7 @@ function App() {
         label: backupType === "auto" ? "Automatic cloud backup" : "Manual cloud backup"
       });
       const uploadedAt = row?.created_at || new Date().toISOString();
+      const uploadedChangeAt = appData.settings?.lastDataChangedAt || null;
       setAppData(prev => ({
         ...prev,
         settings: {
@@ -607,7 +651,9 @@ function App() {
             ...(prev.settings?.cloudBackup || {}),
             enabled: true,
             linkedLocalDataAt: prev.settings?.cloudBackup?.linkedLocalDataAt || uploadedAt,
-            cloudBackupNeeded: false,
+            // Anything edited while the upload was in flight still needs
+            // uploading.
+            cloudBackupNeeded: (prev.settings?.lastDataChangedAt || null) !== uploadedChangeAt,
             lastCloudBackupAt: uploadedAt,
             lastAutoCloudBackupAt: backupType === "auto" ? uploadedAt : prev.settings?.cloudBackup?.lastAutoCloudBackupAt || null,
             lastCloudBackupId: row?.id || prev.settings?.cloudBackup?.lastCloudBackupId || null,
@@ -671,6 +717,8 @@ function App() {
     appData?.settings?.cloudBackup?.supabaseAnonKey,
     appData?.settings?.cloudBackup?.cloudUserId
   ]);
+
+  cloudBackupNowRef.current = cloudBackupNow;
 
   function refreshCloudAuthState() {
     setCloudAuthSummary(getStoredCloudSessionSummary(appData?.settings));
@@ -738,10 +786,14 @@ function App() {
     const cloud = appData.settings?.cloudBackup || {};
     if (!cloud.enabled || cloud.autoBackupEnabled === false || !cloud.linkedLocalDataAt || !cloud.cloudBackupNeeded) return undefined;
     if (!isCloudBackupConfigured(appData.settings) || !isCloudSessionAllowed(appData.settings, cloudAuthSummary)) return undefined;
+    if (!cloudSyncReady) return undefined;
 
+    // Through the sync check rather than straight to upload, so an older
+    // copy on this device can never be pushed over a newer one from
+    // another device.
     const timer = window.setTimeout(() => {
-      cloudBackupNow({ backupType: "auto", requireConfirm: false });
-    }, 45000);
+      syncWithCloudRef.current?.("auto-backup");
+    }, 20000);
     return () => window.clearTimeout(timer);
   }, [
     appData?.settings?.cloudBackup?.enabled,
@@ -752,63 +804,212 @@ function App() {
     cloudAuthSummary?.signedIn,
     cloudAuthSummary?.isExpired,
     adminAccessState?.loaded,
-    adminAccessState?.isBlocked
+    adminAccessState?.isBlocked,
+    cloudSyncReady
   ]);
 
-  useEffect(() => {
-    if (!appData) return undefined;
-    if (adminAccessState.loaded && adminAccessState.isBlocked) return undefined;
-    const cloud = appData.settings?.cloudBackup || {};
-    if (!cloud.linkedLocalDataAt || !isCloudBackupConfigured(appData.settings) || !isCloudSessionAllowed(appData.settings, cloudAuthSummary)) return undefined;
-    if (cloud.lastCloudConflictAt && !cloud.cloudConflict) return undefined;
+  // Keeps this device on the newest version of the budget. Runs when the
+  // app opens (once signed in), whenever it comes back into view, and when
+  // the connection returns. Whichever copy was edited most recently wins:
+  // a newer cloud copy is opened here, a newer local copy is uploaded. If
+  // opening the cloud copy would drop edits this device never uploaded,
+  // those are first saved to the cloud as a separate safety backup. With
+  // "Keep my devices in sync" turned off it falls back to the old
+  // behaviour of asking which copy to keep.
+  async function syncWithCloud(trigger = "open") {
+    const data = appDataRef.current;
+    if (!data || syncInFlightRef.current) return;
+    const settings = data.settings || {};
+    const cloud = settings.cloudBackup || {};
+    const configured = isCloudBackupConfigured(settings) && isCloudSessionAllowed(settings, getStoredCloudSessionSummary(settings));
+    // A brand-new device (nothing saved here yet) opens the cloud copy. A
+    // device with its own data that was never linked keeps the existing
+    // "link local data" safety step in Settings instead.
+    const isNewDevice = isFreshDevice(data);
+    if (!configured || (!cloud.linkedLocalDataAt && !isNewDevice)) {
+      setCloudSyncReady(true);
+      return;
+    }
+    // Sync turned off: auto backups upload as they always did, and the
+    // "which copy?" check only happens when the app opens.
+    if (cloud.autoSyncOnOpen === false && !isNewDevice) {
+      if (trigger === "auto-backup") {
+        cloudBackupNowRef.current?.({ backupType: "auto", requireConfirm: false });
+        return;
+      }
+      if (trigger !== "open") return;
+    }
 
-    let cancelled = false;
-    async function checkLatestCloudBackup() {
-      try {
-        const latest = await fetchLatestSupabaseCloudBackup(appData.settings);
-        if (cancelled || !latest) return;
-        const preview = parseBackupObject(latest.backup_json, `cloud-backup-${String(latest.id || "").slice(0, 8)}.json`);
-        const localFingerprint = buildDataFingerprint(appData);
-        const cloudFingerprint = buildDataFingerprint(preview.data);
-        const identical = localFingerprint.checksum === cloudFingerprint.checksum;
+    syncInFlightRef.current = true;
+    if (trigger !== "auto-backup") lastSyncCheckRef.current = Date.now();
+    try {
+      const syncedAt = new Date().toISOString();
+      // Cheap check first: only download the whole backup when its data
+      // was edited more recently than this device's.
+      const meta = await fetchLatestSupabaseCloudBackupMeta(settings);
+      const localChangedTime = new Date(appDataRef.current?.settings?.lastDataChangedAt || 0).getTime();
+      const cloudChangedTime = meta?.data_changed_at ? new Date(meta.data_changed_at).getTime() : null;
+      const needsFullBackup = Boolean(meta) && (
+        cloud.autoSyncOnOpen === false || isNewDevice || cloudChangedTime === null || cloudChangedTime > localChangedTime
+      );
+      const latest = needsFullBackup ? await fetchSupabaseCloudBackup(settings, meta.id) : null;
+      const cloudData = latest
+        ? parseBackupObject(latest.backup_json, `cloud-backup-${String(latest.id || "").slice(0, 8)}.json`).data
+        : null;
+      const current = appDataRef.current;
+      const recordSync = message => setAppData(prev => prev ? ({
+        ...prev,
+        settings: {
+          ...(prev.settings || {}),
+          cloudBackup: { ...(prev.settings?.cloudBackup || {}), lastCloudSyncAt: syncedAt, lastCloudSyncMessage: message }
+        }
+      }) : prev);
+
+      if (cloud.autoSyncOnOpen === false && !isNewDevice) {
+        if (!cloudData) return;
+        const localFingerprint = buildDataFingerprint(current);
+        const cloudFingerprint = buildDataFingerprint(cloudData);
+        if (localFingerprint.checksum === cloudFingerprint.checksum) return;
         const cloudTime = new Date(cloudFingerprint.updatedAt || latest.client_generated_at || latest.created_at || 0).getTime();
-        const localTime = new Date(localFingerprint.updatedAt || appData.settings?.lastCloudBackupAt || 0).getTime();
-        if (!identical && Math.abs(cloudTime - localTime) > 30000) {
-          const nextConflict = {
-            backupId: latest.id,
-            createdAt: latest.client_generated_at || latest.created_at,
-            counts: latest.counts || cloudFingerprint.counts || null,
-            row: latest,
-            cloudData: preview.data,
-            localFingerprint,
-            cloudFingerprint,
-            message: cloudTime > localTime ? "Cloud backup looks newer than local data." : "Local data looks newer than cloud backup."
-          };
-          setCloudConflict(nextConflict);
-          setAppData(prev => ({
+        const localTime = new Date(localFingerprint.updatedAt || 0).getTime();
+        if (Math.abs(cloudTime - localTime) <= 30000) return;
+        setCloudConflict({
+          backupId: latest.id,
+          createdAt: latest.client_generated_at || latest.created_at,
+          counts: latest.counts || cloudFingerprint.counts || null,
+          row: latest,
+          cloudData,
+          localFingerprint,
+          cloudFingerprint,
+          message: cloudTime > localTime ? "Cloud backup looks newer than local data." : "Local data looks newer than cloud backup."
+        });
+        return;
+      }
+
+      if (meta && !needsFullBackup) {
+        if (cloudChangedTime === localChangedTime) {
+          // Same version in both places.
+          setAppData(prev => prev ? ({
             ...prev,
             settings: {
               ...(prev.settings || {}),
-              cloudBackup: {
-                ...(prev.settings?.cloudBackup || {}),
-                cloudConflict: nextConflict,
-                lastCloudConflictAt: new Date().toISOString()
-              }
+              cloudBackup: { ...(prev.settings?.cloudBackup || {}), cloudBackupNeeded: false, lastCloudSyncAt: syncedAt, lastCloudSyncMessage: "Already up to date" }
             }
-          }));
-        } else if (identical) {
-          setCloudConflict(null);
+          }) : prev);
+          return;
         }
-      } catch (error) {
-        if (!cancelled) setCloudBackupStatus(error.message || "Could not check cloud backup");
+        if (isNewDevice) return;
+        const row = await cloudBackupNowRef.current?.({ backupType: "auto", requireConfirm: false });
+        recordSync(row ? "This device had the newest version, so it was uploaded" : "This device has the newest version, but the upload failed");
+        return;
       }
-    }
 
-    checkLatestCloudBackup();
+      const decision = decideCloudSync(current, cloudData, latest);
+
+      if (decision.action === "download") {
+        if (decision.protectLocal) {
+          try {
+            await uploadSupabaseCloudBackup(settings, current, {
+              backupType: SYNC_SAFETY_BACKUP_TYPE,
+              label: `This device's copy before syncing (last changed ${describeSyncTime(decision.localTime)})`
+            });
+          } catch (error) {
+            // Couldn't keep a copy of this device's edits, so don't
+            // overwrite them — ask instead.
+            setCloudConflict({
+              backupId: latest.id,
+              createdAt: latest.client_generated_at || latest.created_at,
+              counts: latest.counts || decision.cloudFingerprint?.counts || null,
+              row: latest,
+              cloudData,
+              localFingerprint: decision.localFingerprint,
+              cloudFingerprint: decision.cloudFingerprint,
+              message: "The cloud has a newer version, but this device has changes that couldn't be backed up first. Choose which to keep."
+            });
+            return;
+          }
+        }
+        // Edited on this device while we were checking? Leave it for the
+        // next check rather than replacing what was just typed.
+        if ((appDataRef.current?.settings?.lastDataChangedAt || null) !== (current.settings?.lastDataChangedAt || null)) return;
+        const syncMessage = `Synced: opened the newer version from the cloud (last changed ${describeSyncTime(decision.cloudTime)})${decision.protectLocal
+          ? `. This device also had changes from ${describeSyncTime(decision.localTime)} that weren't in it — they're saved as the cloud backup "This device's copy before syncing" if you need them.`
+          : "."}`;
+        setAppData(applyCloudDataForSync(current, cloudData, latest, syncedAt, syncMessage));
+        setCloudConflict(null);
+        setCloudBackupStatus(syncMessage);
+        // A plain update clears itself; one that set aside this device's
+        // edits stays until something else replaces it, so it isn't missed.
+        if (!decision.protectLocal) window.setTimeout(() => setCloudBackupStatus(""), 8000);
+        return;
+      }
+
+      if (isNewDevice) return;
+
+      if (decision.action === "upload") {
+        const row = await cloudBackupNowRef.current?.({ backupType: "auto", requireConfirm: false });
+        recordSync(row ? "This device had the newest version, so it was uploaded" : "This device has the newest version, but the upload failed");
+        return;
+      }
+
+      recordSync("Already up to date");
+    } catch (error) {
+      console.warn(`Cloud sync check (${trigger}) failed:`, error);
+      setCloudBackupStatus(error.message || "Could not check the cloud for a newer version");
+      window.setTimeout(() => setCloudBackupStatus(""), 6000);
+    } finally {
+      syncInFlightRef.current = false;
+      setCloudSyncReady(true);
+    }
+  }
+  syncWithCloudRef.current = syncWithCloud;
+
+  // On open / sign-in.
+  useEffect(() => {
+    if (!appData) return;
+    if (!adminAccessState.loaded && cloudAuthSummary?.signedIn) {
+      // Just signed in: hold uploads until the check below has run.
+      setCloudSyncReady(false);
+      return;
+    }
+    if (adminAccessState.loaded && adminAccessState.isBlocked) {
+      setCloudSyncReady(true);
+      return;
+    }
+    syncWithCloudRef.current?.("open");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Boolean(appData), cloudAuthSummary?.signedIn, cloudAuthSummary?.user?.id, adminAccessState?.loaded, adminAccessState?.isBlocked]);
+
+  // Coming back to the app (e.g. reopening it on a phone where it stayed
+  // open in the background), or the connection returning: check again. Going
+  // away: upload any waiting changes now, so the other device sees them.
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === "visible") {
+        if (Date.now() - lastSyncCheckRef.current > 30000) syncWithCloudRef.current?.("resume");
+        return;
+      }
+      flushPendingCloudBackup();
+    }
+    function handleOnline() {
+      syncWithCloudRef.current?.("online");
+    }
+    function flushPendingCloudBackup() {
+      const data = appDataRef.current;
+      const cloud = data?.settings?.cloudBackup || {};
+      if (!data || !cloudSyncReadyRef.current || !cloud.cloudBackupNeeded || cloud.autoBackupEnabled === false || !cloud.linkedLocalDataAt) return;
+      if (!isCloudBackupConfigured(data.settings) || !isCloudSessionAllowed(data.settings, getStoredCloudSessionSummary(data.settings))) return;
+      syncWithCloudRef.current?.("auto-backup");
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("pagehide", flushPendingCloudBackup);
+    window.addEventListener("online", handleOnline);
     return () => {
-      cancelled = true;
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("pagehide", flushPendingCloudBackup);
+      window.removeEventListener("online", handleOnline);
     };
-  }, [appData?.settings?.cloudBackup?.linkedLocalDataAt, cloudAuthSummary?.signedIn, adminAccessState?.loaded, adminAccessState?.isBlocked]);
+  }, []);
 
   useEffect(() => {
     if (!appData) return undefined;
@@ -823,7 +1024,12 @@ function App() {
     return () => {
       cancelled = true;
     };
+    // Boolean(appData): also run once the saved data has loaded. On a device
+    // with nothing saved yet the settings below are identical before and
+    // after loading, so without it a device that's already signed in never
+    // ran this check and sat on "Checking account access".
   }, [
+    Boolean(appData),
     appData?.settings?.cloudBackup?.supabaseUrl,
     appData?.settings?.cloudBackup?.supabaseAnonKey,
     cloudAuthSummary?.signedIn,
@@ -952,8 +1158,26 @@ function App() {
     setCloudBackupStatus("Merged data saved locally. Upload to cloud only after confirmation.");
   }
 
+  function refreshPaymentRulesNow() {
+    const current = appDataRef.current;
+    if (!current) return;
+    const result = applyExclusionRules(current);
+    if (result.updatedCount > 0) updateAppData(result.data, { reason: "Payment rules refreshed" });
+    setRulesNotice({ mode: "applied", auto: false, count: result.updatedCount, changes: result.changes });
+  }
+
+  function undoPaymentRulesRefresh() {
+    if (!rulesNotice?.changes?.length || !appDataRef.current) return;
+    updateAppData(undoExclusionRuleChanges(appDataRef.current, rulesNotice.changes), { reason: "Payment rules refresh undone" });
+    setRulesNotice(null);
+  }
+
   const actions = useMemo(() => ({
     updateAppData,
+    rulesNotice,
+    refreshPaymentRulesNow,
+    undoPaymentRulesRefresh,
+    dismissRulesNotice: () => setRulesNotice(null),
     toggleTheme: () => {
       updateAppData(prev => {
         const currentMode = prev.settings?.themeMode || (prev.settings?.darkModeEnabled ? "dark" : "light");
@@ -1018,7 +1242,7 @@ function App() {
     setSelectedMonth,
     selectedDashboardAccountId,
     setSelectedDashboardAccountId
-  }), [appData, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode, adminAccessState, appNotices, preferredSettingsSection]);
+  }), [appData, rulesNotice, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode, adminAccessState, appNotices, preferredSettingsSection]);
 
   if (storageRecoveryError) {
     return (
@@ -1100,6 +1324,18 @@ function App() {
 
   if (maintenanceBlocking) {
     return <MaintenanceScreen phoneMode={phoneMode} message={appNotices.maintenanceMessage} onLogout={logoutApp} />;
+  }
+
+  if (cloudSessionAllowed && !cloudSyncReady && isFreshDevice(appData)) {
+    return (
+      <main className={`loading-page ${phoneMode ? "phone-mode" : ""}`.trim()}>
+        <section className="card loading-card">
+          <p className="eyebrow">GH Budgeting</p>
+          <h1>Loading your latest budget</h1>
+          <p className="muted-text">Fetching the newest version from the cloud.</p>
+        </section>
+      </main>
+    );
   }
 
   if (cloudConflict?.cloudData) {

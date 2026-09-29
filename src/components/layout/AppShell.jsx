@@ -595,6 +595,41 @@ export default function AppShell({
             </div>
           )}
 
+          {actions.rulesNotice && (
+            <div className="unbacked-changes-banner backup-banner-notice rules-refresh-banner" role="status" aria-live="polite">
+              {actions.rulesNotice.mode === "prompt" ? (
+                <>
+                  <div>
+                    <strong>Refresh your payment rules?</strong>
+                    <span>
+                      {actions.rulesNotice.trigger === "transfer" ? "After this transfer" : "After this import"}, your Payment Rules would update {actions.rulesNotice.count} transaction{actions.rulesNotice.count === 1 ? "" : "s"} (excluding them from totals, budgets or charts as each rule says).
+                    </span>
+                  </div>
+                  <div className="unbacked-changes-actions">
+                    <button className="secondary-button small" onClick={actions.refreshPaymentRulesNow}>Refresh rules</button>
+                    <button className="text-button" onClick={actions.dismissRulesNotice}>Not now</button>
+                    <button className="text-button" onClick={() => { actions.dismissRulesNotice(); setActivePage("settings"); }}>Rule settings</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <strong>{actions.rulesNotice.count > 0 ? "Payment rules refreshed" : "Payment rules are up to date"}</strong>
+                    <span>
+                      {actions.rulesNotice.count > 0
+                        ? `${actions.rulesNotice.auto ? "Refreshed automatically — " : ""}${actions.rulesNotice.count} transaction${actions.rulesNotice.count === 1 ? "" : "s"} updated.`
+                        : "Nothing needed changing."}
+                    </span>
+                  </div>
+                  <div className="unbacked-changes-actions">
+                    {actions.rulesNotice.changes?.length > 0 && <button className="secondary-button small" onClick={actions.undoPaymentRulesRefresh}>Undo</button>}
+                    <button className="text-button" onClick={actions.dismissRulesNotice}>Dismiss</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {showUnbackedBanner && (
             <div className={`unbacked-changes-banner backup-banner-${backupButtonLevel}`} role="status" aria-live="polite">
               <div>
