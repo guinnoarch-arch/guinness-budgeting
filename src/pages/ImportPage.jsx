@@ -1345,7 +1345,7 @@ export default function ImportPage({ appData, actions }) {
       }
 
       const savedData = attachReplacedData(workingData, aggregate.batches, importBase.replacedByAccount);
-      actions.updateAppData(savedData, { major: true, reason: "Multiple CSV imports completed" });
+      actions.updateAppData(savedData, { major: true, reason: "Multiple CSV imports completed", rulesTrigger: "import" });
       const verification = verifyImportBalances(workingData, timelines, groupAdjustmentsByAccount(aggregate.reconciliationAdjustments));
       setImportVerification(verification.length > 0 ? verification : null);
       setStatus(`Import complete: ${aggregate.batches.length} statement(s), ${aggregate.importedTransactionIds.length} new, ${aggregate.linkedTransactionIds.length} linked, ${aggregate.skippedRows.length} skipped${aggregate.reconciliationAdjustments.length ? `, ${aggregate.reconciliationAdjustments.length} balance adjustment(s) to match the CSV` : ""}.`);
@@ -1384,7 +1384,7 @@ export default function ImportPage({ appData, actions }) {
 
     actions.updateAppData(
       attachReplacedData(result.data, [result.result.importBatch], importBase.replacedByAccount),
-      { major: true, reason: "CSV import completed" }
+      { major: true, reason: "CSV import completed", rulesTrigger: "import" }
     );
     const adjustments = result.result.reconciliationAdjustments || [];
     const verification = verifyImportBalances(result.data, timelines, groupAdjustmentsByAccount(adjustments));

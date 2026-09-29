@@ -72,7 +72,7 @@ export default function AccountCheckModal({ account, appData, actions, close }) 
           : transaction
       ))
     };
-    actions.updateAppData(settled, { reason: "Account check: linked the two sides of a transfer" });
+    actions.updateAppData(settled, { reason: "Account check: linked the two sides of a transfer", rulesTrigger: "transfer" });
     setMessage(`Linked "${item.title}" with "${candidate.title}" in ${candidate.accountName}.`);
   }
 

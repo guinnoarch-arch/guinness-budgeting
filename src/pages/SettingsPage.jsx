@@ -2220,10 +2220,21 @@ export default function SettingsPage({ appData, actions }) {
 
               <div className="section-header compact-header">
                 <div>
-                  <p className="muted-text">Rules aren't applied automatically. Click below any time — after adding, editing, or removing a rule, or after importing new transactions — to sweep all your transactions (past and future) and apply the ticked exclusions to every match.</p>
+                  <p className="muted-text">Click below any time — e.g. after adding, editing, or removing a rule — to sweep all your transactions (past and future) and apply the ticked exclusions to every match. After a CSV import or a new transfer the app offers to do this for you, or does it straight away if the box below is ticked.</p>
                 </div>
                 <button className="primary-button" onClick={runExclusionRules}>Apply rules now</button>
               </div>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings.autoRefreshPaymentRules)}
+                  onChange={event => actions.updateAppData({
+                    ...appData,
+                    settings: { ...settings, autoRefreshPaymentRules: event.target.checked }
+                  }, { reason: event.target.checked ? "Payment rules set to refresh automatically" : "Payment rules set to ask before refreshing" })}
+                />
+                Refresh these rules automatically after every CSV import or new transfer (instead of asking in a banner)
+              </label>
               {exclusionApplyStatus && (
                 <div className="import-status-box">
                   {exclusionApplyStatus}

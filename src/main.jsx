@@ -51,6 +51,7 @@ import {
 import { getDisplayUsernameFromSession } from "./services/authService.js";
 import { ADMIN_ROUTE_PATH, DEFAULT_ADMIN_ACCESS_STATE, DEFAULT_APP_NOTICES, fetchAdminAccessState, getAdminStatus, getAppNotices, getFeatureFlags } from "./services/adminService.js";
 import { buildDataFingerprint } from "./services/cloudMergeService.js";
+import { applyExclusionRules, undoExclusionRuleChanges } from "./services/transactionService.js";
 import {
   SYNC_SAFETY_BACKUP_TYPE,
   applyCloudDataForSync,
@@ -336,6 +337,11 @@ function App() {
   // (or isn't applicable), so nothing uploads this device's copy before
   // we know it isn't an older version.
   const [cloudSyncReady, setCloudSyncReady] = useState(false);
+  // Payment Rules after an import or new transfer: either a prompt to
+  // refresh them ({ mode: "prompt", count, trigger }) or the result of an
+  // automatic/confirmed refresh ({ mode: "applied", count, changes }) that
+  // can be undone.
+  const [rulesNotice, setRulesNotice] = useState(null);
   // Latest values for event listeners and code that runs after an await.
   const appDataRef = useRef(null);
   appDataRef.current = appData;
@@ -508,6 +514,21 @@ function App() {
   }, [phoneMode]);
 
   function updateAppData(nextOrUpdater, options = {}) {
+    // A CSV import or a new transfer (options.rulesTrigger) brings in
+    // transactions the Payment Rules haven't seen. If refreshing them would
+    // change anything, either do it now (Settings > Payment Rules >
+    // "refresh automatically") or offer it in a banner.
+    if (options.rulesTrigger && nextOrUpdater && typeof nextOrUpdater !== "function") {
+      const trial = applyExclusionRules(nextOrUpdater);
+      if (trial.updatedCount > 0) {
+        if (nextOrUpdater.settings?.autoRefreshPaymentRules) {
+          nextOrUpdater = trial.data;
+          setRulesNotice({ mode: "applied", auto: true, trigger: options.rulesTrigger, count: trial.updatedCount, changes: trial.changes });
+        } else {
+          setRulesNotice({ mode: "prompt", trigger: options.rulesTrigger, count: trial.updatedCount });
+        }
+      }
+    }
     setAppData(prevData => {
       const nextData = typeof nextOrUpdater === "function" ? nextOrUpdater(prevData) : nextOrUpdater;
       return markAppDataChanged(nextData, options);
@@ -1137,8 +1158,26 @@ function App() {
     setCloudBackupStatus("Merged data saved locally. Upload to cloud only after confirmation.");
   }
 
+  function refreshPaymentRulesNow() {
+    const current = appDataRef.current;
+    if (!current) return;
+    const result = applyExclusionRules(current);
+    if (result.updatedCount > 0) updateAppData(result.data, { reason: "Payment rules refreshed" });
+    setRulesNotice({ mode: "applied", auto: false, count: result.updatedCount, changes: result.changes });
+  }
+
+  function undoPaymentRulesRefresh() {
+    if (!rulesNotice?.changes?.length || !appDataRef.current) return;
+    updateAppData(undoExclusionRuleChanges(appDataRef.current, rulesNotice.changes), { reason: "Payment rules refresh undone" });
+    setRulesNotice(null);
+  }
+
   const actions = useMemo(() => ({
     updateAppData,
+    rulesNotice,
+    refreshPaymentRulesNow,
+    undoPaymentRulesRefresh,
+    dismissRulesNotice: () => setRulesNotice(null),
     toggleTheme: () => {
       updateAppData(prev => {
         const currentMode = prev.settings?.themeMode || (prev.settings?.darkModeEnabled ? "dark" : "light");
@@ -1203,7 +1242,7 @@ function App() {
     setSelectedMonth,
     selectedDashboardAccountId,
     setSelectedDashboardAccountId
-  }), [appData, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode, adminAccessState, appNotices, preferredSettingsSection]);
+  }), [appData, rulesNotice, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode, adminAccessState, appNotices, preferredSettingsSection]);
 
   if (storageRecoveryError) {
     return (
