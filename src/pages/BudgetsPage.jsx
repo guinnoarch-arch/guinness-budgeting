@@ -1,10 +1,32 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { checkMoneyAmount, checkRequiredText, collectErrors } from "../utils/validation.js";
+import useFormErrors from "../hooks/useFormErrors.js";
+import { FieldError, RequiredMark } from "../components/common/FormFeedback.jsx";
 import BudgetCard from "../components/budgets/BudgetCard.jsx";
 import { getCategorySpend, getBudgetAccountIds } from "../utils/calculations.js";
 import { createId } from "../utils/ids.js";
 import { formatMonthLabel } from "../utils/dates.js";
 import { formatMoney } from "../utils/money.js";
 import { applyCategoryRules, undoCategoryRuleChanges } from "../services/transactionService.js";
+
+function validateNewCategoryForm(values) {
+  return collectErrors({
+    name: checkRequiredText(values.name, "a name for the category, for example Car insurance"),
+    limit: values.type === "expense" ? checkMoneyAmount(values.limit, { required: false, allowZero: true, example: "120" }) : ""
+  });
+}
+
+function validateBudgetForm(values) {
+  return collectErrors({
+    limit: checkMoneyAmount(values.limit, { required: false, allowZero: true, example: "120" })
+  });
+}
+
+function validateCategoryNameForm(values) {
+  return collectErrors({
+    name: checkRequiredText(values.name, "a name for the category")
+  });
+}
 
 function isCategoryArchived(category) {
   return category.isActive === false || category.isArchived || category.archivedAt;
@@ -38,6 +60,26 @@ export default function BudgetsPage({ appData, actions }) {
     limit: "",
     accountIds: ["acc_current"]
   });
+
+  const newCategoryErrors = useFormErrors("new-category", validateNewCategoryForm);
+  const budgetErrors = useFormErrors("budget", validateBudgetForm);
+  const categoryNameErrors = useFormErrors("category-name", validateCategoryNameForm);
+
+  useEffect(() => {
+    newCategoryErrors.clearFixedErrors(newCategoryDraft);
+    // Only re-check when the values change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newCategoryDraft]);
+
+  useEffect(() => {
+    budgetErrors.clearFixedErrors({ limit: budgetLimit });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [budgetLimit]);
+
+  useEffect(() => {
+    categoryNameErrors.clearFixedErrors({ name: categoryName });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoryName]);
 
   const activeAccounts = (appData.accounts || []).filter(account => account.isActive !== false);
   const categorySpend = getCategorySpend(appData, actions.selectedMonth)
@@ -133,8 +175,8 @@ export default function BudgetsPage({ appData, actions }) {
 
   function addCategoryFromManager(event) {
     event.preventDefault();
+    if (!newCategoryErrors.validateAll(newCategoryDraft)) return;
     const name = newCategoryDraft.name.trim();
-    if (!name) return;
 
     const now = new Date().toISOString();
     const categoryId = createId("cat");
@@ -206,6 +248,16 @@ export default function BudgetsPage({ appData, actions }) {
     setBudgetAccountIds(seededIds);
   }
 
+  function closeBudgetEditor() {
+    setEditingBudget(null);
+    budgetErrors.resetErrors();
+  }
+
+  function closeCategoryEditor() {
+    setEditingCategory(null);
+    categoryNameErrors.resetErrors();
+  }
+
   function handleEditCategory(category) {
     setEditingCategory(category);
     setCategoryName(category.name);
@@ -213,6 +265,7 @@ export default function BudgetsPage({ appData, actions }) {
 
   function saveBudget() {
     if (!editingBudget) return;
+    if (!budgetErrors.validateAll({ limit: budgetLimit })) return;
     const limit = parseFloat(budgetLimit) || 0;
     const accountIds = budgetAccountIds.length > 0 ? budgetAccountIds : ["acc_current"];
     const accountIdsKey = [...accountIds].sort().join("+");
@@ -321,7 +374,8 @@ export default function BudgetsPage({ appData, actions }) {
   }
 
   function saveCategory() {
-    if (!editingCategory || !categoryName.trim()) return;
+    if (!editingCategory) return;
+    if (!categoryNameErrors.validateAll({ name: categoryName })) return;
     actions.updateAppData({
       ...appData,
       categories: appData.categories.map(c =>
@@ -550,15 +604,18 @@ export default function BudgetsPage({ appData, actions }) {
               <button type="button" className="icon-button" onClick={() => setShowBudgetManager(false)}>×</button>
             </div>
 
-            <form className="manager-add-form" onSubmit={addCategoryFromManager}>
+            <form className="manager-add-form" onSubmit={addCategoryFromManager} noValidate>
               <label>
-                New category
+                <span>New category<RequiredMark /></span>
                 <input
+                  {...newCategoryErrors.fieldProps("name")}
+                  aria-required="true"
                   type="text"
                   placeholder="Car insurance"
                   value={newCategoryDraft.name}
                   onChange={event => updateNewCategoryDraft("name", event.target.value)}
                 />
+                <FieldError fieldId={newCategoryErrors.getFieldId("name")} message={newCategoryErrors.errors.name} />
               </label>
               <label>
                 Type
@@ -581,14 +638,18 @@ export default function BudgetsPage({ appData, actions }) {
               <label>
                 Budget limit
                 <input
+                  {...newCategoryErrors.fieldProps("limit")}
                   type="number"
+                  inputMode="decimal"
                   min="0"
                   step="0.01"
                   placeholder="0.00"
                   value={newCategoryDraft.limit}
                   onChange={event => updateNewCategoryDraft("limit", event.target.value)}
+                  onBlur={() => newCategoryErrors.validateFieldOnBlur("limit", newCategoryDraft)}
                   disabled={newCategoryDraft.type !== "expense"}
                 />
+                <FieldError fieldId={newCategoryErrors.getFieldId("limit")} message={newCategoryErrors.errors.limit} />
               </label>
               <label className="account-multiselect-label">
                 Account(s)
@@ -648,23 +709,28 @@ export default function BudgetsPage({ appData, actions }) {
 
       {editingBudget && (
         <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={e => { e.preventDefault(); saveBudget(); }}>
+          <form className="modal-card" onSubmit={e => { e.preventDefault(); saveBudget(); }} noValidate>
             <div className="section-header">
               <h2>Edit budget for {editingBudget.category.name}</h2>
-              <button type="button" className="icon-button" onClick={() => setEditingBudget(null)}>×</button>
+              <button type="button" className="icon-button" onClick={closeBudgetEditor} aria-label="Close">×</button>
             </div>
 
             <div className="form-grid">
               <label>
                 Budget limit
                 <input
+                  {...budgetErrors.fieldProps("limit")}
                   type="number"
+                  inputMode="decimal"
                   min="0"
                   step="0.01"
                   placeholder="100.00"
                   value={budgetLimit}
                   onChange={e => setBudgetLimit(e.target.value)}
+                  onBlur={() => budgetErrors.validateFieldOnBlur("limit", { limit: budgetLimit })}
                 />
+                <FieldError fieldId={budgetErrors.getFieldId("limit")} message={budgetErrors.errors.limit} />
+                <small>Leave at 0 to track spending in this category without a limit.</small>
               </label>
 
               <label className="account-multiselect-label">
@@ -692,7 +758,7 @@ export default function BudgetsPage({ appData, actions }) {
                     type="button"
                     className="danger-button"
                     onClick={() => {
-                      if (archiveBudget(editingBudget)) setEditingBudget(null);
+                      if (archiveBudget(editingBudget)) closeBudgetEditor();
                     }}
                   >
                     Archive budget
@@ -700,7 +766,7 @@ export default function BudgetsPage({ appData, actions }) {
                 )}
               </div>
               <div className="row-actions">
-                <button type="button" className="secondary-button" onClick={() => setEditingBudget(null)}>Cancel</button>
+                <button type="button" className="secondary-button" onClick={closeBudgetEditor}>Cancel</button>
                 <button className="primary-button">Save budget</button>
               </div>
             </div>
@@ -710,21 +776,24 @@ export default function BudgetsPage({ appData, actions }) {
 
       {editingCategory && (
         <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={e => { e.preventDefault(); saveCategory(); }}>
+          <form className="modal-card" onSubmit={e => { e.preventDefault(); saveCategory(); }} noValidate>
             <div className="section-header">
               <h2>Edit category</h2>
-              <button type="button" className="icon-button" onClick={() => setEditingCategory(null)}>×</button>
+              <button type="button" className="icon-button" onClick={closeCategoryEditor} aria-label="Close">×</button>
             </div>
 
             <div className="form-grid">
               <label>
-                Category name
+                <span>Category name<RequiredMark /></span>
                 <input
+                  {...categoryNameErrors.fieldProps("name")}
+                  aria-required="true"
                   type="text"
                   placeholder="Category name"
                   value={categoryName}
                   onChange={e => setCategoryName(e.target.value)}
                 />
+                <FieldError fieldId={categoryNameErrors.getFieldId("name")} message={categoryNameErrors.errors.name} />
               </label>
             </div>
 
@@ -734,14 +803,14 @@ export default function BudgetsPage({ appData, actions }) {
                   type="button"
                   className="danger-button"
                   onClick={() => {
-                    if (archiveCategory(editingCategory)) setEditingCategory(null);
+                    if (archiveCategory(editingCategory)) closeCategoryEditor();
                   }}
                 >
                   Archive category
                 </button>
               </div>
               <div className="row-actions">
-                <button type="button" className="secondary-button" onClick={() => setEditingCategory(null)}>Cancel</button>
+                <button type="button" className="secondary-button" onClick={closeCategoryEditor}>Cancel</button>
                 <button className="primary-button">Save category</button>
               </div>
             </div>

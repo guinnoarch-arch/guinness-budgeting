@@ -2,6 +2,18 @@ import { useEffect, useState } from "react";
 import { addDaysToIsoDate, getMonthKey, isInMonth, todayIsoDate } from "../utils/dates.js";
 import { formatMoney } from "../utils/money.js";
 import { createId } from "../utils/ids.js";
+import { checkMoneyAmount, checkRequiredDate, checkRequiredText, collectErrors } from "../utils/validation.js";
+import useFormErrors from "../hooks/useFormErrors.js";
+import { ErrorSummary, FieldError, RequiredMark } from "../components/common/FormFeedback.jsx";
+
+function validateBillForm(values) {
+  return collectErrors({
+    name: checkRequiredText(values.name, "a name for this bill, for example Netflix or Council tax"),
+    amount: checkMoneyAmount(values.amount, { example: "13.99" }),
+    nextDueDate: checkRequiredDate(values.nextDueDate, "when the next payment is due"),
+    accountId: values.accountId ? "" : "Choose the account this bill is paid from."
+  });
+}
 
 const emptyRecurringForm = {
   id: null,
@@ -20,8 +32,14 @@ export default function BillsPage({ appData, actions }) {
   // null = closed, "new" = adding a bill, otherwise the bill being edited.
   const [editingItem, setEditingItem] = useState(null);
   const [form, setForm] = useState(emptyRecurringForm);
-  const [formError, setFormError] = useState("");
+  const { errors, getFieldId, validateAll, validateFieldOnBlur, clearFixedErrors, resetErrors, fieldProps } = useFormErrors("bill", validateBillForm);
   const isAddingBill = editingItem === "new";
+
+  useEffect(() => {
+    clearFixedErrors(form);
+    // Only re-check when the form values change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
 
   const today = todayIsoDate();
   const weekEnd = addDaysToIsoDate(today, 7);
@@ -46,7 +64,7 @@ export default function BillsPage({ appData, actions }) {
 
   function openAddRecurring() {
     setEditingItem("new");
-    setFormError("");
+    resetErrors();
     setForm({
       ...emptyRecurringForm,
       categoryId: expenseCategories.find(category => category.id === emptyRecurringForm.categoryId)?.id || expenseCategories[0]?.id || "",
@@ -57,7 +75,7 @@ export default function BillsPage({ appData, actions }) {
 
   function openEditRecurring(item) {
     setEditingItem(item);
-    setFormError("");
+    resetErrors();
     setForm({
       id: item.id,
       name: item.name || "",
@@ -75,7 +93,7 @@ export default function BillsPage({ appData, actions }) {
   function closeEditRecurring() {
     setEditingItem(null);
     setForm(emptyRecurringForm);
-    setFormError("");
+    resetErrors();
   }
 
   function updateForm(field, value) {
@@ -85,10 +103,7 @@ export default function BillsPage({ appData, actions }) {
   function saveRecurring(e) {
     e.preventDefault();
     if (!editingItem) return;
-    if (!form.name.trim()) return setFormError("Enter a name for this bill, for example Netflix or Council tax.");
-    if (!(Number(form.amount) > 0)) return setFormError("Enter an amount above £0.00.");
-    if (!form.nextDueDate) return setFormError("Choose when the next payment is due.");
-    if (!form.accountId) return setFormError("Choose the account this bill is paid from.");
+    if (!validateAll(form)) return;
 
     if (isAddingBill) {
       const now = new Date().toISOString();
@@ -279,36 +294,46 @@ export default function BillsPage({ appData, actions }) {
 
       {editingItem && (
         <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={saveRecurring}>
+          <form className="modal-card" onSubmit={saveRecurring} noValidate>
             <div className="section-header">
               <div>
                 <p className="eyebrow">Recurring payment</p>
                 <h2>{isAddingBill ? "Add bill" : `Edit ${editingItem.name}`}</h2>
               </div>
-              <button type="button" className="icon-button" onClick={closeEditRecurring}>×</button>
+              <button type="button" className="icon-button" onClick={closeEditRecurring} aria-label="Close">×</button>
             </div>
+
+            <ErrorSummary errors={errors} getFieldId={getFieldId} />
 
             <div className="form-grid">
               <label>
-                Name
+                <span>Name<RequiredMark /></span>
                 <input
+                  {...fieldProps("name")}
+                  aria-required="true"
                   type="text"
                   value={form.name}
                   onChange={e => updateForm("name", e.target.value)}
                   placeholder="Netflix"
                 />
+                <FieldError fieldId={getFieldId("name")} message={errors.name} />
               </label>
 
               <label>
-                Amount
+                <span>Amount<RequiredMark /></span>
                 <input
+                  {...fieldProps("amount")}
+                  aria-required="true"
                   type="number"
+                  inputMode="decimal"
                   min="0"
                   step="0.01"
                   value={form.amount}
                   onChange={e => updateForm("amount", e.target.value)}
+                  onBlur={() => validateFieldOnBlur("amount", form)}
                   placeholder="13.00"
                 />
+                <FieldError fieldId={getFieldId("amount")} message={errors.amount} />
               </label>
 
               <label>
@@ -331,12 +356,15 @@ export default function BillsPage({ appData, actions }) {
               </label>
 
               <label>
-                Next due date
+                <span>Next due date<RequiredMark /></span>
                 <input
+                  {...fieldProps("nextDueDate")}
+                  aria-required="true"
                   type="date"
                   value={form.nextDueDate}
                   onChange={e => updateForm("nextDueDate", e.target.value)}
                 />
+                <FieldError fieldId={getFieldId("nextDueDate")} message={errors.nextDueDate} />
               </label>
 
               <label>
@@ -349,12 +377,13 @@ export default function BillsPage({ appData, actions }) {
               </label>
 
               <label>
-                Account
-                <select value={form.accountId} onChange={e => updateForm("accountId", e.target.value)}>
+                <span>Account<RequiredMark /></span>
+                <select {...fieldProps("accountId")} aria-required="true" value={form.accountId} onChange={e => updateForm("accountId", e.target.value)}>
                   {activeAccounts.map(account => (
                     <option key={account.id} value={account.id}>{account.name}</option>
                   ))}
                 </select>
+                <FieldError fieldId={getFieldId("accountId")} message={errors.accountId} />
               </label>
 
               <label className="checkbox-label recurring-toggle-label">
@@ -375,8 +404,6 @@ export default function BillsPage({ appData, actions }) {
                 Reminder enabled
               </label>
             </div>
-
-            {formError && <p className="restore-error-box" role="alert">{formError}</p>}
 
             <div className="modal-actions split-actions">
               <div>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -23,6 +23,15 @@ import {
 } from "../services/accountService.js";
 import { formatIsoDateLocal, todayIsoDate } from "../utils/dates.js";
 import ExpandableChart from "../components/common/ExpandableChart.jsx";
+import { checkMoneyAmount, collectErrors, validateAccountForm } from "../utils/validation.js";
+import useFormErrors from "../hooks/useFormErrors.js";
+import { ErrorSummary, FieldError, FormError, RequiredMark } from "../components/common/FormFeedback.jsx";
+
+function validateReconcileForm(values) {
+  return collectErrors({
+    actualBalance: checkMoneyAmount(values.actualBalance, { allowZero: true, allowNegative: true, example: "1250.40" })
+  });
+}
 
 const emptyAccountForm = {
   name: "",
@@ -264,6 +273,9 @@ export default function AccountsPage({ appData, actions }) {
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
   const [accountForm, setAccountForm] = useState(emptyAccountForm);
+  const [accountModalError, setAccountModalError] = useState("");
+  const accountErrors = useFormErrors("account", validateAccountForm);
+  const reconcileErrors = useFormErrors("reconcile", validateReconcileForm);
   const [balanceRange, setBalanceRange] = useState("months");
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
   const [selectedChartAccountIds, setSelectedChartAccountIds] = useState(() => (
@@ -305,6 +317,17 @@ export default function AccountsPage({ appData, actions }) {
     buildBalanceTimeline(appData, accounts, balanceRange)
   ), [appData, accounts, balanceRange]);
 
+  useEffect(() => {
+    accountErrors.clearFixedErrors(accountForm);
+    // Only re-check when the form values change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountForm]);
+
+  useEffect(() => {
+    reconcileErrors.clearFixedErrors({ actualBalance: reconcileAmount });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reconcileAmount]);
+
   const selectedAccountLabel = visibleChartAccountIds.length === accounts.length
     ? "All active accounts"
     : `${visibleChartAccountIds.length} selected`;
@@ -317,11 +340,10 @@ export default function AccountsPage({ appData, actions }) {
 
   function saveReconcile() {
     if (!reconciling) return;
+    if (!reconcileErrors.validateAll({ actualBalance: reconcileAmount })) return;
     const targetBalance = roundMoney(parseFloat(reconcileAmount));
     const currentBalance = calculateAccountBalance(appData, reconciling.id);
     const difference = roundMoney(targetBalance - currentBalance);
-
-    if (!Number.isFinite(parseFloat(reconcileAmount))) return alert("Enter a valid balance.");
 
     if (difference !== 0) {
       const adjustment = {
@@ -339,8 +361,13 @@ export default function AccountsPage({ appData, actions }) {
       });
     }
 
+    closeReconcile();
+  }
+
+  function closeReconcile() {
     setReconciling(null);
     setReconcileAmount("");
+    reconcileErrors.resetErrors();
   }
 
   function openAddAccount() {
@@ -367,16 +394,16 @@ export default function AccountsPage({ appData, actions }) {
     setEditingAccount(null);
     setAccountForm(emptyAccountForm);
     setAccountModalOpen(false);
+    setAccountModalError("");
+    accountErrors.resetErrors();
   }
 
   function saveAccount(event) {
     event.preventDefault();
 
+    if (!accountErrors.validateAll(accountForm)) return;
     const name = accountForm.name.trim();
-    const openingBalance = parseFloat(accountForm.openingBalance || "0");
-
-    if (!name) return alert("Enter an account name.");
-    if (!Number.isFinite(openingBalance)) return alert("Enter a valid opening balance.");
+    const openingBalance = roundMoney(parseFloat(accountForm.openingBalance || "0"));
 
     if (editingAccount) {
       actions.updateAppData({
@@ -417,7 +444,7 @@ export default function AccountsPage({ appData, actions }) {
 
   function archiveAccount(account) {
     if (accounts.length <= 1) {
-      alert("You need at least one active account, so this one can't be archived. Add another account first.");
+      setAccountModalError("This is your only active account, so it can't be archived. Add another account first, then archive this one.");
       return false;
     }
     const balance = calculateAccountBalance(appData, account.id);
@@ -693,20 +720,25 @@ export default function AccountsPage({ appData, actions }) {
 
       {accountModalOpen && (
         <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={saveAccount}>
+          <form className="modal-card" onSubmit={saveAccount} noValidate>
             <div className="section-header">
               <h2>{editingAccount ? "Edit account" : "Add account"}</h2>
-              <button type="button" className="icon-button" onClick={closeAccountModal}>×</button>
+              <button type="button" className="icon-button" onClick={closeAccountModal} aria-label="Close">×</button>
             </div>
+
+            <ErrorSummary errors={accountErrors.errors} getFieldId={accountErrors.getFieldId} />
 
             <div className="form-grid">
               <label>
-                Account name
+                <span>Account name<RequiredMark /></span>
                 <input
+                  {...accountErrors.fieldProps("name")}
+                  aria-required="true"
                   placeholder="Monzo, NatWest, Cash, Savings"
                   value={accountForm.name}
                   onChange={event => updateAccountForm("name", event.target.value)}
                 />
+                <FieldError fieldId={accountErrors.getFieldId("name")} message={accountErrors.errors.name} />
               </label>
 
               <label>
@@ -726,14 +758,20 @@ export default function AccountsPage({ appData, actions }) {
               <label>
                 Opening balance
                 <input
+                  {...accountErrors.fieldProps("openingBalance")}
                   type="number"
+                  inputMode="decimal"
                   step="0.01"
                   placeholder="0.00"
                   value={accountForm.openingBalance}
                   onChange={event => updateAccountForm("openingBalance", event.target.value)}
+                  onBlur={() => accountErrors.validateFieldOnBlur("openingBalance", accountForm)}
                 />
+                <FieldError fieldId={accountErrors.getFieldId("openingBalance")} message={accountErrors.errors.openingBalance} />
               </label>
             </div>
+
+            <FormError message={accountModalError} />
 
             <div className="modal-actions split-modal-actions">
               <div>
@@ -769,10 +807,10 @@ export default function AccountsPage({ appData, actions }) {
 
       {reconciling && (
         <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={e => { e.preventDefault(); saveReconcile(); }}>
+          <form className="modal-card" onSubmit={e => { e.preventDefault(); saveReconcile(); }} noValidate>
             <div className="section-header">
               <h2>Reconcile {reconciling.name}</h2>
-              <button type="button" className="icon-button" onClick={() => setReconciling(null)}>×</button>
+              <button type="button" className="icon-button" onClick={closeReconcile} aria-label="Close">×</button>
             </div>
 
             <div className="form-grid">
@@ -786,14 +824,19 @@ export default function AccountsPage({ appData, actions }) {
               </label>
 
               <label>
-                Actual balance
+                <span>Actual balance<RequiredMark /></span>
                 <input
+                  {...reconcileErrors.fieldProps("actualBalance")}
+                  aria-required="true"
                   type="number"
+                  inputMode="decimal"
                   step="0.01"
                   placeholder="0.00"
                   value={reconcileAmount}
                   onChange={e => setReconcileAmount(e.target.value)}
+                  onBlur={() => reconcileErrors.validateFieldOnBlur("actualBalance", { actualBalance: reconcileAmount })}
                 />
+                <FieldError fieldId={reconcileErrors.getFieldId("actualBalance")} message={reconcileErrors.errors.actualBalance} />
               </label>
             </div>
 
@@ -808,7 +851,7 @@ export default function AccountsPage({ appData, actions }) {
             </p>
 
             <div className="modal-actions">
-              <button type="button" className="secondary-button" onClick={() => setReconciling(null)}>Cancel</button>
+              <button type="button" className="secondary-button" onClick={closeReconcile}>Cancel</button>
               <button className="primary-button">Reconcile</button>
             </div>
           </form>

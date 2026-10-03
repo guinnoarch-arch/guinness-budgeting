@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { getErrorMessage } from "../utils/errors.js";
 import AsyncButton from "../components/common/AsyncButton.jsx";
 import {
   APP_VERSION,
@@ -139,7 +140,7 @@ export default function ControlCentrePage({ appData, actions }) {
         ? "Admin claim mode is ON. Only keep this enabled while inviting a trusted user."
         : "Admin claim mode is OFF.");
     } catch (error) {
-      setAccessStatus(error.message || "Could not update admin claim mode.");
+      setAccessStatus(getErrorMessage(error, "Couldn't update admin claim mode. Try again in a moment."));
     }
   }
 
@@ -155,7 +156,7 @@ export default function ControlCentrePage({ appData, actions }) {
       setUsers([]);
       setUserStatus(isMissingAdminSqlError(error.message)
         ? "Admin SQL setup has not been run yet. Run the latest Supabase SQL setup, wait 30-60 seconds for the schema cache, then refresh."
-        : error.message || "Could not load users.");
+        : getErrorMessage(error, "Couldn't load users. Try again in a moment."));
     }
   }
 
@@ -166,7 +167,7 @@ export default function ControlCentrePage({ appData, actions }) {
       const rows = await listAdminAuditLog(settings, 30);
       setAuditLog(rows);
     } catch (error) {
-      setAuditStatus(error.message || "Could not load admin audit log.");
+      setAuditStatus(getErrorMessage(error, "Couldn't load admin audit log. Try again in a moment."));
     }
   }
 
@@ -178,9 +179,9 @@ export default function ControlCentrePage({ appData, actions }) {
       setSuggestions(rows);
     } catch (error) {
       setSuggestions([]);
-      setSuggestionStatus(isMissingAdminSqlError(error.message) || /gh_admin_list_feature_suggestions|gh_feature_suggestions/i.test(String(error.message || ""))
+      setSuggestionStatus(isMissingAdminSqlError(error.message) || /gh_admin_list_feature_suggestions|gh_feature_suggestions/i.test(String(error?.message || ""))
         ? "Suggestion SQL setup has not been run yet. Run the latest Supabase SQL setup, wait 30-60 seconds, then refresh."
-        : error.message || "Could not load feature suggestions.");
+        : getErrorMessage(error, "Couldn't load feature suggestions. Try again in a moment."));
     }
   }
 
@@ -191,7 +192,7 @@ export default function ControlCentrePage({ appData, actions }) {
       setSuggestionStatus("Suggestion updated.");
       await Promise.all([refreshSuggestions(), refreshAuditLog()]);
     } catch (error) {
-      setSuggestionStatus(error.message || "Could not update suggestion.");
+      setSuggestionStatus(getErrorMessage(error, "Couldn't update suggestion. Try again in a moment."));
     }
   }
 
@@ -203,7 +204,7 @@ export default function ControlCentrePage({ appData, actions }) {
       setUserStatus(`${user.username || user.email || "User"} is now admin.`);
       await Promise.all([refreshUsers(), refreshAuditLog(), actions.refreshAdminAccess?.()]);
     } catch (error) {
-      setUserStatus(error.message || "Could not promote user.");
+      setUserStatus(getErrorMessage(error, "Couldn't promote user. Try again in a moment."));
     }
   }
 
@@ -219,7 +220,7 @@ export default function ControlCentrePage({ appData, actions }) {
       setUserStatus(`${user.username || user.email || "User"} is now a user.`);
       await Promise.all([refreshUsers(), refreshAuditLog(), actions.refreshAdminAccess?.()]);
     } catch (error) {
-      setUserStatus(error.message || "Could not demote user.");
+      setUserStatus(getErrorMessage(error, "Couldn't demote user. Try again in a moment."));
     }
   }
 
@@ -245,7 +246,7 @@ export default function ControlCentrePage({ appData, actions }) {
       setUserStatus(`${user.username || user.email || "User"} has been blocked.`);
       await Promise.all([refreshUsers(), refreshAuditLog(), actions.refreshAdminAccess?.()]);
     } catch (error) {
-      setUserStatus(error.message || "Could not block user.");
+      setUserStatus(getErrorMessage(error, "Couldn't block user. Try again in a moment."));
     }
   }
 
@@ -257,7 +258,7 @@ export default function ControlCentrePage({ appData, actions }) {
       setUserStatus(`${user.username || user.email || "User"} has been unblocked.`);
       await Promise.all([refreshUsers(), refreshAuditLog(), actions.refreshAdminAccess?.()]);
     } catch (error) {
-      setUserStatus(error.message || "Could not unblock user.");
+      setUserStatus(getErrorMessage(error, "Couldn't unblock user. Try again in a moment."));
     }
   }
 
@@ -283,7 +284,7 @@ export default function ControlCentrePage({ appData, actions }) {
       setUserStatus(`${user.username || user.email || "User"} has been paused.`);
       await Promise.all([refreshUsers(), refreshAuditLog(), actions.refreshAdminAccess?.()]);
     } catch (error) {
-      setUserStatus(error.message || "Could not pause user.");
+      setUserStatus(getErrorMessage(error, "Couldn't pause user. Try again in a moment."));
     }
   }
 
@@ -295,7 +296,7 @@ export default function ControlCentrePage({ appData, actions }) {
       setUserStatus(`${user.username || user.email || "User"} has been resumed.`);
       await Promise.all([refreshUsers(), refreshAuditLog(), actions.refreshAdminAccess?.()]);
     } catch (error) {
-      setUserStatus(error.message || "Could not resume user.");
+      setUserStatus(getErrorMessage(error, "Couldn't resume user. Try again in a moment."));
     }
   }
 
@@ -306,7 +307,7 @@ export default function ControlCentrePage({ appData, actions }) {
       await Promise.all([actions.refreshAppNotices?.(), refreshAuditLog()]);
       setMaintenanceStatus(nextEnabled ? "Maintenance mode is ON for everyone except admins." : "Maintenance mode is OFF.");
     } catch (error) {
-      setMaintenanceStatus(error.message || "Could not update maintenance mode.");
+      setMaintenanceStatus(getErrorMessage(error, "Couldn't update maintenance mode. Try again in a moment."));
     }
   }
 
@@ -319,7 +320,7 @@ export default function ControlCentrePage({ appData, actions }) {
       await Promise.all([actions.refreshAppNotices?.(), refreshAuditLog()]);
       setBroadcastStatus("Message sent to all signed-in users.");
     } catch (error) {
-      setBroadcastStatus(error.message || "Could not send message.");
+      setBroadcastStatus(getErrorMessage(error, "Couldn't send message. Try again in a moment."));
     }
   }
 
@@ -331,7 +332,7 @@ export default function ControlCentrePage({ appData, actions }) {
       await Promise.all([actions.refreshAppNotices?.(), refreshAuditLog()]);
       setBroadcastStatus("Broadcast cleared.");
     } catch (error) {
-      setBroadcastStatus(error.message || "Could not clear message.");
+      setBroadcastStatus(getErrorMessage(error, "Couldn't clear message. Try again in a moment."));
     }
   }
 
@@ -352,22 +353,22 @@ export default function ControlCentrePage({ appData, actions }) {
             setUserListLoaded(false);
             setUserStatus(isMissingAdminSqlError(error.message)
               ? "Admin SQL setup has not been run yet. Run the latest Supabase SQL setup, wait 30-60 seconds for the schema cache, then refresh."
-              : error.message || "Could not load users.");
+              : getErrorMessage(error, "Couldn't load users. Try again in a moment."));
           }
         }),
         listAdminAuditLog(settings, 30).then(rows => {
           if (!cancelled) setAuditLog(rows);
         }).catch(error => {
-          if (!cancelled) setAuditStatus(error.message || "Could not load admin audit log.");
+          if (!cancelled) setAuditStatus(getErrorMessage(error, "Couldn't load admin audit log. Try again in a moment."));
         }),
         listAdminFeatureSuggestions(settings, suggestionFilter).then(rows => {
           if (!cancelled) setSuggestions(rows);
         }).catch(error => {
           if (!cancelled) {
             setSuggestions([]);
-            setSuggestionStatus(/gh_admin_list_feature_suggestions|gh_feature_suggestions|schema cache|function .*not found|could not find the function/i.test(String(error.message || ""))
+            setSuggestionStatus(/gh_admin_list_feature_suggestions|gh_feature_suggestions|schema cache|function .*not found|could not find the function/i.test(String(error?.message || ""))
               ? "Suggestion SQL setup has not been run yet. Run the latest Supabase SQL setup, wait 30-60 seconds, then refresh."
-              : error.message || "Could not load feature suggestions.");
+              : getErrorMessage(error, "Couldn't load feature suggestions. Try again in a moment."));
           }
         })
       ]);
