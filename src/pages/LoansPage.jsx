@@ -12,8 +12,8 @@ import { LoanModal } from "../components/loans/LoanModal.jsx";
 import { LoanTile } from "../components/loans/LoanTile.jsx";
 import useHouseSharing from "../hooks/useHouseSharing.js";
 import useLoanEditor from "../hooks/useLoanEditor.js";
-
 import useHouseEditor from "../hooks/useHouseEditor.js";
+import "../styles/loans.css";
 
 export default function LoansPage({ appData, actions }) {
   const { acceptInvite, cancelInvite, changeMemberRole, declineInvite, displayAppData, publishHouseForSharing, refreshSharedHouses, removeMember, sendHouseInvite, setSharingBusy, setSharingStatus, sharingBusy, sharingStatus } = useHouseSharing({ appData });
