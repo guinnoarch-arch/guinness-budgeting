@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { getErrorMessage } from "./utils/errors.js";
 import { createRoot } from "react-dom/client";
 import "./styles/global.css";
 
@@ -126,6 +127,8 @@ const pages = {
 
 const NOT_FOUND_PAGE = "notFound";
 const UNDO_WINDOW_MS = 10000;
+const STATUS_MESSAGE_DURATION_MS = 4000;
+const STATUS_ERROR_DURATION_MS = 8000;
 const CONTROL_CENTRE_PATHS = [ADMIN_ROUTE_PATH, "/control-centre"];
 
 // The URL is the source of truth for which page is open, so refresh,
@@ -182,7 +185,7 @@ function StorageRecoveryScreen({ error, phoneMode, onTogglePhoneMode, onRestoreB
       setStatus(result.ok ? "Emergency raw storage export saved." : "Export was cancelled.");
     } catch (exportError) {
       console.error("Emergency raw storage export failed:", exportError);
-      setStatus(exportError.message || "Emergency export failed.");
+      setStatus(getErrorMessage(exportError, "Emergency export failed. Try again in a moment."));
     } finally {
       setIsBusy(false);
     }
@@ -200,10 +203,10 @@ function StorageRecoveryScreen({ error, phoneMode, onTogglePhoneMode, onRestoreB
       const restoredAt = new Date().toISOString();
       const restoredData = prepareRestoredAppData(preview.data, preview.filename, restoredAt, preview.meta);
       onRestoreBackup(restoredData);
-      setStatus("Backup restored locally.");
+      setStatus("Backup restored.");
     } catch (restoreError) {
       console.error("Recovery restore failed:", restoreError);
-      setStatus(restoreError.message || "Could not restore that backup file.");
+      setStatus(getErrorMessage(restoreError, "Couldn't restore that backup file. Try again in a moment."));
     } finally {
       setIsBusy(false);
     }
@@ -240,10 +243,10 @@ function StorageRecoveryScreen({ error, phoneMode, onTogglePhoneMode, onRestoreB
         </div>
 
         {error?.message && (
-          <div className="warning-row orange">
-            <strong>Storage error</strong>
+          <details className="technical-details">
+            <summary>Technical details</summary>
             <small>{error.message}</small>
-          </div>
+          </details>
         )}
 
         <div className="backup-actions-row">
@@ -351,6 +354,7 @@ function App() {
   const [showTransactionModal, setShowTransactionModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [quickBackupStatus, setQuickBackupStatus] = useState("");
+  const statusTimerRef = useRef(null);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [installStatus, setInstallStatus] = useState("");
   const [isInstalled, setIsInstalled] = useState(() => isStandaloneDisplayMode());
@@ -359,6 +363,8 @@ function App() {
   const [waitingServiceWorker, setWaitingServiceWorker] = useState(null);
   const [cloudAuthSummary, setCloudAuthSummary] = useState(() => getStoredCloudSessionSummary());
   const [cloudBackupStatus, setCloudBackupStatus] = useState("");
+  // Which cloud action can be retried from the status message: "backup" or "sync".
+  const [cloudStatusRetry, setCloudStatusRetry] = useState(null);
   const [cloudConflict, setCloudConflict] = useState(null);
   const [localAccessUnlocked, setLocalAccessUnlocked] = useState(() => isLocalAccessSessionAllowed());
   const [phoneMode, setPhoneMode] = useState(readStoredPhoneMode);
@@ -416,7 +422,7 @@ function App() {
           } else {
             setStorageRecoveryError(error);
             setAppData(null);
-            setAppLoadStatus("Storage load failed. Recovery options are available.");
+            setAppLoadStatus("Your saved data couldn't be loaded. Use the recovery options below — nothing has been deleted.");
           }
         }
       }
@@ -524,7 +530,7 @@ function App() {
     function handleInstalled() {
       setIsInstalled(true);
       setInstallPrompt(null);
-      setInstallStatus("Installed successfully.");
+      setInstallStatus("App installed.");
     }
 
     function handleOnline() {
@@ -622,7 +628,7 @@ function App() {
 
   async function installApp() {
     if (!installPrompt) {
-      setInstallStatus("Install prompt is not available yet. Use the browser menu and choose Install app/Add to Home Screen if available.");
+      setInstallStatus("Your browser isn't offering to install the app right now. Use the browser menu and choose Install app or Add to Home Screen.");
       window.setTimeout(() => setInstallStatus(""), 5000);
       return;
     }
@@ -672,6 +678,13 @@ function App() {
     applyServiceWorkerUpdate(waitingServiceWorker);
   }
 
+  // Short status message under the header, e.g. "Backup saved."
+  function notify(message, durationMs = STATUS_MESSAGE_DURATION_MS) {
+    window.clearTimeout(statusTimerRef.current);
+    setQuickBackupStatus(message);
+    statusTimerRef.current = window.setTimeout(() => setQuickBackupStatus(""), durationMs);
+  }
+
   async function backupNow() {
     const exportedAt = new Date().toISOString();
     const { nextData, filename } = prepareDataForBackupExport(appData, exportedAt);
@@ -681,19 +694,16 @@ function App() {
 
       if (!result.ok) {
         if (result.cancelled) {
-          setQuickBackupStatus("Backup cancelled");
-          window.setTimeout(() => setQuickBackupStatus(""), 2500);
+          notify("Backup cancelled — nothing was saved.");
         }
         return;
       }
 
       setAppData(nextData);
-      setQuickBackupStatus(result.method === "save-picker" ? "Backup saved" : "Backup downloaded");
-      window.setTimeout(() => setQuickBackupStatus(""), 3000);
+      notify(result.method === "save-picker" ? "Backup saved." : "Backup downloaded to your Downloads folder.");
     } catch (error) {
       console.error("Backup failed:", error);
-      setQuickBackupStatus("Backup failed");
-      window.setTimeout(() => setQuickBackupStatus(""), 3500);
+      notify("The backup couldn't be saved. Try again, or choose a different download location.", STATUS_ERROR_DURATION_MS);
     }
   }
 
@@ -706,16 +716,17 @@ function App() {
     }
     const settings = appData.settings || {};
     if (!isCloudBackupConfigured(settings)) {
-      setCloudBackupStatus("Cloud backup unavailable");
+      setCloudBackupStatus("Cloud backup isn't available in this version of the app. Your data is still saved on this device.");
       return null;
     }
     if (!isCloudSessionAllowed(settings, cloudAuthSummary)) {
-      setCloudBackupStatus("Sign in before cloud backup");
+      setCloudBackupStatus("Sign in to back up to the cloud. Go to Settings, then Cloud backup.");
       return null;
     }
     if (requireConfirm && !confirm("Upload the current local app data as a cloud backup?")) return null;
 
-    setCloudBackupStatus("Backing up...");
+    setCloudStatusRetry(null);
+    setCloudBackupStatus("Backing up to the cloud…");
     try {
       const row = await uploadSupabaseCloudBackup(settings, appData, {
         exportedAt: new Date().toISOString(),
@@ -742,12 +753,13 @@ function App() {
           }
         }
       }));
-      setCloudBackupStatus("Cloud backup up to date");
+      setCloudBackupStatus("Backed up to the cloud.");
       window.setTimeout(() => setCloudBackupStatus(""), 3000);
       return row;
     } catch (error) {
-      const message = error.message || "Cloud backup failed";
+      const message = getErrorMessage(error, "The cloud backup didn't finish. Your data is still saved on this device — try again in a moment.");
       setCloudBackupStatus(message);
+      setCloudStatusRetry("backup");
       setAppData(prev => ({
         ...prev,
         settings: {
@@ -837,12 +849,12 @@ function App() {
 
   function openLocalAccessMode() {
     if (!hasUsableLocalBudgetData(appData)) {
-      setCloudBackupStatus("No trusted local budget data found on this device yet. Sign in first.");
+      setCloudBackupStatus("This device has no saved budget yet, so it can't open offline. Sign in to load your budget.");
       return;
     }
     storeLocalAccessSession();
     setLocalAccessUnlocked(true);
-    setCloudBackupStatus("Opened in local-only mode. Cloud backup will resume after Supabase sign-in.");
+    setCloudBackupStatus("Opened offline on this device. Cloud backup will start again when you sign in.");
     window.setTimeout(() => setCloudBackupStatus(""), 5000);
   }
 
@@ -1035,8 +1047,8 @@ function App() {
       recordSync("Already up to date");
     } catch (error) {
       console.warn(`Cloud sync check (${trigger}) failed:`, error);
-      setCloudBackupStatus(error.message || "Could not check the cloud for a newer version");
-      window.setTimeout(() => setCloudBackupStatus(""), 6000);
+      setCloudBackupStatus(getErrorMessage(error, "Couldn't check the cloud for a newer version. You can keep working — this device's data is saved."));
+      setCloudStatusRetry("sync");
     } finally {
       syncInFlightRef.current = false;
       setCloudSyncReady(true);
@@ -1212,7 +1224,7 @@ function App() {
       }
     });
     setCloudConflict(null);
-    setCloudBackupStatus("Cloud backup restored locally.");
+    setCloudBackupStatus("Cloud backup restored on this device.");
   }
 
   async function applyReviewedMerge(mergeReview) {
@@ -1259,6 +1271,7 @@ function App() {
     undoPaymentRulesRefresh,
     dismissRulesNotice: () => setRulesNotice(null),
     updateAppDataWithUndo,
+    notify,
     undoOffer,
     undoLastChange,
     dismissUndo: finaliseUndoOffer,
@@ -1305,6 +1318,19 @@ function App() {
     appNotices,
     cloudAuthSummary,
     cloudBackupStatus,
+    cloudStatusRetry,
+    retryCloudAction: () => {
+      const action = cloudStatusRetry;
+      setCloudStatusRetry(null);
+      setCloudBackupStatus("");
+      if (action === "backup") cloudBackupNowRef.current?.({ requireConfirm: false });
+      // Same as the check on opening the app, which runs even when automatic sync is off.
+      if (action === "sync") syncWithCloudRef.current?.("open");
+    },
+    dismissCloudStatus: () => {
+      setCloudStatusRetry(null);
+      setCloudBackupStatus("");
+    },
     phoneMode,
     cloudUsername: getDisplayUsernameFromSession(cloudAuthSummary),
     featureFlags: getFeatureFlags(appData?.settings),
@@ -1329,7 +1355,7 @@ function App() {
     setSelectedMonth,
     selectedDashboardAccountId,
     setSelectedDashboardAccountId
-  }), [appData, rulesNotice, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode, adminAccessState, appNotices, preferredSettingsSection, settingsSectionRequestId, pageIntent, undoOffer]);
+  }), [appData, rulesNotice, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode, adminAccessState, appNotices, cloudStatusRetry, preferredSettingsSection, settingsSectionRequestId, pageIntent, undoOffer]);
 
   if (storageRecoveryError) {
     return (

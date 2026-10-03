@@ -22,6 +22,9 @@ import {
 import { calculateAccountBalance, calculateAccountBalanceAtDate } from "../utils/calculations.js";
 import { createId } from "../utils/ids.js";
 import { formatMoney } from "../utils/money.js";
+import { validateAccountForm } from "../utils/validation.js";
+import useFormErrors from "../hooks/useFormErrors.js";
+import { FieldError, RequiredMark } from "../components/common/FormFeedback.jsx";
 
 const ADD_ACCOUNT_VALUE = "__add_account__";
 
@@ -54,6 +57,33 @@ const previewFilters = [
 function formatDate(value) {
   if (!value) return "—";
   return value;
+}
+
+const SPREADSHEET_EXTENSIONS = /\.(xlsx|xls|xlsm|numbers|ods)$/i;
+
+// Returns why a chosen file can't be a CSV, or "" if it looks fine.
+function describeNonCsvFile(file) {
+  const name = String(file?.name || "");
+  if (SPREADSHEET_EXTENSIONS.test(name)) {
+    return "This is a spreadsheet file, not a CSV. Open it and use Save As or Export to save it as .csv, or download the CSV version from your bank.";
+  }
+  if (/\.pdf$/i.test(name)) {
+    return "This is a PDF statement. Download the CSV version from your bank's website or app instead.";
+  }
+  const looksLikeText = /\.(csv|txt)$/i.test(name) || /csv|text\/plain/i.test(file?.type || "");
+  return looksLikeText ? "" : "This file isn't a CSV. Export your statement from your bank as .csv and try again.";
+}
+
+// Which required column or account is missing for an uploaded file.
+function describeMappingProblem(item) {
+  const map = item.columnMap || {};
+  if (!item.accountId) return "choose which account this statement is for.";
+  if (!map.date) return "choose the column that holds the date.";
+  if (!map.description) return "choose the column that holds the description.";
+  if (!map.amount && !(map.paidIn && map.paidOut)) {
+    return "choose either a single Amount column, or both a Paid in and a Paid out column.";
+  }
+  return "";
 }
 
 function getRowEdit(rowEdits, row) {
@@ -811,6 +841,7 @@ export default function ImportPage({ appData, actions }) {
   const [previewProjection, setPreviewProjection] = useState(null);
   const [accountModal, setAccountModal] = useState(null);
   const [accountForm, setAccountForm] = useState(emptyAccountForm);
+  const accountValidation = useFormErrors("import-account", validateAccountForm);
   const [detailBatchId, setDetailBatchId] = useState(null);
   const [duplicateReviewRowId, setDuplicateReviewRowId] = useState(null);
 
@@ -863,13 +894,16 @@ export default function ImportPage({ appData, actions }) {
     try {
       const loaded = [];
       for (const file of files) {
-        const text = await file.text();
-        const parsed = parseCsvText(text);
-        if (!parsed.headers.length || !parsed.rows.length) {
+        const notCsvMessage = describeNonCsvFile(file);
+        const text = notCsvMessage ? "" : await file.text();
+        const parsed = notCsvMessage ? { headers: [], rows: [] } : parseCsvText(text);
+        if (notCsvMessage || !parsed.headers.length || !parsed.rows.length) {
           loaded.push({
             id: createId("csvfile"),
             fileName: file.name,
-            error: "Could not find a header row and transaction rows in this CSV.",
+            error: notCsvMessage || (text.trim()
+              ? "No transactions were found in this file. Check it's the transaction export from your bank (with a header row such as Date, Description, Amount), not a summary or PDF saved as .csv."
+              : "This file is empty. Download the statement from your bank again and choose the CSV option."),
             headers: [],
             rows: [],
             columnMap: emptyColumnMap,
@@ -913,10 +947,12 @@ export default function ImportPage({ appData, actions }) {
       }
 
       const usable = loaded.filter(item => item.rows.length);
-      setStatus(`${usable.length} CSV file(s) loaded. Assign/check the account and mapping under each file, then analyse all files together.`);
-    } catch (error) {
-      console.error("CSV read failed:", error);
-      setStatus("Could not read one or more CSV files.");
+      const failed = loaded.length - usable.length;
+      setStatus(usable.length
+        ? `${usable.length} file${usable.length === 1 ? "" : "s"} ready${failed ? ` (${failed} couldn't be used — see below)` : ""}. Check the account and columns for each, then select Analyse.`
+        : "None of the files could be used — see the reason under each file below.");
+    } catch {
+      setStatus("The file couldn't be read. Make sure it isn't open in another program, then choose it again.");
     } finally {
       event.target.value = "";
     }
@@ -986,19 +1022,21 @@ export default function ImportPage({ appData, actions }) {
   function closeAccountModal() {
     setAccountModal(null);
     setAccountForm(emptyAccountForm);
+    accountValidation.resetErrors();
   }
 
   function updateAccountForm(field, value) {
-    setAccountForm(prev => ({ ...prev, [field]: value }));
+    const next = { ...accountForm, [field]: value };
+    setAccountForm(next);
+    accountValidation.clearFixedErrors(next);
   }
 
   function saveNewAccount(event) {
     event.preventDefault();
 
+    if (!accountValidation.validateAll(accountForm)) return;
     const name = accountForm.name.trim();
     const openingBalance = parseFloat(accountForm.openingBalance || "0");
-    if (!name) return setStatus("Enter an account name before adding it.");
-    if (!Number.isFinite(openingBalance)) return setStatus("Enter a valid opening balance for the new account.");
 
     const now = new Date().toISOString();
     const newAccount = {
@@ -1046,9 +1084,14 @@ export default function ImportPage({ appData, actions }) {
           ignoredTopRows: 0
         }] : []);
 
-    if (!files.length) return setStatus("Add at least one CSV file first.");
-    const invalid = files.find(item => !item.accountId || !item.columnMap.date || !item.columnMap.description || (!item.columnMap.amount && (!item.columnMap.paidIn || !item.columnMap.paidOut)));
-    if (invalid) return setStatus(`Check the account and column mapping for "${invalid.fileName}".`);
+    if (!files.length) return setStatus("Choose a bank statement CSV file first.");
+    for (const item of files) {
+      const problem = describeMappingProblem(item);
+      if (problem) {
+        setExpandedMappingId(item.id);
+        return setStatus(`"${item.fileName}": ${problem}`);
+      }
+    }
 
     const analyses = files.map(item => ({
       ...analyseCsvImport(base, {
@@ -1432,7 +1475,7 @@ export default function ImportPage({ appData, actions }) {
     });
 
     if (missingTransfer) {
-      setStatus("One or more selected transfers needs the other GH account choosing first.");
+      setStatus("Some transfers don't say which of your accounts the money went to or came from. Choose the other account for each one under Needs review, then confirm again.");
       setActiveFilter("needs_review");
       return;
     }
@@ -1516,7 +1559,9 @@ export default function ImportPage({ appData, actions }) {
                 <div key={item.id} className="archive-row">
                   <div>
                     <strong>{item.fileName}</strong>
-                    <small>{item.error || `${item.rows.length} row(s) · ${account?.name || "No account selected"}`}</small>
+                    {item.error
+                      ? <FieldError fieldId={`csv-file-${item.id}`} message={item.error} />
+                      : <small>{`${item.rows.length} row${item.rows.length === 1 ? "" : "s"} · ${account?.name || "No account selected"}`}</small>}
                   </div>
                   <div className="archive-row-actions">
                     {!item.error && <select value={item.accountId} onChange={event => updateUploadItem(item.id, "accountId", event.target.value)}>
@@ -1547,7 +1592,7 @@ export default function ImportPage({ appData, actions }) {
         )}
 
         {fileName && !uploadItems.length && <p className="muted-text">Loaded file: <strong>{fileName}</strong> · {rows.length} raw row(s)</p>}
-        {status && <div className="import-status-box">{status}</div>}
+        {status && <div className="import-status-box" role="status" aria-live="polite">{status}</div>}
         <BalanceVerificationPanel verification={importVerification} mode="result" />
         {uploadItems.length > 0 && <div className="modal-actions"><button type="button" className="primary-button" onClick={() => analyseImport()}>Analyse all CSVs</button></div>}
       </section>
@@ -1920,22 +1965,25 @@ export default function ImportPage({ appData, actions }) {
 
       {accountModal && (
         <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={saveNewAccount}>
+          <form className="modal-card" onSubmit={saveNewAccount} noValidate>
             <div className="section-header">
               <div>
                 <h2>Add account</h2>
               </div>
-              <button type="button" className="icon-button" onClick={closeAccountModal}>×</button>
+              <button type="button" className="icon-button" onClick={closeAccountModal} aria-label="Close">×</button>
             </div>
 
             <div className="form-grid">
               <label>
-                Account name
+                <span>Account name<RequiredMark /></span>
                 <input
+                  {...accountValidation.fieldProps("name")}
+                  aria-required="true"
                   placeholder="Chase Savings, Monzo Current, Cash"
                   value={accountForm.name}
                   onChange={event => updateAccountForm("name", event.target.value)}
                 />
+                <FieldError fieldId={accountValidation.getFieldId("name")} message={accountValidation.errors.name} />
               </label>
 
               <label>
@@ -1955,12 +2003,16 @@ export default function ImportPage({ appData, actions }) {
               <label>
                 Opening balance
                 <input
+                  {...accountValidation.fieldProps("openingBalance")}
                   type="number"
+                  inputMode="decimal"
                   step="0.01"
                   placeholder="0.00"
                   value={accountForm.openingBalance}
                   onChange={event => updateAccountForm("openingBalance", event.target.value)}
+                  onBlur={() => accountValidation.validateFieldOnBlur("openingBalance", accountForm)}
                 />
+                <FieldError fieldId={accountValidation.getFieldId("openingBalance")} message={accountValidation.errors.openingBalance} />
               </label>
             </div>
 

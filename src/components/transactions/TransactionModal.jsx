@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { getErrorMessage } from "../../utils/errors.js";
 import { todayIsoDate } from "../../utils/dates.js";
 import { HOUSE_CONTRIBUTION_TYPES } from "../../utils/houseTracking.js";
 import { createId } from "../../utils/ids.js";
@@ -6,6 +7,19 @@ import { getMatchingExclusionRules, linkTransferPair, unlinkTransferPair, upsert
 import { estimateLoanPaymentSplit } from "../../utils/loanLinking.js";
 import { deleteStoredReceipt, getStoredReceipt, saveTransactionReceipt } from "../../services/receiptStorageService.js";
 import { signedMoney } from "../../utils/money.js";
+import { checkMoneyAmount, checkRequiredDate, collectErrors } from "../../utils/validation.js";
+import useFormErrors from "../../hooks/useFormErrors.js";
+import { ErrorSummary, FieldError, FormError, RequiredMark } from "../common/FormFeedback.jsx";
+
+function validateTransactionForm(values) {
+  return collectErrors({
+    amount: checkMoneyAmount(values.amount),
+    date: checkRequiredDate(values.date, "the date of the transaction"),
+    toAccountId: values.type === "transfer" && values.fromAccountId && values.fromAccountId === values.toAccountId
+      ? "Choose a different account. A transfer moves money between two accounts."
+      : ""
+  });
+}
 
 function formatFileSize(bytes) {
   const value = Number(bytes || 0);
@@ -43,6 +57,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
   const [receiptError, setReceiptError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const { errors, getFieldId, validateAll, validateFieldOnBlur, clearFixedErrors, fieldProps } = useFormErrors("transaction", validateTransactionForm);
   const [showLinkPicker, setShowLinkPicker] = useState(false);
   const [linkSearch, setLinkSearch] = useState("");
 
@@ -91,6 +106,12 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     createdAt: editingTransaction?.createdAt
     };
   });
+
+  useEffect(() => {
+    clearFixedErrors(form);
+    // Only re-check when the form values change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
 
   const categories = useMemo(() => (
     (appData.categories || []).filter(category => category.isActive !== false && !category.isArchived && !category.archivedAt && category.type === form.type)
@@ -207,7 +228,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
           sizeBytes: record.sizeBytes
         });
       } catch (error) {
-        if (!cancelled) setReceiptPreview({ error: error.message || "Could not load stored receipt." });
+        if (!cancelled) setReceiptPreview({ error: getErrorMessage(error, "Couldn't load stored receipt. Try again in a moment.") });
       }
     }
 
@@ -309,11 +330,8 @@ export default function TransactionModal({ appData, actions, editingTransaction 
 
   async function submit(event) {
     event.preventDefault();
-    if (!form.amount || Number(form.amount) <= 0) return alert("Enter an amount above zero.");
-    if (form.type === "transfer" && form.fromAccountId === form.toAccountId) {
-      return setFormError("A transfer needs two different accounts. Choose where the money is going in To account.");
-    }
     setFormError("");
+    if (!validateAll(form)) return;
 
     setIsSubmitting(true);
     setReceiptError("");
@@ -348,7 +366,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
       actions.closeTransactionModal();
     } catch (error) {
       console.error("Could not save transaction or receipt:", error);
-      setReceiptError(error.message || "Could not save receipt. Try a smaller file or different format.");
+      setFormError(getErrorMessage(error, "The transaction couldn't be saved. If you attached a receipt, try a smaller file (under 10 MB) as a JPG, PNG or PDF."));
     } finally {
       setIsSubmitting(false);
     }
@@ -358,11 +376,13 @@ export default function TransactionModal({ appData, actions, editingTransaction 
 
   return (
     <div className="modal-backdrop">
-      <form className="modal-card" onSubmit={submit}>
+      <form className="modal-card" onSubmit={submit} noValidate>
         <div className="section-header">
           <h2>{isEditing ? "Edit transaction" : "Add transaction"}</h2>
-          <button type="button" className="icon-button" onClick={actions.closeTransactionModal}>×</button>
+          <button type="button" className="icon-button" onClick={actions.closeTransactionModal} aria-label="Close">×</button>
         </div>
+
+        <ErrorSummary errors={errors} getFieldId={getFieldId} />
 
         <div className="form-grid">
           <label>
@@ -421,20 +441,32 @@ export default function TransactionModal({ appData, actions, editingTransaction 
           )}
 
           <label>
-            Amount
+            <span>Amount<RequiredMark /></span>
             <input
+              {...fieldProps("amount")}
               type="number"
+              inputMode="decimal"
               min="0"
               step="0.01"
               placeholder="400.00"
+              aria-required="true"
               value={form.amount}
               onChange={e => update("amount", e.target.value)}
+              onBlur={() => validateFieldOnBlur("amount", form)}
             />
+            <FieldError fieldId={getFieldId("amount")} message={errors.amount} />
           </label>
 
           <label>
-            Date
-            <input type="date" value={form.date} onChange={e => update("date", e.target.value)} />
+            <span>Date<RequiredMark /></span>
+            <input
+              {...fieldProps("date")}
+              type="date"
+              aria-required="true"
+              value={form.date}
+              onChange={e => update("date", e.target.value)}
+            />
+            <FieldError fieldId={getFieldId("date")} message={errors.date} />
           </label>
 
           <label>
@@ -673,11 +705,12 @@ export default function TransactionModal({ appData, actions, editingTransaction 
 
               <label>
                 To account
-                <select value={form.toAccountId} onChange={e => update("toAccountId", e.target.value)}>
+                <select {...fieldProps("toAccountId")} value={form.toAccountId} onChange={e => update("toAccountId", e.target.value)}>
                   {(appData.accounts || []).filter(acc => acc.isActive !== false).map(account => (
                     <option key={account.id} value={account.id}>{account.name}</option>
                   ))}
                 </select>
+                <FieldError fieldId={getFieldId("toAccountId")} message={errors.toAccountId} />
               </label>
 
               <label>
@@ -811,7 +844,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
           </div>
         </div>
 
-        {formError && <p className="restore-error-box" role="alert">{formError}</p>}
+        <FormError message={formError} />
 
         <div className="modal-actions">
           <button type="button" className="secondary-button" onClick={actions.closeTransactionModal}>Cancel</button>

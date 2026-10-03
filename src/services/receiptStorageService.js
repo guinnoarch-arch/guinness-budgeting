@@ -65,12 +65,12 @@ function createReceiptId(transactionId) {
 function validateReceiptFile(file) {
   if (!file) throw new Error("Choose a receipt file first.");
   if (file.size > MAX_RECEIPT_BYTES) {
-    throw new Error("Receipt file is too large. Use a file under 10 MB.");
+    throw new Error("That receipt is too large. Use a file under 10 MB — for a photo, a smaller image size usually works.");
   }
 
   const allowed = file.type.startsWith("image/") || file.type === "application/pdf";
   if (!allowed) {
-    throw new Error("Receipts must be an image or PDF file.");
+    throw new Error("Receipts need to be a photo (JPG, PNG) or a PDF.");
   }
 }
 

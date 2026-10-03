@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getErrorMessage } from "../../utils/errors.js";
 import { deleteTransaction, getMatchingExclusionRules } from "../../services/transactionService.js";
 import { deleteStoredReceipt, getStoredReceipt } from "../../services/receiptStorageService.js";
 import { signedMoney } from "../../utils/money.js";
@@ -54,7 +55,7 @@ export default function TransactionTable({ appData, actions, transactions }) {
         sizeBytes: record.sizeBytes || txn.receiptSizeBytes
       });
     } catch (error) {
-      setReceiptError(error.message || "Could not open receipt.");
+      setReceiptError(getErrorMessage(error, "Couldn't open receipt. Try again in a moment."));
     }
   }
 

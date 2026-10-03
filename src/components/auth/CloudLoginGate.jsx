@@ -1,4 +1,8 @@
 import { useMemo, useState } from "react";
+import { getErrorMessage } from "../../utils/errors.js";
+import { collectErrors } from "../../utils/validation.js";
+import useFormErrors from "../../hooks/useFormErrors.js";
+import { FieldError, FormError } from "../common/FormFeedback.jsx";
 import {
   getStoredCloudSessionSummary,
   isCloudBackupConfigured,
@@ -58,11 +62,35 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
   const session = cloudAuthSummary || getStoredCloudSessionSummary(settings);
   const storedUserId = cloud.cloudUserId || null;
   const wrongAccount = Boolean(storedUserId && session?.user?.id && storedUserId !== session.user.id);
-  const emailIssue = mode === "create" ? validateEmail(form.email) : "";
-  const usernameIssue = mode === "create" ? validateUsername(form.username) : "";
-  const passwordIssue = mode === "create"
-    ? validatePassword(form.password, form.confirmPassword)
-    : validateSignInPassword(form.password);
+  const [authError, setAuthError] = useState("");
+  const validation = useFormErrors("sign-in", values => {
+    if (values.mode === "create") {
+      const passwordIssue = validatePassword(values.password, values.confirmPassword);
+      const isMatchIssue = /match/i.test(passwordIssue);
+      return collectErrors({
+        email: validateEmail(values.email),
+        username: validateUsername(values.username),
+        password: isMatchIssue ? "" : passwordIssue,
+        confirmPassword: isMatchIssue ? passwordIssue : ""
+      });
+    }
+    return collectErrors({
+      loginIdentifier: String(values.loginIdentifier || "").trim() ? "" : "Enter your email address or username.",
+      password: validateSignInPassword(values.password)
+    });
+  });
+
+  function updateForm(field, value) {
+    const next = { ...form, [field]: value };
+    setForm(next);
+    validation.clearFixedErrors({ ...next, mode });
+  }
+
+  function switchMode(nextMode) {
+    setMode(nextMode);
+    validation.resetErrors();
+    setAuthError("");
+  }
 
   async function saveCloudSettings(patch = {}) {
     const baseCloud = cloudConfigFromData(appData, form);
@@ -87,11 +115,14 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
     return nextCloud;
   }
 
-  async function handleAuth() {
-    if (!configured || emailIssue || usernameIssue || passwordIssue) {
-      setStatus(!configured ? "Cloud login is not configured for this build." : emailIssue || usernameIssue || passwordIssue);
+  async function handleAuth(event) {
+    event?.preventDefault();
+    setAuthError("");
+    if (!configured) {
+      setAuthError("Sign-in isn't available in this version of the app. Ask the app owner to turn on cloud login.");
       return;
     }
+    if (!validation.validateAll({ ...form, mode })) return;
 
     setIsBusy(true);
     setStatus(mode === "create" ? "Creating account..." : "Signing in...");
@@ -110,7 +141,7 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
       setForm(prev => ({ ...prev, password: "", confirmPassword: "" }));
 
       if (sessionResult.pendingEmailConfirmation) {
-        setStatus("Account created. Check your email if Supabase confirmation is enabled, then sign in.");
+        setStatus("Account created. If you've been sent a confirmation email, open the link in it, then sign in.");
       } else {
         const profileUsername = username || sessionResult.user?.user_metadata?.username || appData?.profile?.username || "";
         await ensureProfileForSignedInUser({ ...settings, cloudBackup: nextCloud }, sessionResult, profileUsername).catch(() => null);
@@ -127,8 +158,9 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
       }
       onAuthChanged?.();
     } catch (error) {
-      const message = error.message || "Authentication failed.";
-      setStatus(message);
+      const message = getErrorMessage(error, "Sign-in didn't work. Check your details and try again.");
+      setStatus("");
+      setAuthError(message);
       await saveCloudSettings({ lastCloudError: message });
       onAuthChanged?.();
     } finally {
@@ -149,7 +181,8 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
       setStatus("Session refreshed. Opening app...");
       onAuthChanged?.();
     } catch (error) {
-      setStatus(error.message || "Could not refresh session. Sign in again.");
+      setStatus("");
+      setAuthError(getErrorMessage(error, "Your sign-in couldn't be refreshed. Sign in again to continue."));
       onAuthChanged?.();
     } finally {
       setIsBusy(false);
@@ -180,16 +213,17 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
 
         {!configured && (
           <div className="backup-warning-box danger-box">
-            <strong>Cloud login is not configured for this build.</strong>
+            <strong>Cloud sign-in isn't available in this version of the app.</strong>
             <span>Ask the app owner to enable cloud login for this deployment.</span>
           </div>
         )}
 
         <div className="row-actions cloud-action-row">
-          <button type="button" className={mode === "sign-in" ? "primary-button" : "secondary-button"} onClick={() => setMode("sign-in")}>Sign in</button>
-          <button type="button" className={mode === "create" ? "primary-button" : "secondary-button"} onClick={() => setMode("create")}>Create account</button>
+          <button type="button" className={mode === "sign-in" ? "primary-button" : "secondary-button"} onClick={() => switchMode("sign-in")} aria-pressed={mode === "sign-in"}>Sign in</button>
+          <button type="button" className={mode === "create" ? "primary-button" : "secondary-button"} onClick={() => switchMode("create")} aria-pressed={mode === "create"}>Create account</button>
         </div>
 
+        <form onSubmit={handleAuth} noValidate>
         <div className="cloud-setup-grid login-gate-grid">
           {mode === "create" ? (
             <label>
@@ -197,20 +231,26 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
               <input
                 type="email"
                 value={form.email}
-                onChange={event => setForm(prev => ({ ...prev, email: event.target.value }))}
+                {...validation.fieldProps("email")}
+                aria-required="true"
+                onChange={event => updateForm("email", event.target.value)}
                 placeholder="you@example.com"
                 autoComplete="email"
               />
+              <FieldError fieldId={validation.getFieldId("email")} message={validation.errors.email} />
             </label>
           ) : (
             <label>
               Email or username
               <input
                 value={form.loginIdentifier}
-                onChange={event => setForm(prev => ({ ...prev, loginIdentifier: event.target.value }))}
+                {...validation.fieldProps("loginIdentifier")}
+                aria-required="true"
+                onChange={event => updateForm("loginIdentifier", event.target.value)}
                 placeholder="you@example.com or yourusername"
                 autoComplete="username"
               />
+              <FieldError fieldId={validation.getFieldId("loginIdentifier")} message={validation.errors.loginIdentifier} />
             </label>
           )}
           {mode === "create" && (
@@ -218,10 +258,13 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
               Username
               <input
                 value={form.username}
-                onChange={event => setForm(prev => ({ ...prev, username: event.target.value }))}
+                {...validation.fieldProps("username")}
+                aria-required="true"
+                onChange={event => updateForm("username", event.target.value)}
                 placeholder="guinness"
                 autoComplete="username"
               />
+              <FieldError fieldId={validation.getFieldId("username")} message={validation.errors.username} />
             </label>
           )}
           <label>
@@ -229,10 +272,13 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
             <input
               type="password"
               value={form.password}
-              onChange={event => setForm(prev => ({ ...prev, password: event.target.value }))}
+              {...validation.fieldProps("password")}
+                aria-required="true"
+                onChange={event => updateForm("password", event.target.value)}
               placeholder="At least 8 characters"
               autoComplete={mode === "create" ? "new-password" : "current-password"}
             />
+              <FieldError fieldId={validation.getFieldId("password")} message={validation.errors.password} />
           </label>
           {mode === "create" && (
             <label>
@@ -240,22 +286,28 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
               <input
                 type="password"
                 value={form.confirmPassword}
-                onChange={event => setForm(prev => ({ ...prev, confirmPassword: event.target.value }))}
+                {...validation.fieldProps("confirmPassword")}
+                aria-required="true"
+                onChange={event => updateForm("confirmPassword", event.target.value)}
                 placeholder="Repeat password"
                 autoComplete="new-password"
               />
+              <FieldError fieldId={validation.getFieldId("confirmPassword")} message={validation.errors.confirmPassword} />
             </label>
           )}
         </div>
 
         <div className="row-actions cloud-action-row">
-          <button type="button" className="primary-button" onClick={handleAuth} disabled={isBusy || !configured}>
-            {mode === "create" ? "Create account" : "Sign in"}
+          <button type="submit" className="primary-button" disabled={isBusy || !configured}>
+            {isBusy ? (mode === "create" ? "Creating account…" : "Signing in…") : mode === "create" ? "Create account" : "Sign in"}
           </button>
           {session.signedIn && session.tokenExpired && !session.appExpired && (
             <button type="button" className="secondary-button" onClick={handleRefreshSession} disabled={isBusy || !configured}>Refresh session</button>
           )}
         </div>
+
+        <FormError message={authError} />
+        </form>
 
         {wrongAccount && (
           <div className="backup-warning-box danger-box">
