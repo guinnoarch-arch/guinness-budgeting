@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Area,
   AreaChart,
@@ -14,7 +15,6 @@ import {
 } from "recharts";
 
 import { exportMonthlyReportHtml, exportTransactionsCsv } from "../services/exportService.js";
-import { exportJsonBackup } from "../services/storageService.js";
 import { buildMonthlyReportData } from "../utils/reporting.js";
 import { calculateLoanSummary } from "../utils/loanCalculations.js";
 import { getLoanPaymentTotalsForMonth } from "../utils/loanLinking.js";
@@ -55,6 +55,20 @@ function MoneyTooltip({ active, payload, label }) {
 
 export default function ReportsPage({ appData, actions }) {
   const isSmallScreen = useIsSmallScreen();
+  const [exportStatus, setExportStatus] = useState(null);
+
+  function printMonthlyReport() {
+    const result = exportMonthlyReportHtml(appData, actions.selectedMonth);
+    setExportStatus(result.ok ? null : { tone: "error", message: result.message });
+  }
+
+  function downloadTransactionsCsv() {
+    const result = exportTransactionsCsv(appData);
+    setExportStatus({
+      tone: "success",
+      message: `${result.count} transaction${result.count === 1 ? "" : "s"} exported to CSV.`
+    });
+  }
   const report = buildMonthlyReportData(appData, actions.selectedMonth);
   const { summary, categoryRows, plannedVsActual, importImpact } = report;
   const loanSummary = calculateLoanSummary(appData);
@@ -358,16 +372,21 @@ export default function ReportsPage({ appData, actions }) {
       <section className="card">
         <h3>Exports</h3>
         <div className="row-actions">
-          <button className="primary-button" onClick={() => exportMonthlyReportHtml(appData, actions.selectedMonth)}>
+          <button type="button" className="primary-button" onClick={printMonthlyReport}>
             Export PDF / Print report
           </button>
-          <button className="secondary-button" onClick={() => exportTransactionsCsv(appData)}>
+          <button type="button" className="secondary-button" onClick={downloadTransactionsCsv}>
             Export all transactions CSV
           </button>
-          <button className="secondary-button" onClick={() => exportJsonBackup(appData)}>
+          <button type="button" className="secondary-button" onClick={actions.backupNow}>
             Export JSON backup
           </button>
         </div>
+        {exportStatus && (
+          <p className={exportStatus.tone === "error" ? "restore-error-box" : "import-status-box"} role="status">
+            {exportStatus.message}
+          </p>
+        )}
       </section>
     </div>
   );

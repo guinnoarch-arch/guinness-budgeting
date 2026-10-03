@@ -12,9 +12,15 @@ import {
   calculateAccountBalance,
   transactionMatchesAccount
 } from "../utils/calculations.js";
-import { formatMoney } from "../utils/money.js";
+import { formatMoney, roundMoney } from "../utils/money.js";
 import { createId } from "../utils/ids.js";
 import AccountCheckModal from "../components/accounts/AccountCheckModal.jsx";
+import {
+  deleteAccountPermanently,
+  getAccountDeleteBlocker,
+  isAccountArchived,
+  setAccountArchived
+} from "../services/accountService.js";
 import { formatIsoDateLocal, todayIsoDate } from "../utils/dates.js";
 import ExpandableChart from "../components/common/ExpandableChart.jsx";
 
@@ -48,6 +54,7 @@ function formatAccountType(type) {
     current: "Current account",
     savings: "Savings account",
     cash: "Cash",
+    investment: "Investment account",
     other: "Other account"
   };
 
@@ -266,6 +273,7 @@ export default function AccountsPage({ appData, actions }) {
   ));
 
   const accounts = useMemo(() => (appData.accounts || []).filter(account => account.isActive !== false), [appData.accounts]);
+  const archivedAccounts = (appData.accounts || []).filter(isAccountArchived);
   const visibleChartAccountIds = selectedChartAccountIds.filter(id => accounts.some(account => account.id === id));
   const selectedChartAccounts = accounts.filter(account => visibleChartAccountIds.includes(account.id));
   const accountBalances = accounts.map(account => ({
@@ -304,16 +312,16 @@ export default function AccountsPage({ appData, actions }) {
   function handleReconcile(account) {
     const currentBalance = calculateAccountBalance(appData, account.id);
     setReconciling(account);
-    setReconcileAmount(currentBalance.toString());
+    setReconcileAmount(currentBalance.toFixed(2));
   }
 
   function saveReconcile() {
     if (!reconciling) return;
-    const targetBalance = parseFloat(reconcileAmount);
+    const targetBalance = roundMoney(parseFloat(reconcileAmount));
     const currentBalance = calculateAccountBalance(appData, reconciling.id);
-    const difference = targetBalance - currentBalance;
+    const difference = roundMoney(targetBalance - currentBalance);
 
-    if (!Number.isFinite(targetBalance)) return alert("Enter a valid balance.");
+    if (!Number.isFinite(parseFloat(reconcileAmount))) return alert("Enter a valid balance.");
 
     if (difference !== 0) {
       const adjustment = {
@@ -405,6 +413,31 @@ export default function AccountsPage({ appData, actions }) {
     }
 
     closeAccountModal();
+  }
+
+  function archiveAccount(account) {
+    if (accounts.length <= 1) {
+      alert("You need at least one active account, so this one can't be archived. Add another account first.");
+      return false;
+    }
+    const balance = calculateAccountBalance(appData, account.id);
+    const balanceNote = balance !== 0
+      ? ` It still has a balance of ${formatMoney(balance)}, which won't be included in the account totals while it's archived.`
+      : "";
+    if (!window.confirm(`Archive ${account.name}? Its transactions stay in your history, and you can restore it at any time.${balanceNote}`)) return false;
+    actions.updateAppData(setAccountArchived(appData, account.id, true), { reason: "Account archived" });
+    return true;
+  }
+
+  function restoreAccount(account) {
+    actions.updateAppData(setAccountArchived(appData, account.id, false), { reason: "Account restored" });
+    setSelectedChartAccountIds(prev => (prev.includes(account.id) ? prev : [...prev, account.id]));
+  }
+
+  function deleteAccount(account) {
+    if (getAccountDeleteBlocker(appData, account)) return;
+    if (!window.confirm(`Permanently delete ${account.name}? This can't be undone. Budgets, rules and savings-goal links that only pointed at this account will be removed.`)) return;
+    actions.updateAppData(deleteAccountPermanently(appData, account.id), { reason: "Archived account permanently deleted" });
   }
 
   function toggleChartAccount(accountId) {
@@ -620,6 +653,44 @@ export default function AccountsPage({ appData, actions }) {
         )}
       </section>
 
+      <section className="card archived-card">
+        <div className="section-header compact-header">
+          <div>
+            <h3>Archived accounts</h3>
+          </div>
+        </div>
+        {archivedAccounts.length === 0 ? (
+          <p className="muted">No archived accounts. Archive an account from Edit account when you close it, and it'll move here.</p>
+        ) : (
+          <div className="archive-list">
+            {archivedAccounts.map(account => {
+              const deleteBlocker = getAccountDeleteBlocker(appData, account);
+              return (
+                <div key={account.id} className="archive-row">
+                  <div>
+                    <strong>{account.name}</strong>
+                    <small>{formatAccountType(account.type)} · balance {formatMoney(calculateAccountBalance(appData, account.id))}</small>
+                    {deleteBlocker && <small>{deleteBlocker}</small>}
+                  </div>
+                  <div className="row-actions archive-row-actions">
+                    <button type="button" className="secondary-button" onClick={() => restoreAccount(account)}>Restore</button>
+                    <button
+                      type="button"
+                      className="danger-button"
+                      onClick={() => deleteAccount(account)}
+                      disabled={Boolean(deleteBlocker)}
+                      title={deleteBlocker || undefined}
+                    >
+                      Delete permanently
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       {accountModalOpen && (
         <div className="modal-backdrop">
           <form className="modal-card" onSubmit={saveAccount}>
@@ -664,9 +735,24 @@ export default function AccountsPage({ appData, actions }) {
               </label>
             </div>
 
-            <div className="modal-actions">
-              <button type="button" className="secondary-button" onClick={closeAccountModal}>Cancel</button>
-              <button className="primary-button">{editingAccount ? "Save account" : "Add account"}</button>
+            <div className="modal-actions split-modal-actions">
+              <div>
+                {editingAccount && (
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() => {
+                      if (archiveAccount(editingAccount)) closeAccountModal();
+                    }}
+                  >
+                    Archive account
+                  </button>
+                )}
+              </div>
+              <div className="row-actions">
+                <button type="button" className="secondary-button" onClick={closeAccountModal}>Cancel</button>
+                <button className="primary-button">{editingAccount ? "Save account" : "Add account"}</button>
+              </div>
             </div>
           </form>
         </div>
@@ -712,9 +798,13 @@ export default function AccountsPage({ appData, actions }) {
             </div>
 
             <p className="muted">
-              {reconcileAmount && reconcileAmount !== calculateAccountBalance(appData, reconciling.id).toString()
-                ? `This will create an adjustment of ${formatMoney(Math.abs(parseFloat(reconcileAmount) - calculateAccountBalance(appData, reconciling.id)))}`
-                : "No adjustment needed"}
+              {(() => {
+                const entered = parseFloat(reconcileAmount);
+                if (!Number.isFinite(entered)) return "Enter the balance shown by your bank.";
+                const difference = roundMoney(entered - calculateAccountBalance(appData, reconciling.id));
+                if (difference === 0) return "No adjustment needed — the balances already match.";
+                return `This will add an adjustment of ${difference > 0 ? "+" : "−"}${formatMoney(Math.abs(difference))}.`;
+              })()}
             </p>
 
             <div className="modal-actions">

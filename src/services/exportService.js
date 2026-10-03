@@ -6,6 +6,8 @@ import { calculateHousesSummary } from "../utils/houseTracking.js";
 import { getLinkedLoanId, getLoanById, getLoanPaymentTotalsForMonth } from "../utils/loanLinking.js";
 import { formatMoney } from "../utils/money.js";
 
+const DOWNLOAD_URL_REVOKE_DELAY_MS = 10000;
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -53,7 +55,10 @@ export function exportTransactionsCsv(data) {
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   downloadUrl(url, "Guinness-Holley-Budgeting-All-Transactions.csv");
-  URL.revokeObjectURL(url);
+  // Some browsers start the download asynchronously; revoking straight away
+  // can cancel it.
+  window.setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_REVOKE_DELAY_MS);
+  return { ok: true, count: rows.length };
 }
 
 export function exportMonthlyReportHtml(data, monthKey) {
@@ -237,9 +242,16 @@ export function exportMonthlyReportHtml(data, monthKey) {
   `;
 
   const reportWindow = window.open("", "_blank");
+  if (!reportWindow) {
+    return {
+      ok: false,
+      message: "Your browser blocked the report window. Allow pop-ups for this site, then try again."
+    };
+  }
   reportWindow.document.write(html);
   reportWindow.document.close();
   reportWindow.print();
+  return { ok: true };
 }
 
 function escapeCsv(value) {

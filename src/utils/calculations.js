@@ -1,4 +1,5 @@
 import { daysElapsedInMonth, formatMonthLabel, getPreviousMonthKey, isInMonth } from "./dates.js";
+import { roundMoney } from "./money.js";
 
 export function getCategoryById(categories, id) {
   return categories.find(category => category.id === id);
@@ -641,7 +642,7 @@ export function calculateAccountBalance(data, accountId) {
     .filter(t => t.type === "expense" && t.accountId === accountId)
     .map(t => t.amount));
 
-  return openingBalance + adjustments + income - expenses;
+  return roundMoney(openingBalance + adjustments + income - expenses);
 }
 
 export function calculateAccountBalanceAtDate(data, accountId, cutoffDate) {
@@ -661,7 +662,7 @@ export function calculateAccountBalanceAtDate(data, accountId, cutoffDate) {
     .filter(t => t.type === "expense" && t.accountId === accountId && t.date <= cutoffDate)
     .map(t => t.amount));
 
-  return openingBalance + adjustments + income - expenses;
+  return roundMoney(openingBalance + adjustments + income - expenses);
 }
 
 export function getSavingsGoalProgress(data, goal) {

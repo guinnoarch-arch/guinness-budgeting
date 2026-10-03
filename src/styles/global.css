@@ -108,14 +108,25 @@ button {
   display: flex;
   gap: 12px;
   align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
 }
 
-.brand h1 {
+.brand-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.brand .brand-name {
   margin: 0;
   font-size: 1.35rem;
+  font-weight: 700;
 }
 
-.brand p {
+.brand .brand-subtitle {
   margin: 2px 0 0;
   color: var(--muted);
   font-size: 0.9rem;
@@ -765,8 +776,15 @@ th {
   margin: 0;
 }
 
-.empty-state-card .secondary-button {
+.empty-state-card .secondary-button,
+.empty-state-card .primary-button,
+.empty-state-card .row-actions {
   justify-self: start;
+}
+
+.empty-state-card h2,
+.empty-state-card h3 {
+  margin: 0;
 }
 
 .dashboard-title-row {
@@ -2948,7 +2966,7 @@ th {
 [data-theme="dark"] .muted,
 [data-theme="dark"] .muted-text,
 [data-theme="dark"] small,
-[data-theme="dark"] .brand p,
+[data-theme="dark"] .brand .brand-subtitle,
 [data-theme="dark"] .accounts-total-card span,
 [data-theme="dark"] .settings-section-summary-grid span,
 [data-theme="dark"] .summary-line span,
@@ -3758,6 +3776,12 @@ th {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+}
+
+button.compact-insight-card {
+  width: 100%;
+  color: inherit;
+  text-align: left;
 }
 
 .command-panel {
@@ -4746,7 +4770,7 @@ button[disabled] {
 /* Keep the app name for screen readers, but the wordmark itself just
    repeats what the small logo already says — drop it visually so the
    header is a compact logo + status line instead of a full title block. */
-.app-shell.phone-mode .brand h1 {
+.app-shell.phone-mode .brand .brand-name {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -4758,7 +4782,7 @@ button[disabled] {
   border: 0;
 }
 
-.app-shell.phone-mode .brand p {
+.app-shell.phone-mode .brand .brand-subtitle {
   margin-top: 0;
   font-size: 0.78rem;
 }
@@ -5142,7 +5166,7 @@ button[disabled] {
     border-radius: 12px;
   }
 
-  .brand h1 {
+  .brand .brand-name {
     font-size: 1rem;
     line-height: 1.2;
   }
@@ -5812,4 +5836,17 @@ button[disabled] {
 .chart-fullscreen-body {
   flex: 1;
   min-height: 0;
+}
+
+.import-unreadable-rows {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.import-unreadable-rows ul {
+  max-height: 200px;
+  margin: 0;
+  padding-left: 20px;
+  overflow-y: auto;
 }
