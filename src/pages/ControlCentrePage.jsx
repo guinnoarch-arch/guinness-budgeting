@@ -1,65 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { getErrorMessage } from "../utils/errors.js";
 import AsyncButton from "../components/common/AsyncButton.jsx";
-import {
-  APP_VERSION,
-  DATA_SCHEMA_VERSION,
-  getBackupReminder,
-  getStorageHealth
-} from "../services/storageService.js";
-import {
-  FEATURE_FLAG_DETAILS,
-  STABLE_PRODUCTION_APP_URL,
-  clearBroadcast,
-  getAdminStatus,
-  getFeatureFlags,
-  listAdminFeatureSuggestions,
-  listAdminAuditLog,
-  listAdminUsers,
-  sendBroadcast,
-  setAdminClaimMode,
-  setAdminUserBlocked,
-  setAdminUserPaused,
-  setAdminUserRole,
-  setAppStatus,
-  setFeatureFlag,
-  updateAdminFeatureSuggestion
-} from "../services/adminService.js";
+import { APP_VERSION, DATA_SCHEMA_VERSION, getBackupReminder, getStorageHealth } from "../services/storageService.js";
+import { FEATURE_FLAG_DETAILS, STABLE_PRODUCTION_APP_URL, clearBroadcast, getAdminStatus, getFeatureFlags, listAdminFeatureSuggestions, listAdminAuditLog, listAdminUsers, sendBroadcast, setAdminClaimMode, setAdminUserBlocked, setAdminUserPaused, setAdminUserRole, setAppStatus, setFeatureFlag, updateAdminFeatureSuggestion } from "../services/adminService.js";
 import { isCloudBackupConfigured } from "../services/cloudBackupService.js";
 import { formatDateTime as formatDateTimeOr } from "../utils/dates.js";
+import { ControlStat, SecurityCheck, StatusBadge } from "../components/controlCentre/ControlCentreParts.jsx";
 
 function formatDateTime(value) {
   return formatDateTimeOr(value, "Not recorded");
-}
-
-function statusClass(ok) {
-  return ok ? "status-ok" : "status-warning";
-}
-
-function ControlStat({ label, value, detail }) {
-  return (
-    <div className="control-stat">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {detail && <small>{detail}</small>}
-    </div>
-  );
-}
-
-function SecurityCheck({ label, ok, detail }) {
-  return (
-    <div className={`security-check ${statusClass(ok)}`}>
-      <span>{ok ? "OK" : "Check"}</span>
-      <div>
-        <strong>{label}</strong>
-        <small>{detail}</small>
-      </div>
-    </div>
-  );
-}
-
-function StatusBadge({ children, tone = "" }) {
-  return <span className={`pill admin-status-badge ${tone}`.trim()}>{children}</span>;
 }
 
 function isMissingAdminSqlError(message = "") {

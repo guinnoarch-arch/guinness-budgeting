@@ -1,93 +1,18 @@
 import { useMemo, useState } from "react";
 import MonthSelector from "../components/dashboard/MonthSelector.jsx";
 import MoneyLeftCard from "../components/dashboard/MoneyLeftCard.jsx";
-import SummaryCard from "../components/dashboard/SummaryCard.jsx";
 import SpendingComparisonChart from "../components/dashboard/SpendingComparisonChart.jsx";
 import MonthlySpendingTrendChart from "../components/dashboard/MonthlySpendingTrendChart.jsx";
 import MoneyBreakdownPie from "../components/dashboard/MoneyBreakdownPie.jsx";
 import UpcomingBillsPanel from "../components/dashboard/UpcomingBillsPanel.jsx";
 import RecentTransactionsPanel from "../components/dashboard/RecentTransactionsPanel.jsx";
-import BudgetWarningsPanel from "../components/dashboard/BudgetWarningsPanel.jsx";
-import SavingsGoalsPanel from "../components/dashboard/SavingsGoalsPanel.jsx";
 import MajorSpendsModal from "../components/dashboard/MajorSpendsModal.jsx";
 import { calculateAccountBalance, calculateMonthSummary, getMajorIncomes, getMajorSpends } from "../utils/calculations.js";
 import { formatMoney } from "../utils/money.js";
 import { DEFAULT_LARGE_EXPENSE_THRESHOLD, DEFAULT_LARGE_INCOME_THRESHOLD } from "../config/appDefaults.js";
-
-function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpendingInCharts, onIncludeExcludedSpendingChange, onBreakdown, onMajorSpends, onMajorIncomes }) {
-  if (isSavingsView) {
-    return (
-      <div className="summary-grid summary-grid-two dashboard-summary-grid">
-        <SummaryCard label="Saved" value={summary.accountMoneyIn} change={summary.accountMoneyInChange} tone="positive" onClick={() => onBreakdown("Saved")} />
-        <SummaryCard label="Spent" value={summary.expenses} change={summary.expenseChange} tone="negative" higherIsBetter={false} onClick={onMajorSpends} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="summary-grid summary-grid-five dashboard-summary-grid">
-      <SummaryCard label="Income" value={summary.income} change={summary.incomeChange} tone="positive" onClick={onMajorIncomes} />
-      <SummaryCard label="Spent" value={summary.expenses} change={summary.expenseChange} tone="negative" higherIsBetter={false} onClick={onMajorSpends} />
-      <SummaryCard label="Saved" value={summary.savingsTransfers} change={summary.savingsChange} tone="positive" onClick={() => onBreakdown("Saved")} />
-      <SummaryCard label="Available balance" value={summary.spendableBalance} tone="neutral" detail="Budget-linked accounts" onClick={() => onBreakdown("Available Balance")} />
-      <SummaryCard
-        label="Excluded spending"
-        value={summary.excludedSpending}
-        tone={summary.excludedSpending > 0 ? "warning" : "neutral"}
-        detail="Not counted in budgets"
-        onClick={() => onBreakdown("Excluded Spending")}
-        afterValue={(
-          <label className="summary-inline-toggle" title="Controls dashboard spending charts and the budget breakdown pie chart" onClick={event => event.stopPropagation()}>
-            <input
-              type="checkbox"
-              checked={Boolean(includeExcludedSpendingInCharts)}
-              onChange={event => onIncludeExcludedSpendingChange?.(event.target.checked)}
-            />
-            <span>Include in charts</span>
-          </label>
-        )}
-      />
-    </div>
-  );
-}
-
-function DashboardBreakdownModal({ title, rows, onClose }) {
-  return (
-    <div className="modal-backdrop">
-      <section className="modal-card breakdown-modal">
-        <div className="section-header">
-          <h2>{title}</h2>
-          <button type="button" className="icon-button" onClick={onClose}>x</button>
-        </div>
-        <div className="profile-meta-grid">
-          {rows.map(row => (
-            <p key={row.label}>
-              <span>{row.label}</span>
-              <strong>{row.value}</strong>
-            </p>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function FocusPanel({ appData, actions, selectedMonth, accountId, isSavingsView }) {
-  return isSavingsView ? (
-    <SavingsGoalsPanel
-      appData={appData}
-      accountId={accountId}
-      onViewAll={() => actions.setActivePage("savings")}
-    />
-  ) : (
-    <BudgetWarningsPanel
-      appData={appData}
-      selectedMonth={selectedMonth}
-      accountId={accountId}
-      onViewAll={() => actions.setActivePage("budgets")}
-    />
-  );
-}
+import { DashboardBreakdownModal } from "../components/dashboard/DashboardBreakdownModal.jsx";
+import { DashboardSummaryCards } from "../components/dashboard/DashboardSummaryCards.jsx";
+import { FocusPanel } from "../components/dashboard/FocusPanel.jsx";
 
 export default function DashboardPage({ appData, actions }) {
   const activeAccounts = useMemo(() => (

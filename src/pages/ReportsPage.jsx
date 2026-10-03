@@ -1,16 +1,5 @@
 import { useState } from "react";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  Tooltip,
-  XAxis,
-  YAxis
-} from "recharts";
-
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis } from "recharts";
 import { exportMonthlyReportHtml, exportTransactionsCsv } from "../services/exportService.js";
 import { buildMonthlyReportData } from "../utils/reporting.js";
 import { calculateLoanSummary } from "../utils/loanCalculations.js";
@@ -20,35 +9,7 @@ import useIsSmallScreen from "../hooks/useIsSmallScreen.js";
 import { smallMonthXAxisProps } from "../utils/chartLabels.js";
 import MonthSelector from "../components/dashboard/MonthSelector.jsx";
 import ExpandableChart from "../components/common/ExpandableChart.jsx";
-
-function ReportCard({ label, value, detail, tone = "" }) {
-  return (
-    <section className={`card summary-card report-summary-card ${tone}`}>
-      <p className="eyebrow">{label}</p>
-      <h3>{value}</h3>
-      {detail && <p className="muted-text">{detail}</p>}
-    </section>
-  );
-}
-
-function EmptyReportBlock({ children = "No data for this report section yet." }) {
-  return <p className="muted-text empty-report-block">{children}</p>;
-}
-
-function MoneyTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="chart-tooltip-card">
-      <strong>{label}</strong>
-      {payload.map(item => (
-        <p key={item.dataKey}>
-          <span>{item.name}</span>
-          <strong>{formatMoney(item.value)}</strong>
-        </p>
-      ))}
-    </div>
-  );
-}
+import { EmptyReportBlock, MoneyTooltip, ReportCard } from "../components/reports/ReportParts.jsx";
 
 export default function ReportsPage({ appData, actions }) {
   const isSmallScreen = useIsSmallScreen();
