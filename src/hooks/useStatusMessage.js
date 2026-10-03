@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 
-export const STATUS_MESSAGE_DURATION_MS = 4000;
+const STATUS_MESSAGE_DURATION_MS = 4000;
 export const STATUS_ERROR_DURATION_MS = 8000;
 
 // Short status message under the header, e.g. "Backup saved.", that clears
