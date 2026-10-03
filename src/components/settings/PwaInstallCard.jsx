@@ -4,7 +4,6 @@ export default function PwaInstallCard({ pwaInstall, actions, embedded = false }
   const isOnline = pwaInstall?.isOnline !== false;
   const offlineReady = Boolean(pwaInstall?.serviceWorkerReady);
   const hasUpdate = Boolean(pwaInstall?.hasUpdateAvailable);
-
   const Wrapper = embedded ? "div" : "section";
 
   return (
