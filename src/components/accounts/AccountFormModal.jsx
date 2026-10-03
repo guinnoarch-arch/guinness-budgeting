@@ -1,4 +1,5 @@
 import { ErrorSummary, FieldError, FormError, RequiredMark } from "../common/FormFeedback.jsx";
+import { X } from "lucide-react";
 
 // Pop-up for adding or editing an account.
 export function AccountFormModal({ accountErrors, accountForm, accountModalError, archiveAccount, closeAccountModal, editingAccount, saveAccount, updateAccountForm }) {
@@ -7,7 +8,7 @@ export function AccountFormModal({ accountErrors, accountForm, accountModalError
       <form className="modal-card" onSubmit={saveAccount} noValidate>
         <div className="section-header">
           <h2>{editingAccount ? "Edit account" : "Add account"}</h2>
-          <button type="button" className="icon-button" onClick={closeAccountModal} aria-label="Close">×</button>
+          <button type="button" className="icon-button" onClick={closeAccountModal} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
 
         <ErrorSummary errors={accountErrors.errors} getFieldId={accountErrors.getFieldId} />

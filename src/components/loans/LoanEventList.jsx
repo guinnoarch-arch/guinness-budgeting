@@ -1,4 +1,5 @@
 import { formatMoney } from "../../utils/money.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 import { formatEventType } from "./loanDisplay.js";
 
 export function LoanEventList({ events }) {
@@ -19,22 +20,22 @@ export function LoanEventList({ events }) {
               <tr>
                 <th>Date</th>
                 <th>Type</th>
-                <th>Payment</th>
-                <th>Interest</th>
-                <th>Capital</th>
-                <th>Overpayment</th>
+                <th className="numeric">Payment</th>
+                <th className="numeric">Interest</th>
+                <th className="numeric">Capital</th>
+                <th className="numeric">Overpayment</th>
                 <th>Note</th>
               </tr>
             </thead>
             <tbody>
               {events.map(event => (
                 <tr key={event.id || `${event.date}-${event.type}-${event.note}`}>
-                  <td>{event.date || "—"}</td>
+                  <td>{event.date ? formatDisplayDate(event.date) : "—"}</td>
                   <td><span className={`pill ${event.type === "overpayment" ? "warning" : event.type === "balanceAdjustment" ? "transfer" : ""}`}>{formatEventType(event.type)}</span></td>
-                  <td>{event.paymentAmount !== undefined ? formatMoney(event.paymentAmount) : "—"}</td>
-                  <td>{event.interestAmount !== undefined ? formatMoney(event.interestAmount) : "—"}</td>
-                  <td>{event.principalAmount !== undefined ? formatMoney(event.principalAmount) : event.amount !== undefined ? formatMoney(Math.abs(Number(event.amount || 0))) : "—"}</td>
-                  <td>{Number(event.overpaymentAmount || 0) > 0 ? formatMoney(event.overpaymentAmount) : "—"}</td>
+                  <td className="numeric">{event.paymentAmount !== undefined ? formatMoney(event.paymentAmount) : "—"}</td>
+                  <td className="numeric">{event.interestAmount !== undefined ? formatMoney(event.interestAmount) : "—"}</td>
+                  <td className="numeric">{event.principalAmount !== undefined ? formatMoney(event.principalAmount) : event.amount !== undefined ? formatMoney(Math.abs(Number(event.amount || 0))) : "—"}</td>
+                  <td className="numeric">{Number(event.overpaymentAmount || 0) > 0 ? formatMoney(event.overpaymentAmount) : "—"}</td>
                   <td><small>{event.note || event.source || "—"}</small></td>
                 </tr>
               ))}

@@ -1,15 +1,7 @@
 // Labels, colours and chart ranges shared by the Accounts page pieces.
+import { CHART_SERIES } from "../../utils/chartTheme.js";
 
-export const ACCOUNT_LINE_COLOURS = [
-  "#0f766e",
-  "#2563eb",
-  "#f59e0b",
-  "#7c3aed",
-  "#dc2626",
-  "#0891b2",
-  "#65a30d",
-  "#db2777"
-];
+export const ACCOUNT_LINE_COLOURS = CHART_SERIES;
 
 export const BALANCE_RANGE_OPTIONS = [
   { value: "days", label: "Last 30 days", shortLabel: "Days" },

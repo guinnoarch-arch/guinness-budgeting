@@ -1,4 +1,6 @@
 import { formatMoney } from "../../utils/money.js";
+import { X } from "lucide-react";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 export function ImportBatchDetailModal({ batch, appData, close, undoImport }) {
   if (!batch) return null;
@@ -19,7 +21,7 @@ export function ImportBatchDetailModal({ batch, appData, close, undoImport }) {
             <h2>Import batch details</h2>
             <p className="muted-text">{batch.fileName}</p>
           </div>
-          <button type="button" className="icon-button" onClick={close}>×</button>
+          <button type="button" className="icon-button" onClick={close} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
 
         <div className="import-detail-grid">
@@ -40,7 +42,7 @@ export function ImportBatchDetailModal({ batch, appData, close, undoImport }) {
             <h4>Created transactions</h4>
             {createdTransactions.length === 0 ? <p className="muted">None.</p> : createdTransactions.slice(0, 8).map(transaction => (
               <div key={transaction.id} className="simple-row">
-                <span>{transaction.date} · {transaction.title}</span>
+                <span>{formatDisplayDate(transaction.date)} · {transaction.title}</span>
                 <strong>{formatMoney(transaction.amount)}</strong>
               </div>
             ))}
@@ -49,7 +51,7 @@ export function ImportBatchDetailModal({ batch, appData, close, undoImport }) {
             <h4>Linked transactions</h4>
             {linkedTransactions.length === 0 ? <p className="muted">None.</p> : linkedTransactions.slice(0, 8).map(transaction => (
               <div key={transaction.id} className="simple-row">
-                <span>{transaction.date} · {transaction.title}</span>
+                <span>{formatDisplayDate(transaction.date)} · {transaction.title}</span>
                 <strong>{formatMoney(transaction.amount)}</strong>
               </div>
             ))}

@@ -5,6 +5,8 @@ import { deleteStoredReceipt, getStoredReceipt } from "../../services/receiptSto
 import { signedMoney } from "../../utils/money.js";
 import { getLinkedLoanId, getLoanById, getTransactionLoanSplit } from "../../utils/loanLinking.js";
 import { formatFileSize } from "../../utils/files.js";
+import { X } from "lucide-react";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 export default function TransactionTable({ appData, actions, transactions }) {
   const [receiptViewer, setReceiptViewer] = useState(null);
@@ -69,7 +71,7 @@ export default function TransactionTable({ appData, actions, transactions }) {
               <th>Title</th>
               <th>Category</th>
               <th>Account</th>
-              <th>Amount</th>
+              <th className="numeric">Amount</th>
               <th>Recurring?</th>
               <th>Receipt</th>
               <th>Actions</th>
@@ -91,7 +93,7 @@ export default function TransactionTable({ appData, actions, transactions }) {
 
               return (
                 <tr key={txn.id}>
-                  <td data-label="Date">{txn.date}</td>
+                  <td data-label="Date">{formatDisplayDate(txn.date)}</td>
                   <td data-label="Type"><span className={`pill ${txn.transferLinkId ? "transfer" : txn.type}`}>{txn.transferLinkId ? "transfer" : txn.type}</span></td>
                   <td data-label="Title">
                     <strong
@@ -167,7 +169,7 @@ export default function TransactionTable({ appData, actions, transactions }) {
                 <h2>{receiptViewer.fileName}</h2>
                 <p className="muted-text">{receiptViewer.transaction.title} · {formatFileSize(receiptViewer.sizeBytes)}</p>
               </div>
-              <button type="button" className="icon-button" onClick={closeReceiptViewer}>×</button>
+              <button type="button" className="icon-button" onClick={closeReceiptViewer} aria-label="Close"><X size={18} aria-hidden="true" /></button>
             </div>
 
             {receiptViewer.mimeType?.startsWith("image/") ? (

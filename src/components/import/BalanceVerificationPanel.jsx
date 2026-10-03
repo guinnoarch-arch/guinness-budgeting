@@ -3,6 +3,7 @@ import { diagnoseCsvBalanceGaps, compareCsvOverlapWithApp, getPriorImportCoverag
 import { formatMoney, formatSignedAmount } from "../../utils/money.js";
 import { DiagnosisDetails } from "./DiagnosisDetails.jsx";
 import { buildDiagnosisRows, getAccountTimelines } from "../../services/importReviewService.js";
+import { AlertTriangle, ArrowLeftRight, Check } from "lucide-react";
 
 // Shared by the pre-import "Preview projected balances" check (mode
 // "preview", runs the import against a throwaway copy of the data — nothing
@@ -52,7 +53,10 @@ export function BalanceVerificationPanel({ verification, mode, analysis, rowEdit
 
         return (
           <div key={item.accountId} className={`import-verification-row ${rowState}`}>
-            <span>{item.matches ? "✓" : trusted ? "⇄" : "✗"} {item.accountName}</span>
+            <span className="status-with-icon">
+              {item.matches ? <Check size={14} aria-hidden="true" /> : trusted ? <ArrowLeftRight size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />}
+              <span>{item.accountName} <span className="status-word">{item.matches ? "matches" : trusted ? "will be adjusted" : "doesn't match"}</span></span>
+            </span>
             <span>
               {formatMoney(item.calculatedBalance)} {mode === "preview" ? "projected" : "calculated"}
               {item.matches ? "" : ` vs ${formatMoney(item.csvBalance)} on the CSV (as of ${item.asOfDate})`}

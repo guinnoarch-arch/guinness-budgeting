@@ -2,6 +2,8 @@ import { formatMoney } from "../../utils/money.js";
 import { getMatchedTransactionInfo, getRowEdit } from "../../services/importReviewService.js";
 import { getActionOptions, getConfidenceColor, getTransferText } from "./importDisplay.js";
 import { ADD_ACCOUNT_VALUE } from "./importSettings.js";
+import { ArrowUpDown, RotateCcw } from "lucide-react";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 // One row of the "Review rows before importing" table, plus the connector
 // row drawn under the first half of a matched transfer pair.
@@ -49,13 +51,13 @@ export function ImportPreviewRow({
           onChange={event => updateRow(row.id, "include", event.target.checked)}
         />
       </td>
-      <td>{displayDate}{row.time && <small>{row.time}</small>}</td>
+      <td>{formatDisplayDate(displayDate)}{row.time && <small>{row.time}</small>}</td>
       {analysis.isMulti && <td><small>{row.sourceFileName}</small><small>{appData.accounts.find(account => account.id === row.sourceAccountId)?.name || "Unknown account"}</small></td>}
       <td>
         <strong>{displayDescription}</strong>
         <small style={{ color: getConfidenceColor(row.confidence), fontWeight: 600 }}>{row.confidence} confidence</small>
       </td>
-      <td className={displaySignedAmount >= 0 ? "positive-text" : "negative-text"}>{displaySignedAmount >= 0 ? `+${formatMoney(displayAmount)}` : `-${formatMoney(displayAmount)}`}</td>
+      <td className={`numeric ${displaySignedAmount >= 0 ? "positive-text" : "negative-text"}`}>{displaySignedAmount >= 0 ? `+${formatMoney(displayAmount)}` : `-${formatMoney(displayAmount)}`}</td>
       <td>
         <select value={action} onChange={event => updateRow(row.id, "action", event.target.value)}>
           {getActionOptions(row).map(([value, label]) => (
@@ -165,7 +167,7 @@ export function ImportPreviewRow({
                 onClick={() => rejectCrossFileMatch(row)}
                 title="Mark this row as not a transfer. The other side will look for a different match before falling back to a standalone transaction."
               >
-                ↻ Not this match
+                <RotateCcw size={14} aria-hidden="true" /> Not this match
               </button>
             )}
           </div>
@@ -176,7 +178,7 @@ export function ImportPreviewRow({
         <tr className="import-linked-connector-row">
           <td colSpan={analysis.isMulti ? 10 : 9}>
             <div className="import-linked-connector" style={{ borderColor: pairColor }}>
-              <span aria-hidden="true">⇅</span> Linked transfer — matched with the row below
+              <ArrowUpDown size={14} aria-hidden="true" /> Linked transfer — matched with the row below
             </div>
           </td>
         </tr>

@@ -16,6 +16,7 @@ import { LoanLinkFields } from "./LoanLinkFields.jsx";
 import { HouseLinkFields } from "./HouseLinkFields.jsx";
 import { RecurringOptions } from "./RecurringOptions.jsx";
 import { ReceiptField } from "./ReceiptField.jsx";
+import { X } from "lucide-react";
 
 function validateTransactionForm(values) {
   return collectErrors({
@@ -376,7 +377,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
       <form className="modal-card" onSubmit={submit} noValidate>
         <div className="section-header">
           <h2>{isEditing ? "Edit transaction" : "Add transaction"}</h2>
-          <button type="button" className="icon-button" onClick={actions.closeTransactionModal} aria-label="Close">×</button>
+          <button type="button" className="icon-button" onClick={actions.closeTransactionModal} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
 
         <ErrorSummary errors={errors} getFieldId={getFieldId} />

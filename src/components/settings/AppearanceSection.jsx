@@ -1,13 +1,4 @@
-
-
-const ACCENT_PRESETS = [
-  { name: "GH logo green", value: "#0b5d45" },
-  { name: "Classic teal", value: "#0f766e" },
-  { name: "Gold", value: "#b8872c" },
-  { name: "Blue", value: "#2563eb" },
-  { name: "Purple", value: "#7c3aed" },
-  { name: "Red", value: "#b91c1c" }
-];
+import { ACCENT_PRESETS, DEFAULT_ACCENT_COLOUR } from "../../utils/theme.js";
 
 function isValidHexColour(value) {
   return /^#[0-9a-fA-F]{6}$/.test(String(value || "").trim());
@@ -62,7 +53,7 @@ export default function AppearanceSection({ appData, actions, settings, accordio
         <label>
           Highlight colour
           <select
-            value={settings.accentColor || "#0b5d45"}
+            value={settings.accentColor || DEFAULT_ACCENT_COLOUR}
             onChange={event => updateAccentColour(event.target.value)}
           >
             {ACCENT_PRESETS.map(preset => (
@@ -75,7 +66,7 @@ export default function AppearanceSection({ appData, actions, settings, accordio
           Custom highlight colour
           <input
             type="color"
-            value={settings.accentColor || "#0b5d45"}
+            value={settings.accentColor || DEFAULT_ACCENT_COLOUR}
             onChange={event => updateAccentColour(event.target.value)}
             aria-label="Choose custom highlight colour"
           />
@@ -114,9 +105,9 @@ export default function AppearanceSection({ appData, actions, settings, accordio
         <div className="appearance-preview-card full-width">
           <span className="pill">Preview</span>
           <strong>{settings.themeMode === "dark" ? "Dark dashboard" : settings.themeMode === "system" ? "Device-controlled theme" : "Light dashboard"}</strong>
-          <small>Highlight colour: {ACCENT_PRESETS.find(preset => preset.value === (settings.accentColor || "#0b5d45"))?.name || "Custom"}</small>
+          <small>Highlight colour: {ACCENT_PRESETS.find(preset => preset.value === (settings.accentColor || DEFAULT_ACCENT_COLOUR))?.name || "Custom"}</small>
           <div className="accent-preview-row">
-            <span className="accent-preview-swatch" style={{ background: settings.accentColor || "#0b5d45" }} />
+            <span className="accent-preview-swatch" style={{ background: settings.accentColor || DEFAULT_ACCENT_COLOUR }} />
             <button className="primary-button small" type="button">Example button</button>
             <span className="connection-pill online">Online</span>
           </div>

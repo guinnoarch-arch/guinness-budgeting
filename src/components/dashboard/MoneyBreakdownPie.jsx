@@ -1,22 +1,10 @@
 import { Cell, Pie, PieChart, Tooltip } from "recharts";
 import { formatMoney } from "../../utils/money.js";
 import ExpandableChart from "../common/ExpandableChart.jsx";
+import { CHART_SERIES } from "../../utils/chartTheme.js";
 
-const MONEY_COLORS = [
-  "#ef4444",
-  "#f97316",
-  "#f59e0b",
-  "#10b981",
-  "#3b82f6",
-  "#6366f1",
-  "#14b8a6",
-  "#84cc16",
-  "#a855f7",
-  "#ec4899",
-  "#0ea5e9",
-  "#64748b"
-];
-const GOAL_COLORS = ["#0f766e", "#2563eb", "#7c3aed", "#f59e0b", "#ef4444", "#14b8a6", "#84cc16"];
+const MONEY_COLORS = CHART_SERIES;
+const GOAL_COLORS = CHART_SERIES;
 const RADIAN = Math.PI / 180;
 
 function compactMoney(value) {

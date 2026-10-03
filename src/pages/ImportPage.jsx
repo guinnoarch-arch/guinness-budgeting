@@ -782,7 +782,7 @@ export default function ImportPage({ appData, actions }) {
                   <th>Date</th>
                   {analysis.isMulti && <th>Statement / account</th>}
                   <th>Description</th>
-                  <th>Amount</th>
+                  <th className="numeric">Amount</th>
                   <th>Action</th>
                   <th>Type / category</th>
                   <th>Transfer account</th>

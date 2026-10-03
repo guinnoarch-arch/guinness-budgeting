@@ -1,5 +1,6 @@
 // Display rows for recurring payments and bills.
 import { formatMoney } from "../../utils/money.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 export function RecurringPaymentCard({ item, archived = false, onEdit, onArchive, onRestore, onDelete }) {
   return (
@@ -8,7 +9,7 @@ export function RecurringPaymentCard({ item, archived = false, onEdit, onArchive
         <strong>{item.name}</strong>
         <p>{formatMoney(item.amount)} · {item.amountType || "fixed"} · {formatFrequency(item.frequency)}</p>
         <p>Next due: {item.nextDueDate || "Not set"}</p>
-        {archived && <p className="muted-text">Archived {item.archivedAt ? item.archivedAt.slice(0, 10) : ""}</p>}
+        {archived && <p className="muted-text">Archived {item.archivedAt ? formatDisplayDate(item.archivedAt) : ""}</p>}
       </div>
 
       <div className="recurring-card-actions">

@@ -62,6 +62,15 @@ export function formatMonthLabel(monthKey) {
   });
 }
 
+// "2026-10-10" -> "10 Oct 2026". Anything that isn't an ISO date is shown as it is.
+export function formatDisplayDate(value) {
+  const text = String(value || "");
+  if (!/^\d{4}-\d{2}-\d{2}/.test(text)) return text;
+  const date = parseIsoDateLocal(text.slice(0, 10));
+  if (!date || Number.isNaN(date.getTime())) return text;
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 export function isInMonth(dateString, monthKey) {
   return dateString?.startsWith(monthKey);
 }

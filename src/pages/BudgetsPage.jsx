@@ -4,7 +4,7 @@ import useFormErrors from "../hooks/useFormErrors.js";
 import BudgetCard from "../components/budgets/BudgetCard.jsx";
 import { getCategorySpend, getBudgetAccountIds } from "../utils/calculations.js";
 import { createId } from "../utils/ids.js";
-import { formatMonthLabel } from "../utils/dates.js";
+import { formatDisplayDate, formatMonthLabel } from "../utils/dates.js";
 import { formatMoney } from "../utils/money.js";
 import { applyCategoryRules, undoCategoryRuleChanges } from "../services/transactionService.js";
 import { DEFAULT_ACCOUNT_ID } from "../data/defaultAccounts.js";
@@ -276,7 +276,7 @@ export default function BudgetsPage({ appData, actions }) {
               <div key={budget.id} className="archive-row">
                 <div>
                   <strong>{budget.category?.name || "Unknown category"}</strong>
-                  <small>{budget.month} · {(budget.accounts || []).map(account => account.name).join(", ") || "Current Account"} · archived {budget.archivedAt ? budget.archivedAt.slice(0, 10) : ""}</small>
+                  <small>{formatMonthLabel(budget.month)} · {(budget.accounts || []).map(account => account.name).join(", ") || "Current Account"} · archived {budget.archivedAt ? formatDisplayDate(budget.archivedAt) : ""}</small>
                 </div>
                 <div className="row-actions archive-row-actions">
                   <strong>{formatMoney(budget.limit)}</strong>
@@ -306,7 +306,7 @@ export default function BudgetsPage({ appData, actions }) {
                 <div key={category.id} className="archive-row">
                   <div>
                     <strong>{category.name}</strong>
-                    <small>{category.type} · {category.group || "No group"} · {transactionCount} linked transaction(s){category.archivedAt ? ` · archived ${category.archivedAt.slice(0, 10)}` : ""}</small>
+                    <small>{category.type} · {category.group || "No group"} · {transactionCount} linked transaction(s){category.archivedAt ? ` · archived ${formatDisplayDate(category.archivedAt)}` : ""}</small>
                   </div>
                   <div className="row-actions archive-row-actions">
                     <button type="button" className="secondary-button" onClick={() => restoreCategory(category)}>Restore</button>

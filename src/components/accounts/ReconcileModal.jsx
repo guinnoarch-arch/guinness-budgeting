@@ -1,6 +1,7 @@
 import { calculateAccountBalance } from "../../utils/calculations.js";
 import { formatMoney, roundMoney } from "../../utils/money.js";
 import { FieldError, RequiredMark } from "../common/FormFeedback.jsx";
+import { X } from "lucide-react";
 
 // Pop-up for matching an account's balance to the bank's figure.
 export function ReconcileModal({ appData, closeReconcile, reconcileAmount, reconcileErrors, reconciling, saveReconcile, setReconcileAmount }) {
@@ -9,7 +10,7 @@ export function ReconcileModal({ appData, closeReconcile, reconcileAmount, recon
       <form className="modal-card" onSubmit={e => { e.preventDefault(); saveReconcile(); }} noValidate>
         <div className="section-header">
           <h2>Reconcile {reconciling.name}</h2>
-          <button type="button" className="icon-button" onClick={closeReconcile} aria-label="Close">×</button>
+          <button type="button" className="icon-button" onClick={closeReconcile} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
 
         <div className="form-grid">

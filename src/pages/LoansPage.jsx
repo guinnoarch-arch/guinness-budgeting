@@ -14,6 +14,8 @@ import useHouseSharing from "../hooks/useHouseSharing.js";
 import useLoanEditor from "../hooks/useLoanEditor.js";
 
 import useHouseEditor from "../hooks/useHouseEditor.js";
+import { X } from "lucide-react";
+import { formatDisplayDate } from "../utils/dates.js";
 
 export default function LoansPage({ appData, actions }) {
   const { acceptInvite, cancelInvite, changeMemberRole, declineInvite, displayAppData, publishHouseForSharing, refreshSharedHouses, removeMember, sendHouseInvite, setSharingBusy, setSharingStatus, sharingBusy, sharingStatus } = useHouseSharing({ appData });
@@ -136,7 +138,7 @@ export default function LoansPage({ appData, actions }) {
               <div key={loan.id} className="archive-row">
                 <div>
                   <strong>{loan.name}</strong>
-                  <small>{loan.type === "mortgage" ? "Mortgage" : "Student loan"} · archived {loan.archivedAt ? loan.archivedAt.slice(0, 10) : ""}</small>
+                  <small>{loan.type === "mortgage" ? "Mortgage" : "Student loan"} · archived {loan.archivedAt ? formatDisplayDate(loan.archivedAt) : ""}</small>
                 </div>
                 <div className="row-actions archive-row-actions">
                   <strong>{formatMoney(loan.currentBalance)}</strong>
@@ -203,7 +205,7 @@ export default function LoansPage({ appData, actions }) {
           <form className="modal-card" onSubmit={submitBalanceUpdate} noValidate>
             <div className="section-header">
               <h2>Update balance: {balanceUpdateLoan.name}</h2>
-              <button type="button" className="icon-button" onClick={() => setBalanceUpdateLoan(null)} aria-label="Close">×</button>
+              <button type="button" className="icon-button" onClick={() => setBalanceUpdateLoan(null)} aria-label="Close"><X size={18} aria-hidden="true" /></button>
             </div>
 
             <div className="form-grid">
