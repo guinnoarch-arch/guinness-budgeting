@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { buildAccountCheck } from "../../services/accountCheckService.js";
 import { deleteTransaction, linkTransferPair } from "../../services/transactionService.js";
-import { addDaysToIsoDate, todayIsoDate } from "../../utils/dates.js";
+import { addDaysToIsoDate, formatDisplayDate, todayIsoDate } from "../../utils/dates.js";
 import { formatMoney, formatSignedAmount } from "../../utils/money.js";
+import { X } from "lucide-react";
 
 const RANGE_PRESETS = [
   ["30", "30 days"],
@@ -93,7 +94,7 @@ export default function AccountCheckModal({ account, appData, actions, close }) 
           <div>
             <h2>Check {account.name}</h2>
           </div>
-          <button type="button" className="icon-button" onClick={close}>×</button>
+          <button type="button" className="icon-button" onClick={close} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
 
         <div className="account-check-controls">
@@ -137,14 +138,14 @@ export default function AccountCheckModal({ account, appData, actions, close }) 
           {days.map(day => (
             <div key={day.date} className={`import-overlap-day ${day.gapMoves || day.hasDuplicate || day.hasTransferGap ? "problem" : "ok"}`}>
               <div className="account-check-day-header">
-                <strong>{day.date}</strong>
+                <strong>{formatDisplayDate(day.date)}</strong>
                 <span>App end of day {formatMoney(day.appBalance)}</span>
                 {day.bankBalance !== null ? (
                   <span className={day.isOut ? "account-check-out" : "account-check-in"} title={day.bankSource ? `Bank balance from "${day.bankSource}"` : undefined}>
                     Bank {formatMoney(day.bankBalance)}{" "}
                     {day.isOut
                       ? <span className="import-overlap-gap">({formatSignedAmount(day.gap)}{day.gapMoves ? `, moved ${formatSignedAmount(day.gapChange)} today` : ""})</span>
-                      : "✓"}
+                      : "· matches"}
                   </span>
                 ) : (
                   <span className="muted">No bank balance</span>

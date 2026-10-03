@@ -5,6 +5,7 @@ import AsyncButton from "../common/AsyncButton.jsx";
 import { APP_VERSION, buildRestoreComparisonWarnings, exportRawSavedData, getBackupCounts, parseBackupFile, prepareRestoredAppData } from "../../services/storageService.js";
 import { getReceiptStorageStats, restoreReceiptBackupRecords } from "../../services/receiptStorageService.js";
 import { CountGrid, WarningList, createEmergencyRestoreSnapshot, formatDateTime } from "./settingsHelpers.jsx";
+import { X } from "lucide-react";
 
 export default function BackupRestoreSection({ appData, actions, backupReminder, setReceiptStats, settings, accordion }) {
   const { sectionClass, sectionHeaderProps, SectionChevron } = accordion;
@@ -151,7 +152,7 @@ export default function BackupRestoreSection({ appData, actions, backupReminder,
               <h4>Backup preview</h4>
               <p className="muted-text">Check this before restoring. Restore replaces all current data in this browser.</p>
             </div>
-            <button className="icon-button" onClick={() => { setRestorePreview(null); setRestorePhrase(""); }}>×</button>
+            <button className="icon-button" onClick={() => { setRestorePreview(null); setRestorePhrase(""); }} aria-label="Close"><X size={18} aria-hidden="true" /></button>
           </div>
 
           <div className="backup-meta-grid">

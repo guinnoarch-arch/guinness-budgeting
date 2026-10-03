@@ -10,6 +10,8 @@ import { smallMonthXAxisProps } from "../utils/chartLabels.js";
 import MonthSelector from "../components/dashboard/MonthSelector.jsx";
 import ExpandableChart from "../components/common/ExpandableChart.jsx";
 import { EmptyReportBlock, MoneyTooltip, ReportCard } from "../components/reports/ReportParts.jsx";
+import { AXIS_TICK, CHART_MEANING, GRID_PROPS } from "../utils/chartTheme.js";
+import { formatDisplayDate } from "../utils/dates.js";
 
 export default function ReportsPage({ appData, actions }) {
   const isSmallScreen = useIsSmallScreen();
@@ -83,14 +85,14 @@ export default function ReportsPage({ appData, actions }) {
           </div>
           <ExpandableChart title={"Income, expenses and savings trend"} height={300}>
             <BarChart data={incomeExpenseChart} margin={{ top: 10, right: 18, left: 0, bottom: isSmallScreen ? 34 : 8 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" {...(isSmallScreen ? smallMonthXAxisProps() : {})} />
-              <YAxis tickFormatter={(value) => formatMoney(value, false)} />
+              <CartesianGrid {...GRID_PROPS} />
+              <XAxis tick={AXIS_TICK} dataKey="name" {...(isSmallScreen ? smallMonthXAxisProps() : {})} />
+              <YAxis tick={AXIS_TICK} tickFormatter={(value) => formatMoney(value, false)} />
               <Tooltip content={<MoneyTooltip />} />
               <Legend />
-              <Bar dataKey="income" name="Income" fill="#16a34a" radius={[6, 6, 0, 0]} />
-              <Bar dataKey="expenses" name="Expenses" fill="#dc2626" radius={[6, 6, 0, 0]} />
-              <Bar dataKey="savings" name="Savings" fill="#0f766e" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="income" name="Income" fill={CHART_MEANING.income} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="expenses" name="Expenses" fill={CHART_MEANING.expenses} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="savings" name="Savings" fill={CHART_MEANING.savings} radius={[3, 3, 0, 0]} />
             </BarChart>
           </ExpandableChart>
         </section>
@@ -103,14 +105,14 @@ export default function ReportsPage({ appData, actions }) {
           </div>
           <ExpandableChart title={"Account balance trend"} height={300}>
             <AreaChart data={report.accountBalanceTrend} margin={{ top: 10, right: 18, left: 0, bottom: isSmallScreen ? 34 : 8 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" {...(isSmallScreen ? smallMonthXAxisProps() : {})} />
-              <YAxis tickFormatter={(value) => formatMoney(value, false)} />
+              <CartesianGrid {...GRID_PROPS} />
+              <XAxis tick={AXIS_TICK} dataKey="name" {...(isSmallScreen ? smallMonthXAxisProps() : {})} />
+              <YAxis tick={AXIS_TICK} tickFormatter={(value) => formatMoney(value, false)} />
               <Tooltip content={<MoneyTooltip />} />
               <Legend />
-              <Area type="monotone" dataKey="total" name="Total balance" stroke="#0f766e" fill="#ccfbf1" strokeWidth={3} />
-              <Area type="monotone" dataKey="spendable" name="Spendable" stroke="#2563eb" fill="#dbeafe" strokeWidth={2} />
-              <Area type="monotone" dataKey="savings" name="Savings" stroke="#d97706" fill="#fef3c7" strokeWidth={2} />
+              <Area type="monotone" dataKey="total" name="Total balance" stroke={CHART_MEANING.balance} fill={CHART_MEANING.balance} fillOpacity={0.12} strokeWidth={2} />
+              <Area type="monotone" dataKey="spendable" name="Spendable" stroke={CHART_MEANING.income} fill={CHART_MEANING.income} fillOpacity={0.1} strokeWidth={2} />
+              <Area type="monotone" dataKey="savings" name="Savings" stroke={CHART_MEANING.savings} fill={CHART_MEANING.savings} fillOpacity={0.12} strokeWidth={2} />
             </AreaChart>
           </ExpandableChart>
         </section>
@@ -132,11 +134,11 @@ export default function ReportsPage({ appData, actions }) {
                   <th>Category</th>
                   <th>Group</th>
                   <th>Account</th>
-                  <th>Counted actual</th>
-                  <th>Excluded</th>
-                  <th>Total actual</th>
-                  <th>Budget</th>
-                  <th>Left / over</th>
+                  <th className="numeric">Counted actual</th>
+                  <th className="numeric">Excluded</th>
+                  <th className="numeric">Total actual</th>
+                  <th className="numeric">Budget</th>
+                  <th className="numeric">Left / over</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -146,11 +148,11 @@ export default function ReportsPage({ appData, actions }) {
                     <td><strong>{row.category}</strong></td>
                     <td>{row.group}</td>
                     <td>{row.account}</td>
-                    <td>{formatMoney(row.actual)}</td>
-                    <td>{formatMoney(row.excludedActual || 0)}</td>
-                    <td>{formatMoney(row.totalActual ?? row.actual)}</td>
-                    <td>{row.planned > 0 ? formatMoney(row.planned) : "—"}</td>
-                    <td className={row.remaining < 0 ? "negative-text" : "positive-text"}>{row.planned > 0 ? formatMoney(row.remaining) : "—"}</td>
+                    <td className="numeric">{formatMoney(row.actual)}</td>
+                    <td className="numeric">{formatMoney(row.excludedActual || 0)}</td>
+                    <td className="numeric">{formatMoney(row.totalActual ?? row.actual)}</td>
+                    <td className="numeric">{row.planned > 0 ? formatMoney(row.planned) : "—"}</td>
+                    <td className={`numeric ${row.remaining < 0 ? "negative-text" : "positive-text"}`}>{row.planned > 0 ? formatMoney(row.remaining) : "—"}</td>
                     <td><span className={`pill ${row.status === "Over budget" ? "expense" : row.status === "Watch" ? "warning" : ""}`}>{row.status}</span></td>
                   </tr>
                 ))}
@@ -209,9 +211,9 @@ export default function ReportsPage({ appData, actions }) {
                 <tr>
                   <th>Item</th>
                   <th>Type</th>
-                  <th>Planned</th>
-                  <th>Actual</th>
-                  <th>Difference</th>
+                  <th className="numeric">Planned</th>
+                  <th className="numeric">Actual</th>
+                  <th className="numeric">Difference</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -220,9 +222,9 @@ export default function ReportsPage({ appData, actions }) {
                   <tr key={row.id}>
                     <td><strong>{row.title}</strong><small>{row.category} · {row.account}</small></td>
                     <td>{row.type}</td>
-                    <td>{formatMoney(row.plannedAmount)}<small>{row.plannedDate}</small></td>
-                    <td>{formatMoney(row.actualAmount)}<small>{row.actualDate}</small></td>
-                    <td className={row.difference > 0 ? "negative-text" : row.difference < 0 ? "positive-text" : ""}>{formatMoney(row.difference)}</td>
+                    <td className="numeric">{formatMoney(row.plannedAmount)}<small>{row.plannedDate}</small></td>
+                    <td className="numeric">{formatMoney(row.actualAmount)}<small>{row.actualDate}</small></td>
+                    <td className={`numeric ${row.difference > 0 ? "negative-text" : row.difference < 0 ? "positive-text" : ""}`}>{formatMoney(row.difference)}</td>
                     <td><span className="pill transfer">{row.status}</span></td>
                   </tr>
                 ))}
@@ -287,9 +289,9 @@ export default function ReportsPage({ appData, actions }) {
                 <tr>
                   <th>Loan</th>
                   <th>Type</th>
-                  <th>Balance</th>
-                  <th>Est. monthly repayment</th>
-                  <th>Est. monthly interest</th>
+                  <th className="numeric">Balance</th>
+                  <th className="numeric">Est. monthly repayment</th>
+                  <th className="numeric">Est. monthly interest</th>
                   <th>Balance date</th>
                 </tr>
               </thead>
@@ -300,9 +302,9 @@ export default function ReportsPage({ appData, actions }) {
                     <tr key={loan.id}>
                       <td><strong>{loan.name}</strong></td>
                       <td>{loan.type === "mortgage" ? "Mortgage" : loan.type === "studentLoan" ? "Student loan" : "Loan"}</td>
-                      <td>{formatMoney(loan.currentBalance)}</td>
-                      <td>{formatMoney(estimate?.monthlyRepayment || 0)}</td>
-                      <td>{formatMoney(estimate?.monthlyInterest || 0)}</td>
+                      <td className="numeric">{formatMoney(loan.currentBalance)}</td>
+                      <td className="numeric">{formatMoney(estimate?.monthlyRepayment || 0)}</td>
+                      <td className="numeric">{formatMoney(estimate?.monthlyInterest || 0)}</td>
                       <td>{loan.balanceDate || "—"}</td>
                     </tr>
                   );
@@ -319,7 +321,7 @@ export default function ReportsPage({ appData, actions }) {
           <div className="simple-list">
             {report.topExpenses.map(transaction => (
               <div key={transaction.id} className="simple-row">
-                <span>{transaction.date} · {transaction.title}<small>{transaction.category} · {transaction.account}</small></span>
+                <span>{formatDisplayDate(transaction.date)} · {transaction.title}<small>{transaction.category} · {transaction.account}</small></span>
                 <strong>{formatMoney(transaction.amount)}</strong>
               </div>
             ))}

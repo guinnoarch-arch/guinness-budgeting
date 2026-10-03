@@ -76,7 +76,6 @@ export default function PaymentRulesSection({ appData, actions, removeArrayItem,
       <section className={sectionClass("exclusionRules", "settings-section-entry-card")}>
         <div className="section-header compact-header settings-accordion-heading" {...sectionHeaderProps("exclusionRules")}>
           <div>
-            <p className="eyebrow">Settings section</p>
             <h3>Payment Rules</h3>
           </div>
           <div className="settings-accordion-heading-side"><span className="pill">{(appData.exclusionRules || []).length} rules</span><SectionChevron sectionId="exclusionRules" /></div>

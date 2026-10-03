@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { formatMoney, formatSignedAmount } from "../../utils/money.js";
 import { describeRowStatus } from "./importDisplay.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 export function DiagnosisDetails({ diagnosis, overlap, accountId, onFixOpeningBalance }) {
   const startIsOut = Math.abs(diagnosis.startGap) >= 0.005;
@@ -33,7 +34,7 @@ export function DiagnosisDetails({ diagnosis, overlap, accountId, onFixOpeningBa
 
       {diagnosis.changedDays.map(day => (
         <div key={day.date} className="import-diagnosis-section">
-          <strong>{day.date}: gap moves by {formatSignedAmount(day.change)}</strong>
+          <strong>{formatDisplayDate(day.date)}: gap moves by {formatSignedAmount(day.change)}</strong>
           <span>End of day the app has {formatMoney(day.ghBalance)}, the bank ({day.fileName}) has {formatMoney(day.csvBalance)}.</span>
           {day.missingFromApp.length > 0 && (
             <>
@@ -90,7 +91,7 @@ export function DiagnosisDetails({ diagnosis, overlap, accountId, onFixOpeningBa
           <ul>
             {diagnosis.overlapDifferences.map(item => (
               <li key={`${item.date}_${item.otherFileName}`}>
-                {item.date}: {item.fileName} says {formatMoney(item.balance)}, {item.earlierImport ? `your earlier import "${item.otherFileName}"` : item.otherFileName} said {formatMoney(item.otherBalance)} ({formatSignedAmount(item.difference)}).
+                {formatDisplayDate(item.date)}: {item.fileName} says {formatMoney(item.balance)}, {item.earlierImport ? `your earlier import "${item.otherFileName}"` : item.otherFileName} said {formatMoney(item.otherBalance)} ({formatSignedAmount(item.difference)}).
               </li>
             ))}
           </ul>
@@ -103,7 +104,7 @@ export function DiagnosisDetails({ diagnosis, overlap, accountId, onFixOpeningBa
           <strong>Probably pending last time, now cleared</strong>
           <ul>
             {diagnosis.likelyPendingRows.map(row => (
-              <li key={row.id}>{row.date} · {row.description} · {formatSignedAmount(row.signedAmount)}</li>
+              <li key={row.id}>{formatDisplayDate(row.date)} · {row.description} · {formatSignedAmount(row.signedAmount)}</li>
             ))}
           </ul>
         </div>
@@ -136,10 +137,10 @@ function OverlapComparison({ overlap }) {
         return (
           <div key={day.date} className={`import-overlap-day ${dayOk ? "ok" : "problem"}`}>
             <div className="import-overlap-grid import-overlap-day-header">
-              <span><strong>{day.date}</strong> · end of day {formatMoney(day.csvBalance)}</span>
+              <span><strong>{formatDisplayDate(day.date)}</strong> · end of day {formatMoney(day.csvBalance)}</span>
               <span>
                 end of day {formatMoney(day.appBalance)}
-                {dayOk ? " ✓" : Math.abs(day.gap) >= 0.005 ? <span className="import-overlap-gap"> ({formatSignedAmount(day.gap)})</span> : ""}
+                {dayOk ? " · matches" : Math.abs(day.gap) >= 0.005 ? <span className="import-overlap-gap"> ({formatSignedAmount(day.gap)})</span> : ""}
               </span>
             </div>
             {day.pairs.map(pair => (

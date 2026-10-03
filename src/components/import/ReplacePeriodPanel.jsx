@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { planReplacePeriod } from "../../services/csvImportService.js";
 import { formatSignedAmount } from "../../utils/money.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 export function ReplacePeriodPanel({ range, accountName, appData, activePlan, editor, openEditor, updateEditor, applyEditor, stopReplacing }) {
   const plan = useMemo(
@@ -44,7 +45,7 @@ export function ReplacePeriodPanel({ range, accountName, appData, activePlan, ed
               <label className="checkbox-label">
                 <input type="checkbox" checked={editor.selectedIds.has(item.id)} onChange={event => toggle("selectedIds", item.id, event.target.checked)} />
                 <span>
-                  {item.date} · {item.title} · <strong className={item.signedAmount >= 0 ? "positive-text" : "negative-text"}>{formatSignedAmount(item.signedAmount)}</strong>
+                  {formatDisplayDate(item.date)} · {item.title} · <strong className={item.signedAmount >= 0 ? "positive-text" : "negative-text"}>{formatSignedAmount(item.signedAmount)}</strong>
                   <small className="muted"> — {item.source}</small>
                 </span>
               </label>

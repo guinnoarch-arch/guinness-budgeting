@@ -4,7 +4,7 @@ import { formatMoney, roundMoney } from "../utils/money.js";
 import { createId } from "../utils/ids.js";
 import AccountCheckModal from "../components/accounts/AccountCheckModal.jsx";
 import { deleteAccountPermanently, getAccountDeleteBlocker, isAccountArchived, setAccountArchived } from "../services/accountService.js";
-import { todayIsoDate } from "../utils/dates.js";
+import { formatDisplayDate, todayIsoDate } from "../utils/dates.js";
 import { checkMoneyAmount, collectErrors, validateAccountForm } from "../utils/validation.js";
 import useFormErrors from "../hooks/useFormErrors.js";
 import { buildBalanceTimeline } from "../utils/balanceTimeline.js";
@@ -356,7 +356,7 @@ export default function AccountsPage({ appData, actions }) {
         ) : (
           recentActivity.map(txn => (
             <div key={txn.id} className="simple-row">
-              <span>{txn.date} · {txn.title}</span>
+              <span>{formatDisplayDate(txn.date)} · {txn.title}</span>
               <strong>{formatMoney(txn.amount)}</strong>
             </div>
           ))

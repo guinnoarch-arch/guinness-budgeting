@@ -24,6 +24,7 @@ import {
   saveAppDataSnapshot,
   saveCurrentAppDataRecord
 } from "./indexedDbStorageService.js";
+import { DEFAULT_ACCENT_COLOUR, LEGACY_DEFAULT_ACCENT_COLOUR } from "../utils/theme.js";
 import { DEFAULT_BUDGET_AFFORDABILITY_THRESHOLD, DEFAULT_LARGE_EXPENSE_THRESHOLD, DEFAULT_LARGE_INCOME_THRESHOLD } from "../config/appDefaults.js";
 
 // Restoring larger files risks freezing the browser tab.
@@ -993,7 +994,12 @@ export function normaliseAppData(data) {
     lastBackupReminderAt: baseSettings.lastBackupReminderAt || null,
     themeMode: baseSettings.themeMode || (baseSettings.darkModeEnabled ? "dark" : "light"),
     darkModeEnabled: Boolean(baseSettings.darkModeEnabled || baseSettings.themeMode === "dark"),
-    accentColor: baseSettings.accentColor || "#0b5d45",
+    // The old default green is moved to the new gold once, when the 2026
+    // redesign first loads. Choosing green again afterwards is kept.
+    accentColor: !baseSettings.accentColourMigrated && (!baseSettings.accentColor || baseSettings.accentColor === LEGACY_DEFAULT_ACCENT_COLOUR)
+      ? DEFAULT_ACCENT_COLOUR
+      : baseSettings.accentColor,
+    accentColourMigrated: true,
     dashboardLayout: baseSettings.dashboardLayout || "full",
     largeExpenseThreshold: Number(baseSettings.largeExpenseThreshold || DEFAULT_LARGE_EXPENSE_THRESHOLD),
     largeIncomeThreshold: Number(baseSettings.largeIncomeThreshold || DEFAULT_LARGE_INCOME_THRESHOLD),

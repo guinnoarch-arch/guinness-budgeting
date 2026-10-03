@@ -13,6 +13,8 @@ import { LoanTile } from "../components/loans/LoanTile.jsx";
 import useHouseSharing from "../hooks/useHouseSharing.js";
 import useLoanEditor from "../hooks/useLoanEditor.js";
 import useHouseEditor from "../hooks/useHouseEditor.js";
+import { X } from "lucide-react";
+import { formatDisplayDate } from "../utils/dates.js";
 import "../styles/loans.css";
 
 export default function LoansPage({ appData, actions }) {
@@ -39,9 +41,9 @@ export default function LoansPage({ appData, actions }) {
           <h2>Loans tracker</h2>
         </div>
         <div className="row-actions">
-          <button type="button" className="primary-button" onClick={openAddHouseModal}>+ House</button>
+          <button type="button" className="secondary-button" onClick={openAddHouseModal}>+ House</button>
           <button type="button" className="secondary-button" onClick={() => openAddLoanModal("studentLoan")}>+ Student loan</button>
-          <button type="button" className="primary-button" onClick={() => openAddLoanModal("mortgage")}>+ Mortgage</button>
+          <button type="button" className="secondary-button" onClick={() => openAddLoanModal("mortgage")}>+ Mortgage</button>
         </div>
       </div>
 
@@ -136,7 +138,7 @@ export default function LoansPage({ appData, actions }) {
               <div key={loan.id} className="archive-row">
                 <div>
                   <strong>{loan.name}</strong>
-                  <small>{loan.type === "mortgage" ? "Mortgage" : "Student loan"} · archived {loan.archivedAt ? loan.archivedAt.slice(0, 10) : ""}</small>
+                  <small>{loan.type === "mortgage" ? "Mortgage" : "Student loan"} · archived {loan.archivedAt ? formatDisplayDate(loan.archivedAt) : ""}</small>
                 </div>
                 <div className="row-actions archive-row-actions">
                   <strong>{formatMoney(loan.currentBalance)}</strong>
@@ -203,7 +205,7 @@ export default function LoansPage({ appData, actions }) {
           <form className="modal-card" onSubmit={submitBalanceUpdate} noValidate>
             <div className="section-header">
               <h2>Update balance: {balanceUpdateLoan.name}</h2>
-              <button type="button" className="icon-button" onClick={() => setBalanceUpdateLoan(null)} aria-label="Close">×</button>
+              <button type="button" className="icon-button" onClick={() => setBalanceUpdateLoan(null)} aria-label="Close"><X size={18} aria-hidden="true" /></button>
             </div>
 
             <div className="form-grid">

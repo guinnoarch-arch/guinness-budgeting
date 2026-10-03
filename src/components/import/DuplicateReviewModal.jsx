@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { X } from "lucide-react";
 
 export function DuplicateReviewModal({ row, existingTransaction, appData, close, updateRow, updateExistingDuplicate, keepExisting, onUseImported }) {
   const [imported, setImported] = useState(() => ({
@@ -49,7 +50,7 @@ export function DuplicateReviewModal({ row, existingTransaction, appData, close,
             <h2>Compare possible duplicate</h2>
             <p className="muted-text">The import found an existing transaction with the same account, date, amount and similar description. Nothing is deleted automatically.</p>
           </div>
-          <button type="button" className="icon-button" onClick={close}>×</button>
+          <button type="button" className="icon-button" onClick={close} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
 
         <div className="two-column">

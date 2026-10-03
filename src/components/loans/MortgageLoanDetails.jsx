@@ -6,6 +6,7 @@ import { LoanEventList } from "./LoanEventList.jsx";
 import { getRecentEvents, getTrackedInterest } from "./loanDisplay.js";
 import { buildMortgageChartData, getFinalProjectedTotalPaid, getMortgageProgressSnapshot, roundAxisValue } from "../../utils/mortgageChart.js";
 import ExpandableChart from "../common/ExpandableChart.jsx";
+import { AXIS_TICK } from "../../utils/chartTheme.js";
 
 export function MortgageLoanDetails({ loan, events, transactions, appData }) {
   const details = loan.mortgageDetails || {};
@@ -74,6 +75,7 @@ export function MortgageLoanDetails({ loan, events, transactions, appData }) {
           <ExpandableChart title={"Mortgage balance projection"} height={260}>
             <LineChart data={chartData}>
               <XAxis
+                tick={AXIS_TICK}
                 dataKey="timelineX"
                 type="number"
                 domain={chartModel.domain}
@@ -81,7 +83,7 @@ export function MortgageLoanDetails({ loan, events, transactions, appData }) {
                 tickFormatter={value => chartModel.tickLabelLookup[String(roundAxisValue(value))] || ""}
                 interval={0}
               />
-              <YAxis tickFormatter={value => `£${Math.round(value / 1000)}k`} />
+              <YAxis tick={AXIS_TICK} tickFormatter={value => `£${Math.round(value / 1000)}k`} />
               <Tooltip content={<MortgageChartTooltip />} />
               <Legend />
               <Line type="monotone" dataKey="balance" name="Amount owed" stroke="var(--primary)" strokeWidth={3} dot={false} />

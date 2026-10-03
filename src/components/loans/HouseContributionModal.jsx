@@ -1,6 +1,8 @@
 import { ErrorSummary, FieldError, FormError, RequiredMark } from "../common/FormFeedback.jsx";
 import { HOUSE_CONTRIBUTION_TYPES, HOUSE_SOURCE_TYPES } from "../../utils/houseTracking.js";
 import { formatMoney } from "../../utils/money.js";
+import { X } from "lucide-react";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 export function HouseContributionModal({ house, appData, contributionForm, updateContributionForm, submitContribution, editingContribution, closeContributionModal, isSaving = false, validation, formError }) {
   const people = (appData.housePeople || []).filter(person => person.houseId === house.id);
@@ -15,7 +17,7 @@ export function HouseContributionModal({ house, appData, contributionForm, updat
       <form className="modal-card" onSubmit={submitContribution} noValidate>
         <div className="section-header">
           <h2>{editingContribution ? "Edit contribution" : "Add contribution"}: {house.name}</h2>
-          <button type="button" className="icon-button" onClick={closeContributionModal} aria-label="Close">×</button>
+          <button type="button" className="icon-button" onClick={closeContributionModal} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
         <ErrorSummary errors={validation.errors} getFieldId={validation.getFieldId} />
         <div className="form-grid">
@@ -52,7 +54,7 @@ export function HouseContributionModal({ house, appData, contributionForm, updat
               <select {...validation.fieldProps("linkedTransactionId")} aria-required="true" value={contributionForm.linkedTransactionId} onChange={event => updateContributionForm("linkedTransactionId", event.target.value)}>
                 <option value="">Choose transaction</option>
                 {linkedTransactions.map(transaction => (
-                  <option key={transaction.id} value={transaction.id}>{transaction.date} · {transaction.title} · {formatMoney(transaction.amount, false)}</option>
+                  <option key={transaction.id} value={transaction.id}>{formatDisplayDate(transaction.date)} · {transaction.title} · {formatMoney(transaction.amount, false)}</option>
                 ))}
               </select>
               <FieldError fieldId={validation.getFieldId("linkedTransactionId")} message={validation.errors.linkedTransactionId} />

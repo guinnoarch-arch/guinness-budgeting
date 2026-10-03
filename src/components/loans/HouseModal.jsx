@@ -1,5 +1,6 @@
 import { FieldError, RequiredMark } from "../common/FormFeedback.jsx";
 import { HOUSE_OWNERSHIP_MODES } from "../../utils/houseTracking.js";
+import { X } from "lucide-react";
 
 export function HouseModal({ houseForm, editingHouse, accounts, updateHouseForm, closeHouseModal, submitHouse, validation }) {
   return (
@@ -7,7 +8,7 @@ export function HouseModal({ houseForm, editingHouse, accounts, updateHouseForm,
       <form className="modal-card" onSubmit={submitHouse} noValidate>
         <div className="section-header">
           <h2>{editingHouse ? "Edit house" : "Add house"}</h2>
-          <button type="button" className="icon-button" onClick={closeHouseModal} aria-label="Close">×</button>
+          <button type="button" className="icon-button" onClick={closeHouseModal} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
         <div className="form-section-card">
           <h3>House details</h3>

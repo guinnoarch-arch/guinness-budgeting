@@ -1,3 +1,4 @@
+import { AXIS_TICK, GRID_PROPS } from "../../utils/chartTheme.js";
 import { ACCOUNT_LINE_COLOURS, BALANCE_RANGE_OPTIONS } from "./accountDisplay.js";
 import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { formatMoney } from "../../utils/money.js";
@@ -73,14 +74,14 @@ export function AccountBalanceChartCard({ accountPickerOpen, accounts, balanceCh
       ) : (
         <ExpandableChart title={"Account balances over time"} height={320}>
           <LineChart data={balanceChartData} margin={{ top: 12, right: 22, left: 8, bottom: 16 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <CartesianGrid {...GRID_PROPS} />
             <XAxis
               dataKey="label"
               interval="preserveStartEnd"
               minTickGap={16}
-              tick={{ fill: "#4b5563", fontSize: 12 }}
+              tick={AXIS_TICK}
             />
-            <YAxis tick={{ fill: "#4b5563", fontSize: 12 }} tickFormatter={(value) => formatMoney(value, false)} />
+            <YAxis tick={AXIS_TICK} tickFormatter={(value) => formatMoney(value, false)} />
             <Tooltip content={<BalanceChartTooltip />} />
             {selectedChartAccounts.map((account, index) => (
               <Line

@@ -1,6 +1,7 @@
 import { ErrorSummary, FieldError, RequiredMark } from "../common/FormFeedback.jsx";
 import { studentLoanPlanOptions, getStudentLoanPlan } from "../../data/studentLoanPlans.js";
 import { formatMoney } from "../../utils/money.js";
+import { X } from "lucide-react";
 
 export function LoanModal({ loanForm, editingLoan, updateLoanForm, closeLoanModal, submitLoan, validation }) {
   const selectedPlan = getStudentLoanPlan(loanForm.planType);
@@ -10,7 +11,7 @@ export function LoanModal({ loanForm, editingLoan, updateLoanForm, closeLoanModa
       <form className="modal-card" onSubmit={submitLoan} noValidate>
         <div className="section-header">
           <h2>{editingLoan ? "Edit loan" : "Add loan"}</h2>
-          <button type="button" className="icon-button" onClick={closeLoanModal} aria-label="Close">×</button>
+          <button type="button" className="icon-button" onClick={closeLoanModal} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
         <ErrorSummary errors={validation.errors} getFieldId={validation.getFieldId} />
 

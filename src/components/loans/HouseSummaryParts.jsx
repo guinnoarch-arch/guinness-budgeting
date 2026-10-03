@@ -2,6 +2,7 @@ import { useState } from "react";
 import { calculateLoanToValue } from "../../utils/houseTracking.js";
 import { formatMoney } from "../../utils/money.js";
 import { formatContributionType, formatLoanToValue, formatSourceType } from "./loanDisplay.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 export function HouseBalanceEstimate({ summary }) {
   if (!summary.people.length || summary.totalContributed <= 0) return null;
@@ -19,14 +20,14 @@ export function HouseBalanceEstimate({ summary }) {
       <h5>Contribution balance</h5>
       <div className="loan-event-table-wrap">
         <table className="loan-event-table">
-          <thead><tr><th>Person</th><th>Expected</th><th>Actual</th><th>Difference</th></tr></thead>
+          <thead><tr><th>Person</th><th className="numeric">Expected</th><th className="numeric">Actual</th><th className="numeric">Difference</th></tr></thead>
           <tbody>
             {rows.map(row => (
               <tr key={row.person.id}>
                 <td>{row.person.name}</td>
-                <td>{formatMoney(row.expected)}</td>
-                <td>{formatMoney(row.actual)}</td>
-                <td className={row.difference >= 0 ? "positive-text" : "negative-text"}>{row.difference >= 0 ? "Ahead " : "Behind "}{formatMoney(Math.abs(row.difference))}</td>
+                <td className="numeric">{formatMoney(row.expected)}</td>
+                <td className="numeric">{formatMoney(row.actual)}</td>
+                <td className={`numeric ${row.difference >= 0 ? "positive-text" : "negative-text"}`}>{row.difference >= 0 ? "Ahead " : "Behind "}{formatMoney(Math.abs(row.difference))}</td>
               </tr>
             ))}
           </tbody>
@@ -131,7 +132,7 @@ export function HouseContributionTable({ contributions, people, onEditContributi
             <th>Person</th>
             <th>Type</th>
             <th>Source</th>
-            <th>Amount</th>
+            <th className="numeric">Amount</th>
             <th>Notes</th>
             {canEdit && <th>Actions</th>}
           </tr>
@@ -141,11 +142,11 @@ export function HouseContributionTable({ contributions, people, onEditContributi
             const person = people.find(candidate => candidate.id === item.personId);
             return (
               <tr key={item.id}>
-                <td>{item.date}</td>
+                <td>{formatDisplayDate(item.date)}</td>
                 <td>{person?.name || item.personName || "Unassigned"}</td>
                 <td>{formatContributionType(item.type)}</td>
                 <td>{formatSourceType(item.sourceType)}</td>
-                <td>{formatMoney(item.amount)}</td>
+                <td className="numeric">{formatMoney(item.amount)}</td>
                 <td>{item.notes || "—"}</td>
                 {canEdit && (
                   <td>

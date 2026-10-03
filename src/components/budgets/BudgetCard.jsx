@@ -1,4 +1,6 @@
 import { formatMoney } from "../../utils/money.js";
+import { describeBudgetStatus } from "../../utils/budgetStatus.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 export default function BudgetCard({
   item,
@@ -10,7 +12,7 @@ export default function BudgetCard({
   onEditTransaction
 }) {
   const capped = Math.min(item.usedPercent, 100);
-  const tone = item.limit === 0 ? "" : item.usedPercent > 100 ? "red" : item.usedPercent >= 75 ? "orange" : "green";
+  const { tone, label, remainingText } = describeBudgetStatus(item);
   const accountsLabel = (item.accounts && item.accounts.length > 0)
     ? item.accounts.map(account => account.name).join(", ")
     : item.account?.name || "";
@@ -19,12 +21,12 @@ export default function BudgetCard({
     <section className={`budget-card ${tone}`}>
       <button type="button" className="budget-card-header" onClick={onToggle} aria-expanded={isOpen}>
         <div>
-          <strong>{item.category.name.toUpperCase()}</strong>
-          <small>{accountsLabel ? `${accountsLabel} · ` : ""}{item.limit ? `${formatMoney(item.remaining)} left` : "No budget set"}</small>
+          <strong>{item.category.name}</strong>
+          <small>{accountsLabel ? `${accountsLabel} · ` : ""}{remainingText}</small>
         </div>
         <div className="budget-card-header-right">
           <span>{formatMoney(item.spent)} / {item.limit ? formatMoney(item.limit) : "No limit"}</span>
-          <small>{isOpen ? "Hide" : "View"}</small>
+          <small>{item.limit ? <span className={`budget-status-label ${tone}`}>{label}</span> : null}{isOpen ? "Hide" : "View"}</small>
         </div>
       </button>
 
@@ -57,7 +59,7 @@ export default function BudgetCard({
                 <div key={txn.id} className="simple-row budget-transaction-row">
                   <div>
                     <span>{txn.title}</span>
-                    <small>{txn.date}{txn.excludeFromBudget ? " · Excluded" : ""}</small>
+                    <small>{formatDisplayDate(txn.date)}{txn.excludeFromBudget ? " · Excluded" : ""}</small>
                   </div>
                   <div className="row-actions budget-transaction-actions">
                     <strong>{formatMoney(txn.amount)}</strong>

@@ -73,21 +73,21 @@ export function exportMonthlyReportHtml(data, monthKey) {
       <head>
         <title>Guinness & Holley Budgeting Report - ${escapeHtml(formatMonthLabel(monthKey))}</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 28px; color: #111827; }
-          h1, h2, h3 { margin-bottom: 8px; }
+          body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 28px; color: #1c1b18; }
+          h1, h2, h3 { margin-bottom: 8px; font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; font-weight: 600; }
           p { line-height: 1.45; }
-          .muted { color: #6b7280; }
+          .muted { color: #6a6457; }
           .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 18px 0; }
           .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 18px 0; }
-          .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; break-inside: avoid; }
+          .card { border: 1px solid #e2daca; border-radius: 8px; padding: 14px; break-inside: avoid; }
           .card strong { display: block; font-size: 1.15rem; margin-top: 4px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.92rem; }
-          th, td { border-bottom: 1px solid #e5e7eb; text-align: left; padding: 7px; vertical-align: top; }
-          th { background: #f9fafb; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.92rem; font-variant-numeric: tabular-nums; }
+          th, td { border-bottom: 1px solid #e2daca; text-align: left; padding: 7px; vertical-align: top; }
+          th { background: #f4efe4; }
           .section { margin-top: 26px; break-inside: avoid; }
-          .negative { color: #b91c1c; font-weight: bold; }
-          .positive { color: #047857; font-weight: bold; }
-          .small { font-size: 0.82rem; color: #6b7280; }
+          .negative { color: #8c3434; font-weight: 600; }
+          .positive { color: #2c5e44; font-weight: 600; }
+          .small { font-size: 0.82rem; color: #6a6457; }
           @media print { body { padding: 18px; } .no-print { display: none; } }
         </style>
       </head>

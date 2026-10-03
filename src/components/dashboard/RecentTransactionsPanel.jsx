@@ -1,5 +1,6 @@
 import { transactionMatchesAccount } from "../../utils/calculations.js";
 import { signedMoney } from "../../utils/money.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 export default function RecentTransactionsPanel({ appData, accountId = null, onEdit }) {
   const recent = [...appData.transactions]
@@ -18,7 +19,7 @@ export default function RecentTransactionsPanel({ appData, accountId = null, onE
             <button key={txn.id} className="transaction-mini-row" onClick={() => onEdit(txn)}>
               <span>
                 <strong>{txn.title}</strong>
-                <small>{txn.date}</small>
+                <small>{formatDisplayDate(txn.date)}</small>
               </span>
               <span className={`amount ${txn.type}`}>{signedMoney(txn.amount, txn.type)}</span>
             </button>
