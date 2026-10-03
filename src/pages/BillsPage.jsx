@@ -5,6 +5,7 @@ import { createId } from "../utils/ids.js";
 import { checkMoneyAmount, checkRequiredDate, checkRequiredText, collectErrors } from "../utils/validation.js";
 import useFormErrors from "../hooks/useFormErrors.js";
 import { ErrorSummary, FieldError, RequiredMark } from "../components/common/FormFeedback.jsx";
+import { DEFAULT_ACCOUNT_ID } from "../data/defaultAccounts.js";
 
 function validateBillForm(values) {
   return collectErrors({
@@ -21,7 +22,7 @@ const emptyRecurringForm = {
   amount: "",
   amountType: "fixed",
   categoryId: "cat_bills",
-  accountId: "acc_current",
+  accountId: DEFAULT_ACCOUNT_ID,
   frequency: "monthly",
   nextDueDate: "",
   autoAdd: false,
@@ -82,7 +83,7 @@ export default function BillsPage({ appData, actions }) {
       amount: item.amount?.toString() || "",
       amountType: item.amountType || "fixed",
       categoryId: item.categoryId || expenseCategories[0]?.id || "cat_bills",
-      accountId: item.accountId || activeAccounts[0]?.id || "acc_current",
+      accountId: item.accountId || activeAccounts[0]?.id || DEFAULT_ACCOUNT_ID,
       frequency: item.frequency || "monthly",
       nextDueDate: item.nextDueDate || todayIsoDate(),
       autoAdd: Boolean(item.autoAdd),

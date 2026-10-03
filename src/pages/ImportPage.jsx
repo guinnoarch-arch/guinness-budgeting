@@ -19,9 +19,9 @@ import {
   planReplacePeriod,
   applyReplacePlans
 } from "../services/csvImportService.js";
-import { calculateAccountBalance, calculateAccountBalanceAtDate } from "../utils/calculations.js";
+import { calculateAccountBalanceAtDate } from "../utils/calculations.js";
 import { createId } from "../utils/ids.js";
-import { formatMoney } from "../utils/money.js";
+import { formatMoney, formatSignedAmount, roundMoney } from "../utils/money.js";
 import { validateAccountForm } from "../utils/validation.js";
 import useFormErrors from "../hooks/useFormErrors.js";
 import { FieldError, RequiredMark } from "../components/common/FormFeedback.jsx";
@@ -88,10 +88,6 @@ function describeMappingProblem(item) {
 
 function getRowEdit(rowEdits, row) {
   return rowEdits[row.id] || {};
-}
-
-function getSignedDisplay(row) {
-  return row.signedAmount >= 0 ? `+${formatMoney(row.amount)}` : `-${formatMoney(row.amount)}`;
 }
 
 function getActionOptions(row) {
@@ -183,10 +179,6 @@ function getSignedAmountForAccount(transaction, accountId, cutoffDate) {
   return 0;
 }
 
-function roundMoney(value) {
-  return Math.round(Number(value || 0) * 100) / 100;
-}
-
 const TRUST_CSV_STORAGE_KEY = "gb.csvImport.trustCsvBalance";
 
 // "The CSV is always right" is the default: on import, any gap between the
@@ -245,11 +237,6 @@ function buildDiagnosisRows(analysis, rowEdits, accountId) {
         likelyClearedPending: Boolean(row.likelyClearedPending)
       };
     });
-}
-
-function signedMoney(value) {
-  const amount = Number(value || 0);
-  return `${amount >= 0 ? "+" : "-"}${formatMoney(Math.abs(amount))}`;
 }
 
 function describeRowStatus(status) {
@@ -357,12 +344,12 @@ function BalanceVerificationPanel({ verification, mode, analysis, rowEdits, appD
             </span>
             {mode === "result" && item.trustAdjustments?.length > 0 && (
               <small>
-                CSV trusted: {item.trustAdjustments.length} adjustment{item.trustAdjustments.length === 1 ? "" : "s"} added ({item.trustAdjustments.map(adjustment => `${signedMoney(adjustment.amount)} on ${adjustment.date}`).join(", ")}) so the account matches the bank.
+                CSV trusted: {item.trustAdjustments.length} adjustment{item.trustAdjustments.length === 1 ? "" : "s"} added ({item.trustAdjustments.map(adjustment => `${formatSignedAmount(adjustment.amount)} on ${adjustment.date}`).join(", ")}) so the account matches the bank.
               </small>
             )}
             {trusted && (
               <small>
-                CSV trusted — on import {item.trustAdjustments.length} dated adjustment{item.trustAdjustments.length === 1 ? "" : "s"} ({signedMoney(adjustmentTotal)} in total) will be added so it ends at {formatMoney(item.csvBalance)}.
+                CSV trusted — on import {item.trustAdjustments.length} dated adjustment{item.trustAdjustments.length === 1 ? "" : "s"} ({formatSignedAmount(adjustmentTotal)} in total) will be added so it ends at {formatMoney(item.csvBalance)}.
               </small>
             )}
             {mode === "preview" && !item.matches && onSetTrusted && (diagnosing || !trusted) && (
@@ -423,14 +410,14 @@ function DiagnosisDetails({ diagnosis, overlap, accountId, onFixOpeningBalance }
 
       {diagnosis.changedDays.map(day => (
         <div key={day.date} className="import-diagnosis-section">
-          <strong>{day.date}: gap moves by {signedMoney(day.change)}</strong>
+          <strong>{day.date}: gap moves by {formatSignedAmount(day.change)}</strong>
           <span>End of day the app has {formatMoney(day.ghBalance)}, the bank ({day.fileName}) has {formatMoney(day.csvBalance)}.</span>
           {day.missingFromApp.length > 0 && (
             <>
               <span className="import-diagnosis-label">On the CSV but not in the app:</span>
               <ul>
                 {day.missingFromApp.map(row => (
-                  <li key={row.id}>{row.description} · {signedMoney(row.signedAmount)} — {describeRowStatus(row.status)}</li>
+                  <li key={row.id}>{row.description} · {formatSignedAmount(row.signedAmount)} — {describeRowStatus(row.status)}</li>
                 ))}
               </ul>
             </>
@@ -441,7 +428,7 @@ function DiagnosisDetails({ diagnosis, overlap, accountId, onFixOpeningBalance }
               <ul>
                 {day.notOnCsv.map(item => (
                   <li key={item.id}>
-                    {item.kind === "adjustment" ? "Balance adjustment" : item.title} · {signedMoney(item.signedAmount)}
+                    {item.kind === "adjustment" ? "Balance adjustment" : item.title} · {formatSignedAmount(item.signedAmount)}
                     {item.kind === "adjustment" ? " — an earlier reconciliation adjustment" : item.fromBank ? " — from an earlier import (maybe a different date or wording there)" : " — added manually or planned, not from a bank statement"}
                   </li>
                 ))}
@@ -480,7 +467,7 @@ function DiagnosisDetails({ diagnosis, overlap, accountId, onFixOpeningBalance }
           <ul>
             {diagnosis.overlapDifferences.map(item => (
               <li key={`${item.date}_${item.otherFileName}`}>
-                {item.date}: {item.fileName} says {formatMoney(item.balance)}, {item.earlierImport ? `your earlier import "${item.otherFileName}"` : item.otherFileName} said {formatMoney(item.otherBalance)} ({signedMoney(item.difference)}).
+                {item.date}: {item.fileName} says {formatMoney(item.balance)}, {item.earlierImport ? `your earlier import "${item.otherFileName}"` : item.otherFileName} said {formatMoney(item.otherBalance)} ({formatSignedAmount(item.difference)}).
               </li>
             ))}
           </ul>
@@ -493,7 +480,7 @@ function DiagnosisDetails({ diagnosis, overlap, accountId, onFixOpeningBalance }
           <strong>Probably pending last time, now cleared</strong>
           <ul>
             {diagnosis.likelyPendingRows.map(row => (
-              <li key={row.id}>{row.date} · {row.description} · {signedMoney(row.signedAmount)}</li>
+              <li key={row.id}>{row.date} · {row.description} · {formatSignedAmount(row.signedAmount)}</li>
             ))}
           </ul>
         </div>
@@ -529,7 +516,7 @@ function OverlapComparison({ overlap }) {
               <span><strong>{day.date}</strong> · end of day {formatMoney(day.csvBalance)}</span>
               <span>
                 end of day {formatMoney(day.appBalance)}
-                {dayOk ? " ✓" : Math.abs(day.gap) >= 0.005 ? <span className="import-overlap-gap"> ({signedMoney(day.gap)})</span> : ""}
+                {dayOk ? " ✓" : Math.abs(day.gap) >= 0.005 ? <span className="import-overlap-gap"> ({formatSignedAmount(day.gap)})</span> : ""}
               </span>
             </div>
             {day.pairs.map(pair => (
@@ -579,7 +566,7 @@ function OverlapCell({ description, amount, tag = "", flag = false, note = "" })
   return (
     <span className={`import-overlap-cell ${flag ? "flag" : ""}`}>
       <span>{description}{tag && <em> · {tag}</em>}</span>
-      <strong className={amount >= 0 ? "positive-text" : "negative-text"}>{signedMoney(amount)}</strong>
+      <strong className={amount >= 0 ? "positive-text" : "negative-text"}>{formatSignedAmount(amount)}</strong>
       {note && <small>{note}</small>}
     </span>
   );
@@ -670,7 +657,7 @@ function ReplacePeriodPanel({ range, accountName, appData, activePlan, editor, o
               <label className="checkbox-label">
                 <input type="checkbox" checked={editor.selectedIds.has(item.id)} onChange={event => toggle("selectedIds", item.id, event.target.checked)} />
                 <span>
-                  {item.date} · {item.title} · <strong className={item.signedAmount >= 0 ? "positive-text" : "negative-text"}>{signedMoney(item.signedAmount)}</strong>
+                  {item.date} · {item.title} · <strong className={item.signedAmount >= 0 ? "positive-text" : "negative-text"}>{formatSignedAmount(item.signedAmount)}</strong>
                   <small className="muted"> — {item.source}</small>
                 </span>
               </label>
@@ -683,7 +670,7 @@ function ReplacePeriodPanel({ range, accountName, appData, activePlan, editor, o
                     onChange={event => toggle("selectedPartnerIds", item.partner.id, event.target.checked)}
                   />
                   <span>
-                    Also remove its other side in <strong>{item.partner.accountName}</strong>: {item.partner.date} · {item.partner.title} · {signedMoney(item.partner.signedAmount)}
+                    Also remove its other side in <strong>{item.partner.accountName}</strong>: {item.partner.date} · {item.partner.title} · {formatSignedAmount(item.partner.signedAmount)}
                     <small className="muted"> — {item.partner.fromBank ? "from that account's bank statement; if kept it waits to be linked again" : "entered by hand, not from a bank statement"}</small>
                   </span>
                 </label>
@@ -1288,7 +1275,7 @@ export default function ImportPage({ appData, actions }) {
     closeDuplicateReview();
   }
 
-  function useImportedDuplicate(row, importedValues, existingValues) {
+  function applyImportedDuplicate(row, importedValues) {
     if (!row.duplicateTransactionId) return;
 
     const now = new Date().toISOString();
@@ -1952,14 +1939,13 @@ export default function ImportPage({ appData, actions }) {
       {duplicateReviewRowId && (
         <DuplicateReviewModal
           row={analysis?.rows.find(row => row.id === duplicateReviewRowId)}
-          rowEdit={effectiveRowEdits[duplicateReviewRowId] || {}}
           existingTransaction={(appData.transactions || []).find(transaction => transaction.id === analysis?.rows.find(row => row.id === duplicateReviewRowId)?.duplicateTransactionId)}
           appData={appData}
           close={closeDuplicateReview}
           updateRow={updateRow}
           updateExistingDuplicate={updateExistingDuplicate}
           keepExisting={keepExistingDuplicate}
-          useImported={useImportedDuplicate}
+          onUseImported={applyImportedDuplicate}
         />
       )}
 
@@ -2027,7 +2013,7 @@ export default function ImportPage({ appData, actions }) {
   );
 }
 
-function DuplicateReviewModal({ row, rowEdit, existingTransaction, appData, close, updateRow, updateExistingDuplicate, keepExisting, useImported }) {
+function DuplicateReviewModal({ row, existingTransaction, appData, close, updateRow, updateExistingDuplicate, keepExisting, onUseImported }) {
   const [imported, setImported] = useState(() => ({
     date: row?.date || "",
     description: row?.description || "",
@@ -2065,7 +2051,7 @@ function DuplicateReviewModal({ row, rowEdit, existingTransaction, appData, clos
     updateRow(row.id, "amount", Number(imported.amount));
     updateRow(row.id, "type", imported.type);
     updateRow(row.id, "categoryId", imported.categoryId || "");
-    useImported(row, imported, existing);
+    onUseImported(row, imported);
   }
 
   return (

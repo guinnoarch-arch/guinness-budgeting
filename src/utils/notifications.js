@@ -1,7 +1,7 @@
 import { formatMoney } from "./money.js";
 import { getBackupReminder } from "../services/storageService.js";
 import { getBudgetWarnings } from "./calculations.js";
-import { daysElapsedInMonth } from "./dates.js";
+import { MS_PER_DAY, daysElapsedInMonth } from "./dates.js";
 
 function parseLocalDate(value) {
   if (!value) return null;
@@ -10,7 +10,6 @@ function parseLocalDate(value) {
 }
 
 function daysBetween(startDate, endDate) {
-  const MS_PER_DAY = 24 * 60 * 60 * 1000;
   const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
   const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
   return Math.round((end - start) / MS_PER_DAY);

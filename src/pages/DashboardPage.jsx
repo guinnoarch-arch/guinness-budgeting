@@ -12,6 +12,7 @@ import SavingsGoalsPanel from "../components/dashboard/SavingsGoalsPanel.jsx";
 import MajorSpendsModal from "../components/dashboard/MajorSpendsModal.jsx";
 import { calculateAccountBalance, calculateMonthSummary, getMajorIncomes, getMajorSpends } from "../utils/calculations.js";
 import { formatMoney } from "../utils/money.js";
+import { DEFAULT_LARGE_EXPENSE_THRESHOLD, DEFAULT_LARGE_INCOME_THRESHOLD } from "../config/appDefaults.js";
 
 function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpendingInCharts, onIncludeExcludedSpendingChange, onBreakdown, onMajorSpends, onMajorIncomes }) {
   if (isSavingsView) {
@@ -112,12 +113,12 @@ export default function DashboardPage({ appData, actions }) {
     accountId: accountIdForCalculations,
     includeExcluded: includeExcludedInMajorSpends
   }), [appData, actions.selectedMonth, accountIdForCalculations, includeExcludedInMajorSpends]);
-  const majorSpendThreshold = Number(appData.settings?.largeExpenseThreshold || 200);
+  const majorSpendThreshold = Number(appData.settings?.largeExpenseThreshold || DEFAULT_LARGE_EXPENSE_THRESHOLD);
   const majorIncomes = useMemo(() => getMajorIncomes(appData, actions.selectedMonth, {
     accountId: accountIdForCalculations,
     includeExcluded: includeExcludedInMajorIncomes
   }), [appData, actions.selectedMonth, accountIdForCalculations, includeExcludedInMajorIncomes]);
-  const majorIncomeThreshold = Number(appData.settings?.largeIncomeThreshold || 200);
+  const majorIncomeThreshold = Number(appData.settings?.largeIncomeThreshold || DEFAULT_LARGE_INCOME_THRESHOLD);
   const dashboardLayout = appData.settings?.dashboardLayout || "full";
 
   function getBreakdownRows(title) {

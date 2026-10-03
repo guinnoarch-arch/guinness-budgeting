@@ -22,7 +22,7 @@ export function getSupabaseKeySafetyIssue(value) {
   return getSupabaseKeySafetyIssueFromClient(value);
 }
 
-export function normaliseCloudBackupSettings(settings = {}) {
+function normaliseCloudBackupSettings(settings = {}) {
   const current = settings.cloudBackup && typeof settings.cloudBackup === "object" && !Array.isArray(settings.cloudBackup)
     ? settings.cloudBackup
     : {};
@@ -119,6 +119,8 @@ function getAuthHeaders(config, session = null) {
 }
 
 const CLOUD_REQUEST_TIMEOUT_MS = 30000;
+// Treat a sign-in token as expired slightly early, so it can't run out mid-request.
+const TOKEN_EXPIRY_MARGIN_MS = 30 * 1000;
 // Large backup uploads can legitimately take a while on a slow connection.
 const LARGE_UPLOAD_BYTES = 500000;
 const LARGE_UPLOAD_TIMEOUT_MS = 180000;
@@ -149,7 +151,7 @@ async function fetchSupabaseEndpoint(url, options = {}, context = "Supabase requ
   }
 }
 
-export function loadStoredCloudSession() {
+function loadStoredCloudSession() {
   if (!isBrowser()) return null;
   try {
     const raw = window.localStorage.getItem(CLOUD_SESSION_KEY);
@@ -172,7 +174,7 @@ export function getStoredCloudSessionSummary(settings = {}) {
   const appExpiresAt = appLoginTime && Number.isFinite(appLoginTime)
     ? appLoginTime + Math.max(1, Number(cloud.appSessionDays || DEFAULT_APP_SESSION_DAYS)) * 24 * 60 * 60 * 1000
     : null;
-  const tokenExpired = expiresAt ? expiresAt <= Date.now() + 30000 : false;
+  const tokenExpired = expiresAt ? expiresAt <= Date.now() + TOKEN_EXPIRY_MARGIN_MS : false;
   const appExpired = appExpiresAt ? appExpiresAt <= Date.now() : false;
   return {
     signedIn: true,
@@ -295,7 +297,8 @@ export async function resolveSupabaseUsernameLogin(settings, usernameNormalized)
 }
 
 export async function upsertSupabaseProfile(settings, { id, email, username }) {
-  const config = getCloudConfigOrThrow(settings);
+  // Stops early with a clear error when cloud sign-in isn't configured.
+  getCloudConfigOrThrow(settings);
   const session = await getValidCloudSession(settings);
   const userId = id || session.user?.id;
   const profileEmail = String(email || session.user?.email || "").trim().toLowerCase();

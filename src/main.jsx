@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { logError, logWarning } from "./utils/logger.js";
 import { getErrorMessage } from "./utils/errors.js";
 import { createRoot } from "react-dom/client";
 import "./styles/global.css";
@@ -129,6 +130,13 @@ const NOT_FOUND_PAGE = "notFound";
 const UNDO_WINDOW_MS = 10000;
 const STATUS_MESSAGE_DURATION_MS = 4000;
 const STATUS_ERROR_DURATION_MS = 8000;
+// How often the signed-in session and admin notices are re-checked.
+const CLOUD_SESSION_REFRESH_INTERVAL_MS = 60 * 1000;
+const APP_NOTICES_POLL_INTERVAL_MS = 60 * 1000;
+// Coming back to the app re-checks the cloud at most this often.
+const SYNC_ON_RESUME_MIN_GAP_MS = 30 * 1000;
+// Two copies saved within this window are treated as the same version.
+const SAME_VERSION_TOLERANCE_MS = 30 * 1000;
 const CONTROL_CENTRE_PATHS = [ADMIN_ROUTE_PATH, "/control-centre"];
 
 // The URL is the source of truth for which page is open, so refresh,
@@ -184,7 +192,7 @@ function StorageRecoveryScreen({ error, phoneMode, onTogglePhoneMode, onRestoreB
       const result = await exportRawSavedData();
       setStatus(result.ok ? "Emergency raw storage export saved." : "Export was cancelled.");
     } catch (exportError) {
-      console.error("Emergency raw storage export failed:", exportError);
+      logError("Emergency raw storage export failed", exportError);
       setStatus(getErrorMessage(exportError, "Emergency export failed. Try again in a moment."));
     } finally {
       setIsBusy(false);
@@ -205,7 +213,7 @@ function StorageRecoveryScreen({ error, phoneMode, onTogglePhoneMode, onRestoreB
       onRestoreBackup(restoredData);
       setStatus("Backup restored.");
     } catch (restoreError) {
-      console.error("Recovery restore failed:", restoreError);
+      logError("Recovery restore failed", restoreError);
       setStatus(getErrorMessage(restoreError, "Couldn't restore that backup file. Try again in a moment."));
     } finally {
       setIsBusy(false);
@@ -413,7 +421,7 @@ function App() {
           setAppLoadStatus("");
         }
       } catch (error) {
-        console.error("Failed to load saved app data:", error);
+        logError("Failed to load saved app data", error);
         if (!cancelled) {
           if (error?.code === STORAGE_LOAD_FAILURE_CODE) {
             setStorageRecoveryError(error);
@@ -702,7 +710,7 @@ function App() {
       setAppData(nextData);
       notify(result.method === "save-picker" ? "Backup saved." : "Backup downloaded to your Downloads folder.");
     } catch (error) {
-      console.error("Backup failed:", error);
+      logError("Backup failed", error);
       notify("The backup couldn't be saved. Try again, or choose a different download location.", STATUS_ERROR_DURATION_MS);
     }
   }
@@ -792,13 +800,13 @@ function App() {
         await refreshSupabaseCloudSession(appData.settings);
         if (!cancelled) setCloudAuthSummary(getStoredCloudSessionSummary(appData.settings));
       } catch (error) {
-        console.warn("Could not refresh Supabase session:", error);
+        logWarning("Could not refresh Supabase session", error);
         if (!cancelled) setCloudAuthSummary(getStoredCloudSessionSummary(appData.settings));
       }
     }
 
     refreshCloudAuth();
-    const timer = window.setInterval(refreshCloudAuth, 60000);
+    const timer = window.setInterval(refreshCloudAuth, CLOUD_SESSION_REFRESH_INTERVAL_MS);
 
     return () => {
       cancelled = true;
@@ -964,7 +972,7 @@ function App() {
         if (localFingerprint.checksum === cloudFingerprint.checksum) return;
         const cloudTime = new Date(cloudFingerprint.updatedAt || latest.client_generated_at || latest.created_at || 0).getTime();
         const localTime = new Date(localFingerprint.updatedAt || 0).getTime();
-        if (Math.abs(cloudTime - localTime) <= 30000) return;
+        if (Math.abs(cloudTime - localTime) <= SAME_VERSION_TOLERANCE_MS) return;
         setCloudConflict({
           backupId: latest.id,
           createdAt: latest.client_generated_at || latest.created_at,
@@ -1005,7 +1013,7 @@ function App() {
               backupType: SYNC_SAFETY_BACKUP_TYPE,
               label: `This device's copy before syncing (last changed ${describeSyncTime(decision.localTime)})`
             });
-          } catch (error) {
+          } catch {
             // Couldn't keep a copy of this device's edits, so don't
             // overwrite them — ask instead.
             setCloudConflict({
@@ -1046,7 +1054,7 @@ function App() {
 
       recordSync("Already up to date");
     } catch (error) {
-      console.warn(`Cloud sync check (${trigger}) failed:`, error);
+      logWarning(`Cloud sync check (${trigger}) failed`, error);
       setCloudBackupStatus(getErrorMessage(error, "Couldn't check the cloud for a newer version. You can keep working — this device's data is saved."));
       setCloudStatusRetry("sync");
     } finally {
@@ -1078,7 +1086,7 @@ function App() {
   useEffect(() => {
     function handleVisibility() {
       if (document.visibilityState === "visible") {
-        if (Date.now() - lastSyncCheckRef.current > 30000) syncWithCloudRef.current?.("resume");
+        if (Date.now() - lastSyncCheckRef.current > SYNC_ON_RESUME_MIN_GAP_MS) syncWithCloudRef.current?.("resume");
         return;
       }
       flushPendingCloudBackup();
@@ -1143,7 +1151,7 @@ function App() {
     }
 
     poll();
-    const timer = window.setInterval(poll, 60000);
+    const timer = window.setInterval(poll, APP_NOTICES_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

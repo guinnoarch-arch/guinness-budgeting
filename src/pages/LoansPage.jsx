@@ -13,6 +13,7 @@ import {
 import { createId } from "../utils/ids.js";
 import { addMonthsToIsoDate, formatIsoDateLocal, parseIsoDateLocal, todayIsoDate } from "../utils/dates.js";
 import {
+  HOUSE_MEMBER_ROLES,
   HOUSE_CONTRIBUTION_TYPES,
   HOUSE_OWNERSHIP_MODES,
   HOUSE_SOURCE_TYPES,
@@ -185,6 +186,10 @@ function mergeHouseDisplayData(appData, sharedData) {
     ]
   };
 }
+
+// New members are invited as a viewer or editor; ownership isn't handed out
+// by invitation.
+const INVITABLE_HOUSE_ROLES = HOUSE_MEMBER_ROLES.filter(([value]) => value !== "owner");
 
 function validateHouseForm(values) {
   return collectErrors({ name: checkRequiredText(values.name, "a name for the house, for example Home") });
@@ -1665,8 +1670,7 @@ function HouseSharingPanel({
         <form className="house-share-form" onSubmit={submitInvite}>
           <label>Email or username<input value={identifier} onChange={event => setIdentifier(event.target.value)} placeholder="friend@example.com" /></label>
           <label>Role<select value={inviteRole} onChange={event => setInviteRole(event.target.value)}>
-            <option value="viewer">Viewer</option>
-            <option value="editor">Editor</option>
+            {INVITABLE_HOUSE_ROLES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select></label>
           <button className="secondary-button" disabled={Boolean(sharingBusy)}>Invite</button>
         </form>
@@ -1686,9 +1690,7 @@ function HouseSharingPanel({
             <div className="row-actions">
               {canManageSharing ? (
                 <select value={member.role || "viewer"} onChange={event => onChangeMemberRole(member, event.target.value)} disabled={Boolean(sharingBusy)}>
-                  <option value="owner">Owner</option>
-                  <option value="editor">Editor</option>
-                  <option value="viewer">Viewer</option>
+                  {HOUSE_MEMBER_ROLES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
               ) : (
                 <strong>{member.role}</strong>
@@ -2109,7 +2111,7 @@ function LoanDetailPanel({ loan, events, transactions, appData, onEdit, onArchiv
 
       <LoanWarnings warnings={warnings} />
       {isStudentLoan && <StudentLoanDetails loan={loan} estimate={estimate} events={events} appData={appData} />}
-      {isMortgage && <MortgageLoanDetails loan={loan} estimate={estimate} events={events} transactions={transactions} appData={appData} />}
+      {isMortgage && <MortgageLoanDetails loan={loan} events={events} transactions={transactions} appData={appData} />}
     </section>
   );
 }
@@ -2169,7 +2171,7 @@ function StudentLoanDetails({ loan, estimate, events, appData }) {
   );
 }
 
-function MortgageLoanDetails({ loan, estimate, events, transactions, appData }) {
+function MortgageLoanDetails({ loan, events, transactions, appData }) {
   const details = loan.mortgageDetails || {};
   const mortgageProgress = getMortgageProgressSnapshot(loan, transactions);
   const effectiveLoan = {

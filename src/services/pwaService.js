@@ -1,8 +1,10 @@
+import { logError, logWarning } from "../utils/logger.js";
+
 export function isStandaloneDisplayMode() {
   return window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
 }
 
-export function canRegisterServiceWorker() {
+function canRegisterServiceWorker() {
   return "serviceWorker" in navigator && import.meta.env.PROD;
 }
 
@@ -29,7 +31,7 @@ export function registerAppServiceWorker({ onUpdateReady, onOfflineReady } = {})
         function checkForUpdates() {
           if (!navigator.onLine) return;
           registration.update().catch((error) => {
-            console.warn("Service worker update check failed:", error);
+            logWarning("Service worker update check failed", error);
           });
         }
 
@@ -58,7 +60,7 @@ export function registerAppServiceWorker({ onUpdateReady, onOfflineReady } = {})
         window.addEventListener("online", checkForUpdates);
       })
       .catch((error) => {
-        console.error("Service worker registration failed:", error);
+        logError("Service worker registration failed", error);
       });
   });
 

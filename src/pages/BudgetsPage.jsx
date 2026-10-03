@@ -8,6 +8,7 @@ import { createId } from "../utils/ids.js";
 import { formatMonthLabel } from "../utils/dates.js";
 import { formatMoney } from "../utils/money.js";
 import { applyCategoryRules, undoCategoryRuleChanges } from "../services/transactionService.js";
+import { DEFAULT_ACCOUNT_ID } from "../data/defaultAccounts.js";
 
 function validateNewCategoryForm(values) {
   return collectErrors({
@@ -47,7 +48,7 @@ export default function BudgetsPage({ appData, actions }) {
   const [editingBudget, setEditingBudget] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
   const [budgetLimit, setBudgetLimit] = useState("");
-  const [budgetAccountIds, setBudgetAccountIds] = useState(["acc_current"]);
+  const [budgetAccountIds, setBudgetAccountIds] = useState([DEFAULT_ACCOUNT_ID]);
   const [categoryName, setCategoryName] = useState("");
   const [openBudgetKey, setOpenBudgetKey] = useState(null);
   const [showBudgetManager, setShowBudgetManager] = useState(false);
@@ -58,7 +59,7 @@ export default function BudgetsPage({ appData, actions }) {
     type: "expense",
     group: "Other",
     limit: "",
-    accountIds: ["acc_current"]
+    accountIds: [DEFAULT_ACCOUNT_ID]
   });
 
   const newCategoryErrors = useFormErrors("new-category", validateNewCategoryForm);
@@ -198,7 +199,7 @@ export default function BudgetsPage({ appData, actions }) {
       // limit set yet (isEnabled follows limit > 0, same as editing an
       // existing budget) — otherwise a limit of 0 silently discards which
       // accounts were ticked, since there'd be nothing left to hold them.
-      const accountIds = newCategoryDraft.accountIds.length > 0 ? newCategoryDraft.accountIds : [activeAccounts[0]?.id || "acc_current"];
+      const accountIds = newCategoryDraft.accountIds.length > 0 ? newCategoryDraft.accountIds : [activeAccounts[0]?.id || DEFAULT_ACCOUNT_ID];
       nextBudgets.push({
         id: createId("bud"),
         categoryId,
@@ -220,7 +221,7 @@ export default function BudgetsPage({ appData, actions }) {
       budgets: nextBudgets
     }, { reason: "Category and budget added" });
 
-    setNewCategoryDraft({ name: "", type: "expense", group: "Other", limit: "", accountIds: [activeAccounts[0]?.id || "acc_current"] });
+    setNewCategoryDraft({ name: "", type: "expense", group: "Other", limit: "", accountIds: [activeAccounts[0]?.id || DEFAULT_ACCOUNT_ID] });
   }
 
   function openBudgetEditorFromManager(category) {
@@ -230,7 +231,7 @@ export default function BudgetsPage({ appData, actions }) {
       category,
       budget,
       limit: Number(budget?.limit || 0),
-      accountIds: budget ? getBudgetAccountIds(budget) : [activeAccounts[0]?.id || "acc_current"]
+      accountIds: budget ? getBudgetAccountIds(budget) : [activeAccounts[0]?.id || DEFAULT_ACCOUNT_ID]
     });
   }
 
@@ -244,7 +245,7 @@ export default function BudgetsPage({ appData, actions }) {
     setBudgetLimit(budgetItem.limit?.toString() || "");
     const seededIds = budgetItem.accountIds
       || (budgetItem.budget ? getBudgetAccountIds(budgetItem.budget) : null)
-      || ["acc_current"];
+      || [DEFAULT_ACCOUNT_ID];
     setBudgetAccountIds(seededIds);
   }
 
@@ -267,7 +268,7 @@ export default function BudgetsPage({ appData, actions }) {
     if (!editingBudget) return;
     if (!budgetErrors.validateAll({ limit: budgetLimit })) return;
     const limit = parseFloat(budgetLimit) || 0;
-    const accountIds = budgetAccountIds.length > 0 ? budgetAccountIds : ["acc_current"];
+    const accountIds = budgetAccountIds.length > 0 ? budgetAccountIds : [DEFAULT_ACCOUNT_ID];
     const accountIdsKey = [...accountIds].sort().join("+");
     const existingBudget = editingBudget.budget
       ? appData.budgets.find(b => b.id === editingBudget.budget.id)
@@ -320,7 +321,7 @@ export default function BudgetsPage({ appData, actions }) {
     }
     setEditingBudget(null);
     setBudgetLimit("");
-    setBudgetAccountIds(["acc_current"]);
+    setBudgetAccountIds([DEFAULT_ACCOUNT_ID]);
   }
 
   function archiveBudget(budgetItem) {

@@ -1,5 +1,7 @@
 import { daysElapsedInMonth, formatMonthLabel, getPreviousMonthKey, isInMonth } from "./dates.js";
 import { roundMoney } from "./money.js";
+import { DEFAULT_ACCOUNT_ID } from "../data/defaultAccounts.js";
+import { DEFAULT_BUDGET_AFFORDABILITY_THRESHOLD, DEFAULT_LARGE_EXPENSE_THRESHOLD, DEFAULT_LARGE_INCOME_THRESHOLD } from "../config/appDefaults.js";
 
 export function getCategoryById(categories, id) {
   return categories.find(category => category.id === id);
@@ -14,7 +16,7 @@ export function getAccountById(accounts, id) {
 // from spendable balance, their inflows count as "Saved", and viewing one
 // individually shows the simplified Saved/Spent dashboard instead of a
 // budget view that wouldn't mean anything for them.
-export function isSavingsAccount(accounts, accountId) {
+function isSavingsAccount(accounts, accountId) {
   const account = getAccountById(accounts, accountId);
   return account?.type === "savings" || account?.type === "investment";
 }
@@ -35,14 +37,7 @@ export function getBudgetAccountIds(budget) {
   // all) — treat those as a one-account selection so they behave exactly as
   // before.
   if (Array.isArray(budget?.accountIds) && budget.accountIds.length > 0) return budget.accountIds;
-  return [budget?.accountId || "acc_current"];
-}
-
-// Kept for any old call sites that only ever need a single representative
-// account (e.g. sorting/display fallbacks) — prefer getBudgetAccountIds for
-// anything that actually needs to know every account a budget covers.
-function getBudgetAccountId(budget) {
-  return getBudgetAccountIds(budget)[0];
+  return [budget?.accountId || DEFAULT_ACCOUNT_ID];
 }
 
 function budgetMatchesAccount(budget, accountId) {
@@ -71,11 +66,11 @@ function incomeMatchesAccount(transaction, accountId) {
   return isRealIncome && transaction.accountId === selectedAccountId;
 }
 
-export function isBudgetCountedExpense(transaction) {
+function isBudgetCountedExpense(transaction) {
   return transaction?.type === "expense" && !transaction.transferLinkId && transaction.excludeFromBudget !== true;
 }
 
-export function isBudgetExcludedExpense(transaction) {
+function isBudgetExcludedExpense(transaction) {
   return transaction?.type === "expense" && !transaction.transferLinkId && transaction.excludeFromBudget === true;
 }
 
@@ -100,7 +95,7 @@ function getSpendableBalance(data, activeBudgets, accountId = null) {
     .map(spendableAccountId => calculateAccountBalance(data, spendableAccountId)));
 }
 
-export function getBudgetLeftSummary(data, monthKey, accountId = null) {
+function getBudgetLeftSummary(data, monthKey, accountId = null) {
   const selectedAccountId = normaliseAccountFilter(accountId);
   const monthExpenses = getTransactionsForMonth(data.transactions || [], monthKey)
     .filter(t => t.type === "expense")
@@ -121,7 +116,7 @@ export function getBudgetLeftSummary(data, monthKey, accountId = null) {
   const spendableBalance = getSpendableBalance(data, activeBudgets, selectedAccountId);
   const budgetLeft = budgetLeftRaw > 0 ? Math.min(budgetLeftRaw, spendableBalance) : budgetLeftRaw;
   const affordabilityGap = budgetLeftRaw - spendableBalance;
-  const threshold = Number(data.settings?.budgetAffordabilityThreshold || 100);
+  const threshold = Number(data.settings?.budgetAffordabilityThreshold || DEFAULT_BUDGET_AFFORDABILITY_THRESHOLD);
   const affordabilityWarning = Boolean(
     data.settings?.budgetAffordabilityWarningsEnabled !== false
     && budgetLeftRaw > 0
@@ -200,7 +195,7 @@ export function getTransactionsForMonth(transactions, monthKey) {
 // includeExcluded brings both categories back in for someone who wants the
 // full picture.
 export function getMajorSpends(data, monthKey, { accountId = null, includeExcluded = false } = {}) {
-  const threshold = Number(data.settings?.largeExpenseThreshold || 200);
+  const threshold = Number(data.settings?.largeExpenseThreshold || DEFAULT_LARGE_EXPENSE_THRESHOLD);
   return getTransactionsForMonth(data.transactions || [], monthKey)
     .filter(transaction => expenseMatchesAccount(transaction, accountId))
     .filter(transaction => includeExcluded || (!transaction.excludeFromTotal && !transaction.excludeFromBudget))
@@ -213,7 +208,7 @@ export function getMajorSpends(data, monthKey, { accountId = null, includeExclud
 // threshold, biggest first. Income marked "exclude from total" is left out
 // unless includeExcluded, matching what the Income figure counts.
 export function getMajorIncomes(data, monthKey, { accountId = null, includeExcluded = false } = {}) {
-  const threshold = Number(data.settings?.largeIncomeThreshold || 200);
+  const threshold = Number(data.settings?.largeIncomeThreshold || DEFAULT_LARGE_INCOME_THRESHOLD);
   return getTransactionsForMonth(data.transactions || [], monthKey)
     .filter(transaction => incomeMatchesAccount(transaction, accountId))
     .filter(transaction => includeExcluded || !transaction.excludeFromTotal)
@@ -295,7 +290,6 @@ export function calculateMonthSummary(data, monthKey, options = {}) {
   const previousAccountMoneyOut = accountId ? getAccountMoneyOut(previousTransactionsAll, accountId) : previousExpenses;
 
   const twoMonthsAgoExpenses = sum(twoMonthsAgoTransactionsAll.filter(t => expenseMatchesAccount(t, accountId) && !t.excludeFromTotal).map(t => t.amount));
-  const twoMonthsAgoAccountMoneyIn = accountId ? getAccountMoneyIn(twoMonthsAgoTransactionsAll, accountId) : 0;
 
   const trendIsSavings = selectedAccountIsSavings;
   const spendingTrend = getSixMonthDashboardTrend(data, monthKey, accountId, trendIsSavings, includeExcludedSpendingInCharts);
@@ -375,7 +369,7 @@ export function calculateMonthSummary(data, monthKey, options = {}) {
   };
 }
 
-export function getDailySpendingComparison(data, monthKey, accountId = null, includeExcludedSpending = false) {
+function getDailySpendingComparison(data, monthKey, accountId = null, includeExcludedSpending = false) {
   const previousMonth = getPreviousMonthKey(monthKey);
   const twoMonthsAgo = getPreviousMonthKey(previousMonth);
   const maxDays = daysInCalendarMonth(monthKey);
@@ -405,7 +399,7 @@ export function getDailySpendingComparison(data, monthKey, accountId = null, inc
   };
 }
 
-export function getDailySavingComparison(data, monthKey, accountId = null) {
+function getDailySavingComparison(data, monthKey, accountId = null) {
   const previousMonth = getPreviousMonthKey(monthKey);
   const twoMonthsAgo = getPreviousMonthKey(previousMonth);
   const maxDays = daysInCalendarMonth(monthKey);
@@ -491,7 +485,7 @@ function daysInCalendarMonth(monthKey) {
   return new Date(year, month, 0).getDate();
 }
 
-export function getSavingsGoalBreakdown(data, monthKey, accountId = null) {
+function getSavingsGoalBreakdown(data, monthKey, accountId = null) {
   const selectedAccountId = normaliseAccountFilter(accountId);
   if (!selectedAccountId) return [];
 
@@ -680,7 +674,7 @@ export function sum(values) {
   return values.reduce((total, value) => total + Number(value || 0), 0);
 }
 
-export function percentChange(current, previous) {
+function percentChange(current, previous) {
   if (!previous) return null;
   return ((current - previous) / previous) * 100;
 }

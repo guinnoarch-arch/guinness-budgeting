@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { logWarning } from "../../utils/logger.js";
 import QRCode from "qrcode";
 
 const QUIET_ZONE_MODULES = 4;
@@ -34,7 +35,7 @@ export default function InlineQrCode({ value, size = 280, className = "" }) {
         viewBoxSize: qrCode.modules.size + (QUIET_ZONE_MODULES * 2)
       };
     } catch (error) {
-      console.warn("Could not generate QR code:", error);
+      logWarning("Could not generate QR code", error);
       return null;
     }
   }, [value]);

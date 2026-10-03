@@ -1,8 +1,9 @@
 import { getStudentLoanPlan } from "../data/studentLoanPlans.js";
 import { addMonthsToIsoDate, addYearsToIsoDate } from "./dates.js";
+import { getActiveLoans } from "./loanLinking.js";
 
 export function calculateLoanSummary(data) {
-  const loans = Array.isArray(data.loans) ? data.loans.filter(loan => loan.status !== "closed" && loan.status !== "archived") : [];
+  const loans = getActiveLoans(data);
   const estimates = loans.map(loan => calculateLoanEstimate(loan));
 
   const totalDebt = sum(loans.map(loan => Number(loan.currentBalance || 0)));
@@ -33,7 +34,7 @@ export function calculateLoanEstimate(loan) {
   return calculateGenericLoanEstimate(loan);
 }
 
-export function calculateStudentLoanEstimate(loan) {
+function calculateStudentLoanEstimate(loan) {
   const details = loan.studentLoanDetails || {};
   const plan = getStudentLoanPlan(details.planType);
   const salary = Number(details.grossAnnualSalary || 0);
@@ -67,7 +68,7 @@ export function calculateStudentLoanEstimate(loan) {
   };
 }
 
-export function calculateMortgageEstimate(loan) {
+function calculateMortgageEstimate(loan) {
   const details = loan.mortgageDetails || {};
   const balance = Number(loan.currentBalance || 0);
   const annualInterestRate = Number(details.currentRate || 0);
@@ -99,7 +100,7 @@ export function calculateMortgageEstimate(loan) {
   };
 }
 
-export function calculateGenericLoanEstimate(loan) {
+function calculateGenericLoanEstimate(loan) {
   const balance = Number(loan?.currentBalance || 0);
   const annualInterestRate = Number(loan?.annualInterestRate || 0);
   const monthlyPayment = Number(loan?.monthlyPayment || 0);
@@ -117,7 +118,7 @@ export function calculateGenericLoanEstimate(loan) {
   };
 }
 
-export function simulateMortgage(startBalance, annualRatePercent, monthlyPayment, monthlyOverpayment = 0, maxMonths = 600) {
+function simulateMortgage(startBalance, annualRatePercent, monthlyPayment, monthlyOverpayment = 0, maxMonths = 600) {
   let balance = Number(startBalance || 0);
   const monthlyRate = Number(annualRatePercent || 0) / 100 / 12;
   const payment = Number(monthlyPayment || 0) + Number(monthlyOverpayment || 0);
@@ -144,7 +145,7 @@ export function simulateMortgage(startBalance, annualRatePercent, monthlyPayment
   return { months, totalInterest, finalBalance: balance };
 }
 
-export function buildProjectionSeries(startBalance, annualRatePercent, monthlyPayment, monthlyOverpayment = 0, maxMonths = 360) {
+function buildProjectionSeries(startBalance, annualRatePercent, monthlyPayment, monthlyOverpayment = 0, maxMonths = 360) {
   let balance = Number(startBalance || 0);
   const monthlyRate = Number(annualRatePercent || 0) / 100 / 12;
   const payment = Number(monthlyPayment || 0) + Number(monthlyOverpayment || 0);

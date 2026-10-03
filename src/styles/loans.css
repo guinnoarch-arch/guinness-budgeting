@@ -275,8 +275,7 @@
   gap: 16px;
 }
 
-.house-layout-grid,
-.house-tab-grid {
+.house-layout-grid {
   display: grid;
   gap: 14px;
 }
@@ -286,10 +285,6 @@
 .house-tab-card {
   display: grid;
   gap: 12px;
-}
-
-.house-tab-grid {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .house-tab-card {

@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
+import { logError } from "../../utils/logger.js";
 import { getErrorMessage } from "../../utils/errors.js";
 import { todayIsoDate } from "../../utils/dates.js";
 import { HOUSE_CONTRIBUTION_TYPES } from "../../utils/houseTracking.js";
 import { createId } from "../../utils/ids.js";
 import { getMatchingExclusionRules, linkTransferPair, unlinkTransferPair, upsertTransaction } from "../../services/transactionService.js";
-import { estimateLoanPaymentSplit } from "../../utils/loanLinking.js";
-import { deleteStoredReceipt, getStoredReceipt, saveTransactionReceipt } from "../../services/receiptStorageService.js";
+import { estimateLoanPaymentSplit, getActiveLoans } from "../../utils/loanLinking.js";
+import { MAX_RECEIPT_BYTES, deleteStoredReceipt, getStoredReceipt, saveTransactionReceipt } from "../../services/receiptStorageService.js";
 import { signedMoney } from "../../utils/money.js";
 import { checkMoneyAmount, checkRequiredDate, collectErrors } from "../../utils/validation.js";
 import useFormErrors from "../../hooks/useFormErrors.js";
 import { ErrorSummary, FieldError, FormError, RequiredMark } from "../common/FormFeedback.jsx";
+import { DEFAULT_ACCOUNT_ID } from "../../data/defaultAccounts.js";
+import { DEFAULT_LARGE_EXPENSE_THRESHOLD } from "../../config/appDefaults.js";
+import { formatFileSize } from "../../utils/files.js";
 
 function validateTransactionForm(values) {
   return collectErrors({
@@ -21,13 +25,6 @@ function validateTransactionForm(values) {
   });
 }
 
-function formatFileSize(bytes) {
-  const value = Number(bytes || 0);
-  if (value >= 1024 * 1024) return `${Math.round((value / (1024 * 1024)) * 10) / 10} MB`;
-  if (value >= 1024) return `${Math.round((value / 1024) * 10) / 10} KB`;
-  return `${value} B`;
-}
-
 // If you're converting an existing expense/income into a transfer, the
 // account it's already on is almost always the side you want to keep — an
 // expense becomes the "from" account, income becomes "to" — leaving just
@@ -37,7 +34,7 @@ function formatFileSize(bytes) {
 function getDefaultFromAccountId(appData, editingTransaction) {
   if (editingTransaction && editingTransaction.type !== "income") return editingTransaction.accountId;
   const accounts = (appData.accounts || []).filter(acc => acc.isActive !== false);
-  return accounts.find(acc => acc.id === "acc_current")?.id || accounts[0]?.id || "acc_current";
+  return accounts.find(acc => acc.id === DEFAULT_ACCOUNT_ID)?.id || accounts[0]?.id || DEFAULT_ACCOUNT_ID;
 }
 
 function getDefaultToAccountId(appData, editingTransaction, fromAccountId) {
@@ -72,7 +69,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     title: editingTransaction?.title || "",
     note: editingTransaction?.note || "",
     categoryId: editingTransaction?.categoryId || "",
-    accountId: editingTransaction?.accountId || "acc_current",
+    accountId: editingTransaction?.accountId || DEFAULT_ACCOUNT_ID,
     fromAccountId,
     toAccountId,
     linkedSavingsGoalId: editingTransaction?.linkedSavingsGoalId || "",
@@ -124,9 +121,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
       ))
     : null;
 
-  const activeLoans = useMemo(() => (
-    (appData.loans || []).filter(loan => loan.status !== "archived" && loan.status !== "closed")
-  ), [appData.loans]);
+  const activeLoans = useMemo(() => getActiveLoans({ loans: appData.loans }), [appData.loans]);
   const selectedLoan = activeLoans.find(loan => loan.id === form.linkedLoanId) || null;
   const activeHouses = useMemo(() => (
     (appData.houses || []).filter(house => house.status !== "archived" && !house.archived)
@@ -142,7 +137,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     ? (appData.savingsGoals || []).find(goal => goal.id === form.linkedSavingsGoalId && !activeSavingsGoals.some(activeGoal => activeGoal.id === goal.id))
     : null;
 
-  const largeExpenseThreshold = Number(appData.settings?.largeExpenseThreshold || 200);
+  const largeExpenseThreshold = Number(appData.settings?.largeExpenseThreshold || DEFAULT_LARGE_EXPENSE_THRESHOLD);
   const amountValue = Number(form.amount || 0);
   const isLargeExpense = form.type === "expense" && amountValue >= largeExpenseThreshold;
 
@@ -318,8 +313,8 @@ export default function TransactionModal({ appData, actions, editingTransaction 
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      setReceiptError("Receipt is too large. Use a file under 10 MB.");
+    if (file.size > MAX_RECEIPT_BYTES) {
+      setReceiptError("That receipt is too large. Use a file under 10 MB — for a photo, a smaller image size usually works.");
       event.target.value = "";
       return;
     }
@@ -365,7 +360,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
       });
       actions.closeTransactionModal();
     } catch (error) {
-      console.error("Could not save transaction or receipt:", error);
+      logError("Could not save transaction or receipt", error);
       setFormError(getErrorMessage(error, "The transaction couldn't be saved. If you attached a receipt, try a smaller file (under 10 MB) as a JPG, PNG or PDF."));
     } finally {
       setIsSubmitting(false);

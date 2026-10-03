@@ -161,7 +161,7 @@ export function normaliseHouseOwnershipSplitRecord(record = {}) {
   };
 }
 
-export function createHouseFromMortgageLoan(loan = {}) {
+function createHouseFromMortgageLoan(loan = {}) {
   const details = loan.mortgageDetails || {};
   const now = loan.createdAt || new Date().toISOString();
   return normaliseHouseRecord({
@@ -211,7 +211,7 @@ export function ensureHousesFromMortgageLoans(data = {}) {
   return [...houses, ...migrated];
 }
 
-export function createContributionFromTransaction(transaction, existingContribution = null) {
+function createContributionFromTransaction(transaction, existingContribution = null) {
   const now = new Date().toISOString();
   const type = transaction.houseContributionType
     || (transaction.isLoanOverpayment ? "mortgageOverpayment" : "mortgagePayment");

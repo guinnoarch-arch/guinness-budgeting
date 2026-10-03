@@ -12,7 +12,7 @@ const KNOWN_SUPABASE_KEY_FIXES = new Map([
   ["sb_publishable_qhZDZGZTzXZ70eoNlwv6v9A_JBDRbrkh", GH_SUPABASE_ANON_KEY]
 ]);
 
-export function getViteEnvValue(name) {
+function getViteEnvValue(name) {
   try {
     return import.meta.env?.[name] || "";
   } catch {
@@ -77,7 +77,7 @@ export function getDefaultSupabaseConfigFromEnv() {
   };
 }
 
-export function getSupabaseClientConfig() {
+function getSupabaseClientConfig() {
   const env = getDefaultSupabaseConfigFromEnv();
   return {
     url: correctKnownProjectUrl(env.supabaseUrl),
@@ -85,7 +85,7 @@ export function getSupabaseClientConfig() {
   };
 }
 
-export function isSupabaseConfigured() {
+function isSupabaseConfigured() {
   const config = getSupabaseClientConfig();
   return Boolean(config.url && config.anonKey && isValidSupabaseProjectUrl(config.url) && !getSupabaseKeySafetyIssue(config.anonKey));
 }
@@ -144,7 +144,7 @@ export function isValidSupabaseProjectUrl(value) {
   return /^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url) && !isPlaceholderValue(url);
 }
 
-export function parseSupabaseJson(text) {
+function parseSupabaseJson(text) {
   if (!text) return null;
   try {
     return JSON.parse(text);

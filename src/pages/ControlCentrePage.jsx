@@ -26,18 +26,10 @@ import {
   updateAdminFeatureSuggestion
 } from "../services/adminService.js";
 import { isCloudBackupConfigured } from "../services/cloudBackupService.js";
+import { formatDateTime as formatDateTimeOr } from "../utils/dates.js";
 
 function formatDateTime(value) {
-  if (!value) return "Not recorded";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Not recorded";
-  return date.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+  return formatDateTimeOr(value, "Not recorded");
 }
 
 function statusClass(ok) {

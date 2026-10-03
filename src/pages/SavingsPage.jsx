@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import SavingsGoalCard from "../components/savings/SavingsGoalCard.jsx";
-import { generateId } from "../utils/ids.js";
+import { createId } from "../utils/ids.js";
 import { formatMoney } from "../utils/money.js";
 import { checkMoneyAmount, checkRequiredText, collectErrors } from "../utils/validation.js";
 import useFormErrors from "../hooks/useFormErrors.js";
@@ -115,7 +115,7 @@ export default function SavingsPage({ appData, actions }) {
     }
 
     const newGoal = {
-      id: generateId("goal"),
+      id: createId("goal"),
       name,
       targetAmount,
       currentManualAmount,

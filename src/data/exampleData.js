@@ -37,7 +37,7 @@ const knownExampleIds = new Set([
   "house_from_loan_example_mortgage"
 ]);
 
-export function isExampleRecord(record = {}) {
+function isExampleRecord(record = {}) {
   return Boolean(
     record?.isExample
     || record?.source === EXAMPLE_SOURCE
@@ -47,7 +47,7 @@ export function isExampleRecord(record = {}) {
   );
 }
 
-export function getExampleAccounts() {
+function getExampleAccounts() {
   return defaultAccounts.map(account => ({
     ...account,
     openingBalance: exampleAccountBalances[account.id] ?? account.openingBalance ?? 0,

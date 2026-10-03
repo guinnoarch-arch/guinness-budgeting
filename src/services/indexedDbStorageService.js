@@ -1,3 +1,5 @@
+import { logWarning } from "../utils/logger.js";
+
 const DB_NAME = "guinness-holley-budgeting-app";
 const DB_VERSION = 2;
 const APP_DATA_STORE = "appData";
@@ -148,7 +150,7 @@ async function pruneOldSnapshots() {
   });
 }
 
-export async function listAppDataSnapshots() {
+async function listAppDataSnapshots() {
   return withObjectStore(SNAPSHOT_STORE, "readonly", store => requestToPromise(store.getAll(), "Could not list app data snapshots."));
 }
 
@@ -175,7 +177,7 @@ export async function addStorageLog(entry = {}) {
     await pruneOldStorageLogs();
     return log;
   } catch (error) {
-    console.warn("Could not write storage log:", error);
+    logWarning("Could not write storage log", error);
     return null;
   }
 }

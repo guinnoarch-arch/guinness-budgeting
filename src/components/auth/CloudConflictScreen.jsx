@@ -1,11 +1,10 @@
 import { useMemo, useState } from "react";
 import { buildMergeReview } from "../../services/cloudMergeService.js";
+import { formatDateTime as formatDateTimeOr } from "../../utils/dates.js";
+import { formatMoney } from "../../utils/money.js";
 
 function formatDateTime(value) {
-  if (!value) return "Unknown";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return formatDateTimeOr(value, "Unknown");
 }
 
 function CountLine({ label, localValue, cloudValue }) {
@@ -22,7 +21,7 @@ function TransactionMiniCard({ title, transaction }) {
     <div className="backup-count-card">
       <span>{title}</span>
       <strong>{transaction?.title || transaction?.description || "Untitled transaction"}</strong>
-      <small>{transaction?.date || "No date"} / {transaction?.type || "type?"} / GBP {Number(transaction?.amount || 0).toFixed(2)}</small>
+      <small>{transaction?.date || "No date"} / {transaction?.type || "type?"} / {formatMoney(transaction?.amount)}</small>
       <small>{transaction?.accountId || "No account"} / {transaction?.categoryId || "No category"}</small>
       {transaction?.notes && <small>{transaction.notes}</small>}
     </div>

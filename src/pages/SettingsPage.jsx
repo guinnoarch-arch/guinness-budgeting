@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { logError, logWarning } from "../utils/logger.js";
 import { getErrorMessage } from "../utils/errors.js";
 import AsyncButton from "../components/common/AsyncButton.jsx";
 import {
@@ -6,7 +7,6 @@ import {
   DATA_SCHEMA_VERSION,
   buildRestoreComparisonWarnings,
   clearAppData,
-  exportJsonBackup,
   exportRawSavedData,
   getBackupCounts,
   getBackupReminder,
@@ -16,7 +16,6 @@ import {
   checkPersistentBrowserStorage,
   parseBackupFile,
   parseBackupObject,
-  prepareDataForBackupExport,
   prepareRestoredAppData,
   updateLocalProfile
 } from "../services/storageService.js";
@@ -44,7 +43,6 @@ import {
   getStoredCloudSessionSummary,
   getSupabaseSetupSql,
   isCloudBackupConfigured,
-  isCloudLoginGateRequired,
   listSupabaseCloudBackups,
   uploadSupabaseCloudBackup
 } from "../services/cloudBackupService.js";
@@ -53,8 +51,7 @@ import {
   ensureProfileForSignedInUser,
   normaliseEmail,
   normaliseUsername,
-  signInWithEmailOrUsername,
-  signUpWithEmail
+  signInWithEmailOrUsername
 } from "../services/authService.js";
 import {
   ADMIN_ROLE_FIELD,
@@ -64,18 +61,11 @@ import {
   submitFeatureSuggestion,
   voteFeatureSuggestion
 } from "../services/adminService.js";
+import { DEFAULT_BUDGET_AFFORDABILITY_THRESHOLD, DEFAULT_LARGE_EXPENSE_THRESHOLD, DEFAULT_LARGE_INCOME_THRESHOLD } from "../config/appDefaults.js";
+import { formatDateTime as formatDateTimeOr } from "../utils/dates.js";
 
 function formatDateTime(value) {
-  if (!value) return "Never";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+  return formatDateTimeOr(value, "Never");
 }
 
 function CountGrid({ counts }) {
@@ -286,11 +276,6 @@ function riskLabelFromBackup(reminder, settings = {}) {
   return "Safe";
 }
 
-function statusTone(ok, warning = false) {
-  if (ok) return "OK";
-  return warning ? "Warning" : "Needs action";
-}
-
 function isValidHexColour(value) {
   return /^#[0-9a-fA-F]{6}$/.test(String(value || "").trim());
 }
@@ -330,7 +315,6 @@ export default function SettingsPage({ appData, actions }) {
     username: appData.settings?.cloudBackup?.cloudUsername || appData.profile?.username || ""
   }));
   const [cloudPassword, setCloudPassword] = useState("");
-  const [cloudConfirmPassword, setCloudConfirmPassword] = useState("");
   const [cloudSession, setCloudSession] = useState(() => getStoredCloudSessionSummary());
   const [cloudStatus, setCloudStatus] = useState("");
   const [cloudBackups, setCloudBackups] = useState([]);
@@ -354,8 +338,6 @@ export default function SettingsPage({ appData, actions }) {
   const profile = appData.profile || {};
   const cloudSettings = settings.cloudBackup || {};
   const cloudConfigured = isCloudBackupConfigured(settings);
-  const cloudLoginGateRequired = isCloudLoginGateRequired(settings);
-  const cloudKeySafetyIssue = getSupabaseKeySafetyIssue(getCloudConfig(settings).anonKey);
   const cloudSetupSql = getSupabaseSetupSql();
   const backupReminder = getBackupReminder(settings);
   const selectedMonth = actions.selectedMonth || getMonthKey(new Date());
@@ -401,7 +383,7 @@ export default function SettingsPage({ appData, actions }) {
       try {
         const rows = await listFeatureSuggestions(settings, "all");
         if (!cancelled) setServerSuggestions(rows);
-      } catch (error) {
+      } catch {
         if (!cancelled) setServerSuggestionStatus("Shared suggestions need the latest Supabase SQL setup.");
       }
     }
@@ -573,7 +555,7 @@ export default function SettingsPage({ appData, actions }) {
       });
       await refreshStorageLogList();
     } catch (error) {
-      console.warn("Could not write validation repair log:", error);
+      logWarning("Could not write validation repair log", error);
     }
 
     actions.updateAppData({
@@ -631,24 +613,6 @@ export default function SettingsPage({ appData, actions }) {
     return nextCloud;
   }
 
-  function saveCloudConfiguration() {
-    const keySafetyIssue = getSupabaseKeySafetyIssue(getCloudConfig(settings).anonKey);
-    if (keySafetyIssue) {
-      setCloudStatus(keySafetyIssue);
-      return;
-    }
-
-    const nextCloud = saveCloudSettings({
-      enabled: true,
-      cloudUserEmail: normaliseEmail(cloudForm.email),
-      cloudUsername: normaliseUsername(cloudForm.username),
-      lastCloudError: null
-    });
-    setCloudStatus(isCloudBackupConfigured({ ...settings, cloudBackup: nextCloud })
-      ? "Cloud account details saved."
-      : "Cloud backup isn't available in this version of the app.");
-  }
-
   async function cloudSignIn() {
     const keySafetyIssue = getSupabaseKeySafetyIssue(getCloudConfig(settings).anonKey);
     if (keySafetyIssue) {
@@ -684,52 +648,6 @@ export default function SettingsPage({ appData, actions }) {
     } catch (error) {
       setCloudStatus(getErrorMessage(error, "Sign-in didn't work. Check your details and try again."));
       saveCloudSettings({ lastCloudError: getErrorMessage(error, "Sign-in didn't work. Check your details and try again.") });
-    }
-  }
-
-  async function cloudSignUp() {
-    const keySafetyIssue = getSupabaseKeySafetyIssue(getCloudConfig(settings).anonKey);
-    if (keySafetyIssue) {
-      setCloudStatus(keySafetyIssue);
-      return;
-    }
-
-    setCloudStatus("Creating cloud account...");
-    try {
-      const nextCloud = saveCloudSettings({
-        enabled: true,
-        cloudUserEmail: normaliseEmail(cloudForm.email),
-        cloudUsername: normaliseUsername(cloudForm.username),
-        lastCloudError: null
-      });
-      const result = await signUpWithEmail({ ...settings, cloudBackup: nextCloud }, {
-        email: cloudForm.email,
-        username: cloudForm.username,
-        password: cloudPassword,
-        confirmPassword: cloudConfirmPassword
-      });
-      setCloudSession(getStoredCloudSessionSummary({ ...settings, cloudBackup: nextCloud }));
-      actions.refreshCloudAuthState?.();
-      setCloudPassword("");
-      setCloudConfirmPassword("");
-      if (result.pendingEmailConfirmation) {
-        setCloudStatus("Account created. If you've been sent a confirmation email, open the link in it, then sign in.");
-      } else {
-        saveCloudSettings({
-          ...nextCloud,
-          enabled: true,
-          cloudUserId: result.user?.id || null,
-          cloudUsername: normaliseUsername(cloudForm.username),
-          cloudUserEmail: result.user?.email || normaliseEmail(cloudForm.email),
-          lastSignedInAt: new Date().toISOString(),
-          cloudBackupNeeded: Boolean(!nextCloud.linkedLocalDataAt),
-          lastCloudError: null
-        });
-        setCloudStatus("Account created and signed in. Cloud backup is on.");
-      }
-    } catch (error) {
-      setCloudStatus(getErrorMessage(error, "The account couldn't be created. Check your details and try again."));
-      saveCloudSettings({ lastCloudError: getErrorMessage(error, "The account couldn't be created. Check your details and try again.") });
     }
   }
 
@@ -980,20 +898,6 @@ export default function SettingsPage({ appData, actions }) {
     window.location.reload();
   }
 
-  async function exportBackup() {
-    const exportedAt = new Date().toISOString();
-    const { nextData, filename } = prepareDataForBackupExport(appData, exportedAt);
-
-    try {
-      const result = await exportJsonBackup(nextData, exportedAt, filename);
-      if (!result.ok) return;
-      actions.updateAppData(nextData, { markDirty: false });
-    } catch (error) {
-      console.error("Backup failed:", error);
-      actions.notify("The backup couldn't be saved. Try again, or choose a different download location.", 8000);
-    }
-  }
-
   async function exportRawData() {
     setRawExportStatus("");
     try {
@@ -1004,7 +908,7 @@ export default function SettingsPage({ appData, actions }) {
       }
       setRawExportStatus(result.method === "save-picker" ? "Raw data saved." : "Raw data downloaded.");
     } catch (error) {
-      console.error("Raw data export failed:", error);
+      logError("Raw data export failed", error);
       setRawExportStatus("The raw data couldn't be downloaded. Try again, or use a different browser.");
     }
   }
@@ -1227,10 +1131,6 @@ export default function SettingsPage({ appData, actions }) {
 
   function getAccountName(accountId) {
     return appData.accounts.find(account => account.id === accountId)?.name || "Unknown account";
-  }
-
-  function getCategoryName(categoryId) {
-    return appData.categories.find(category => category.id === categoryId)?.name || "Unassigned category";
   }
 
   function getCategoryType(categoryId) {
@@ -1548,7 +1448,7 @@ export default function SettingsPage({ appData, actions }) {
             <p><span>Unbacked changes</span><strong>{settings.hasUnbackedChanges ? "Yes" : "No"}</strong><small>{settings.changesSinceBackup || 0} change(s)</small></p>
             <p><span>Last backup</span><strong>{settings.lastBackupAt ? formatDateTime(settings.lastBackupAt) : "Never"}</strong></p>
             <p><span>Last major change</span><strong>{settings.lastMajorChangeAt ? formatDateTime(settings.lastMajorChangeAt) : "None recorded"}</strong></p>
-            <AsyncButton busyLabel="Saving backup…" type="button" className="primary-button" onClick={exportBackup}>Export JSON backup</AsyncButton>
+            <AsyncButton busyLabel="Saving backup…" type="button" className="primary-button" onClick={actions.backupNow}>Export JSON backup</AsyncButton>
           </div>
         )}
       </section>
@@ -1830,7 +1730,7 @@ export default function SettingsPage({ appData, actions }) {
               type="number"
               min="0"
               step="1"
-              value={settings.largeExpenseThreshold || 200}
+              value={settings.largeExpenseThreshold || DEFAULT_LARGE_EXPENSE_THRESHOLD}
               onChange={event => updateBudgetBehaviourSetting("largeExpenseThreshold", Number(event.target.value || 0))}
             />
             <small>CSV import and Add Transaction highlight the exclude-from-budget option above this amount, and it sets the minimum for the dashboard's major spends list.</small>
@@ -1842,7 +1742,7 @@ export default function SettingsPage({ appData, actions }) {
               type="number"
               min="0"
               step="1"
-              value={settings.largeIncomeThreshold || 200}
+              value={settings.largeIncomeThreshold || DEFAULT_LARGE_INCOME_THRESHOLD}
               onChange={event => updateBudgetBehaviourSetting("largeIncomeThreshold", Number(event.target.value || 0))}
             />
             <small>The minimum for the dashboard's big incomes list (click the Income card). Transfers between your own accounts aren't counted as income.</small>
@@ -1854,7 +1754,7 @@ export default function SettingsPage({ appData, actions }) {
               type="number"
               min="0"
               step="1"
-              value={settings.budgetAffordabilityThreshold || 100}
+              value={settings.budgetAffordabilityThreshold || DEFAULT_BUDGET_AFFORDABILITY_THRESHOLD}
               onChange={event => updateBudgetBehaviourSetting("budgetAffordabilityThreshold", Number(event.target.value || 0))}
             />
             <small>Warn when remaining budgets are within this amount of available account money.</small>
@@ -2712,7 +2612,7 @@ export default function SettingsPage({ appData, actions }) {
         <CountGrid counts={currentCounts} />
 
         <div className="backup-actions-row">
-          <AsyncButton busyLabel="Saving backup…" className="primary-button" onClick={exportBackup}>Export full backup</AsyncButton>
+          <AsyncButton busyLabel="Saving backup…" className="primary-button" onClick={actions.backupNow}>Export full backup</AsyncButton>
           <button className="secondary-button" onClick={() => fileInputRef.current?.click()}>Import / restore backup</button>
           <AsyncButton busyLabel="Exporting…" className="secondary-button" onClick={exportRawData}>Export emergency raw data</AsyncButton>
           <input

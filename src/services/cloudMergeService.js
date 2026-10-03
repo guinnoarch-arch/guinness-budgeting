@@ -1,4 +1,5 @@
 import { getBackupCounts, normaliseAppData } from "./storageService.js";
+import { MS_PER_DAY } from "../utils/dates.js";
 
 const MERGE_COLLECTIONS = [
   "transactions",
@@ -127,13 +128,13 @@ function textSimilarity(left, right) {
   return shared / Math.max(leftWords.size, rightWords.size);
 }
 
-export function findSimilarTransactions(localTransactions = [], cloudTransactions = []) {
+function findSimilarTransactions(localTransactions = [], cloudTransactions = []) {
   const warnings = [];
   localTransactions.forEach(localTransaction => {
     cloudTransactions.forEach(cloudTransaction => {
       if (localTransaction?.id && cloudTransaction?.id && localTransaction.id === cloudTransaction.id) return;
       const amountDelta = Math.abs(Number(localTransaction?.amount || 0) - Number(cloudTransaction?.amount || 0));
-      const dateDeltaDays = Math.abs(new Date(localTransaction?.date || 0).getTime() - new Date(cloudTransaction?.date || 0).getTime()) / 86400000;
+      const dateDeltaDays = Math.abs(new Date(localTransaction?.date || 0).getTime() - new Date(cloudTransaction?.date || 0).getTime()) / MS_PER_DAY;
       const titleScore = textSimilarity(localTransaction?.title || localTransaction?.description || localTransaction?.notes, cloudTransaction?.title || cloudTransaction?.description || cloudTransaction?.notes);
       const sameType = (localTransaction?.type || "") === (cloudTransaction?.type || "");
       const sameAccount = localTransaction?.accountId && localTransaction.accountId === cloudTransaction?.accountId;
