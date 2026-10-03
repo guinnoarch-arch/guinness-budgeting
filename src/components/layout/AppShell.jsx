@@ -1,12 +1,16 @@
 import { useMemo, useState } from "react";
 import TopNav from "./TopNav.jsx";
 import TransactionModal from "../transactions/TransactionModal.jsx";
-import InlineQrCode from "../common/InlineQrCode.jsx";
 import { getBackupReminder } from "../../services/storageService.js";
 import { buildAppNotifications } from "../../utils/notifications.js";
 import { CommandIcon, HeaderIconButton, LaptopIcon, MoonIcon, PhoneIcon, QrCodeIcon, SearchIcon, SunIcon } from "./HeaderIcons.jsx";
 import { buildSearchResults } from "../../utils/appSearch.js";
 import { resolveDeviceShareUrl } from "../../utils/shareUrl.js";
+import { DeviceSharePanel } from "./DeviceSharePanel.jsx";
+import { NotificationPanel } from "./NotificationPanel.jsx";
+import { SearchPanel } from "./SearchPanel.jsx";
+import { QuickActionsPanel } from "./QuickActionsPanel.jsx";
+import { BannerStack } from "./BannerStack.jsx";
 
 export default function AppShell({
   children,
@@ -134,42 +138,13 @@ export default function AppShell({
                 <QrCodeIcon />
               </HeaderIconButton>
               {showDeviceShare && (
-                <div className="device-share-panel" role="dialog" aria-label="Open app on another device">
-                  <div className="notification-panel-header">
-                    <strong>Open on phone</strong>
-                    <button type="button" className="text-button" onClick={() => setShowDeviceShare(false)}>Close</button>
-                  </div>
-                  <p className="muted">Scan this QR code on your phone, then sign in and restore the latest cloud backup if this device has newer data.</p>
-                  {shareUrl ? (
-                    <div className="device-qr-card">
-                      <InlineQrCode value={shareUrl} size={280} />
-                    </div>
-                  ) : (
-                    <div className="cloud-status-message compact-status warning-status">
-                      A valid app link could not be found. Set VITE_PUBLIC_APP_URL to the public production Vercel app link.
-                    </div>
-                  )}
-                  {deviceShare.needsDeployedUrl && shareUrl && (
-                    <div className="cloud-status-message compact-status warning-status">
-                      {deviceShare.isPreviewRuntime
-                        ? "This looks like a Vercel preview/dashboard URL, so the QR uses the stable production app link."
-                        : deviceShare.isLocalRuntime || deviceShare.isPrivateRuntime
-                          ? "You are running locally or on a private URL, so the QR uses the stable production app link."
-                          : "Test the phone QR from the stable production app URL."}
-                    </div>
-                  )}
-                  {!deviceShare.isLocalRuntime && deviceShare.usingConfiguredUrl && (
-                    <div className="cloud-status-message compact-status">
-                      This QR uses the configured stable production URL, so phones avoid preview deployments and Vercel dashboard links.
-                    </div>
-                  )}
-                  <input className="device-share-link" value={shareUrl} readOnly aria-label="App link" />
-                  <div className="row-actions cloud-action-row">
-                    <button type="button" className="secondary-button small" onClick={copyShareLink} disabled={!shareUrl}>Copy link</button>
-                    {shareUrl && <a className="secondary-button small" href={shareUrl} target="_blank" rel="noreferrer">Open link</a>}
-                  </div>
-                  {shareCopyStatus && <p className="cloud-status-message compact-status">{shareCopyStatus}</p>}
-                </div>
+                <DeviceSharePanel
+                  copyShareLink={copyShareLink}
+                  deviceShare={deviceShare}
+                  setShowDeviceShare={setShowDeviceShare}
+                  shareCopyStatus={shareCopyStatus}
+                  shareUrl={shareUrl}
+                />
               )}
             </div>
             )}
@@ -221,34 +196,11 @@ export default function AppShell({
                 {notificationCount > 0 && <span className="notification-count">{notificationCount > 9 ? "9+" : notificationCount}</span>}
               </button>
               {showNotifications && (
-                <div className="notification-panel" role="dialog" aria-label="Notifications">
-                  <div className="notification-panel-header">
-                    <strong>Notifications</strong>
-                    <button type="button" className="text-button" onClick={() => setShowNotifications(false)}>Close</button>
-                  </div>
-                  {notifications.length === 0 ? (
-                    <p className="muted">No upcoming bill warnings right now.</p>
-                  ) : (
-                    <div className="notification-list">
-                      {notifications.map(item => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className={`notification-row ${item.type}`}
-                          onClick={() => {
-                            setShowNotifications(false);
-                            if (item.actionPage) setActivePage(item.actionPage);
-                          }}
-                        >
-                          <span>
-                            <strong>{item.title}</strong>
-                            <small>{item.message}</small>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <NotificationPanel
+                  notifications={notifications}
+                  setActivePage={setActivePage}
+                  setShowNotifications={setShowNotifications}
+                />
               )}
             </div>
 
@@ -277,62 +229,21 @@ export default function AppShell({
         </header>
 
         {showSearch && (
-          <div className="command-panel" role="dialog" aria-label="Global search">
-            <div className="notification-panel-header">
-              <strong>Search</strong>
-              <button type="button" className="text-button" onClick={() => setShowSearch(false)}>Close</button>
-            </div>
-            <input
-              value={searchQuery}
-              onChange={event => setSearchQuery(event.target.value)}
-              placeholder="Search transactions, accounts, bills, houses..."
-              aria-label="Search query"
-              autoFocus
-            />
-            <div className="notification-list">
-              {searchResults.length === 0 ? (
-                <p className="muted">No results yet.</p>
-              ) : searchResults.map((item, index) => (
-                <button
-                  type="button"
-                  key={`${item.type}-${item.label}-${index}`}
-                  className="notification-row notice"
-                  onClick={() => {
-                    setShowSearch(false);
-                    setActivePage(item.page);
-                  }}
-                >
-                  <span>
-                    <strong>{item.type}: {item.label}</strong>
-                    <small>{item.detail || item.page}</small>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <SearchPanel
+            searchQuery={searchQuery}
+            searchResults={searchResults}
+            setActivePage={setActivePage}
+            setSearchQuery={setSearchQuery}
+            setShowSearch={setShowSearch}
+          />
         )}
 
         {showQuickActions && (
-          <div className="command-panel quick-action-panel" role="dialog" aria-label="Quick actions">
-            <div className="notification-panel-header">
-              <strong>Quick actions</strong>
-              <button type="button" className="text-button" onClick={() => setShowQuickActions(false)}>Close</button>
-            </div>
-            <div className="quick-action-grid">
-              {[
-                ["Add transaction", () => actions.openAddTransaction()],
-                ["Export backup", () => actions.backupNow()],
-                ["CSV import", () => setActivePage("import")],
-                ["Profile", () => setActivePage("settings", { settingsSection: "profile" })],
-                ["App health check", () => setActivePage("settings", { settingsSection: "health" })],
-                ["Close month", () => setActivePage("settings", { settingsSection: "monthClose" })],
-                ["Add bill", () => setActivePage("bills", { intent: "add-bill" })],
-                ["House and loans", () => setActivePage("loans")]
-              ].map(([label, handler]) => (
-                <button key={label} type="button" className="secondary-button" onClick={() => { setShowQuickActions(false); handler(); }}>{label}</button>
-              ))}
-            </div>
-          </div>
+          <QuickActionsPanel
+            actions={actions}
+            setActivePage={setActivePage}
+            setShowQuickActions={setShowQuickActions}
+          />
         )}
 
         {quickBackupStatus && (
@@ -362,104 +273,16 @@ export default function AppShell({
           isAdmin={adminStatus.isAdmin}
         />
 
-        <div className="below-tabs-banner-stack">
-          {adminStatus.isAdmin && actions.appNotices?.maintenanceMode && (
-            <div className="install-app-banner maintenance-banner" role="status" aria-live="polite">
-              <div>
-                <strong>Maintenance mode is ON</strong>
-                <span>Everyone except admins is currently locked out. Turn it off in Control Centre when you're done.</span>
-              </div>
-              <button className="text-button" onClick={() => setActivePage("control")}>Control Centre</button>
-            </div>
-          )}
-
-          {showUpdateBanner && (
-            <div className="app-update-banner" role="status" aria-live="polite">
-              <div>
-                <strong>App update available</strong>
-                <span>A newer version is ready. Export a backup first if you have unbacked changes, then update the app.</span>
-              </div>
-              <div className="unbacked-changes-actions">
-                <button className="secondary-button small" onClick={actions.backupNow}>Backup now</button>
-                <button className="primary-button small" onClick={actions.updateAppFromServiceWorker}>Update app</button>
-              </div>
-            </div>
-          )}
-
-          {showInstallBanner && (
-            <div className="install-app-banner" role="status" aria-live="polite">
-              <div>
-                <strong>Install the app</strong>
-                <span>Use GH Budgeting from your desktop or phone home screen. Data still saves locally first; sign in to restore cloud backups between devices.</span>
-              </div>
-              <div className="unbacked-changes-actions">
-                <button className="primary-button small" onClick={actions.installApp}>Install app</button>
-                <button className="text-button" onClick={actions.dismissInstallPrompt}>Not now</button>
-              </div>
-            </div>
-          )}
-
-          {actions.undoOffer && (
-            <div className="unbacked-changes-banner backup-banner-notice undo-banner" role="status" aria-live="polite">
-              <div>
-                <strong>{actions.undoOffer.message}</strong>
-              </div>
-              <div className="unbacked-changes-actions">
-                <button type="button" className="secondary-button small" onClick={actions.undoLastChange}>Undo</button>
-                <button type="button" className="text-button" onClick={actions.dismissUndo}>Dismiss</button>
-              </div>
-            </div>
-          )}
-
-          {actions.rulesNotice && (
-            <div className="unbacked-changes-banner backup-banner-notice rules-refresh-banner" role="status" aria-live="polite">
-              {actions.rulesNotice.mode === "prompt" ? (
-                <>
-                  <div>
-                    <strong>Refresh your payment rules?</strong>
-                    <span>
-                      {actions.rulesNotice.trigger === "transfer" ? "After this transfer" : "After this import"}, your Payment Rules would update {actions.rulesNotice.count} transaction{actions.rulesNotice.count === 1 ? "" : "s"} (excluding them from totals, budgets or charts as each rule says).
-                    </span>
-                  </div>
-                  <div className="unbacked-changes-actions">
-                    <button className="secondary-button small" onClick={actions.refreshPaymentRulesNow}>Refresh rules</button>
-                    <button className="text-button" onClick={actions.dismissRulesNotice}>Not now</button>
-                    <button className="text-button" onClick={() => { actions.dismissRulesNotice(); setActivePage("settings"); }}>Rule settings</button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <strong>{actions.rulesNotice.count > 0 ? "Payment rules refreshed" : "Payment rules are up to date"}</strong>
-                    <span>
-                      {actions.rulesNotice.count > 0
-                        ? `${actions.rulesNotice.auto ? "Refreshed automatically — " : ""}${actions.rulesNotice.count} transaction${actions.rulesNotice.count === 1 ? "" : "s"} updated.`
-                        : "Nothing needed changing."}
-                    </span>
-                  </div>
-                  <div className="unbacked-changes-actions">
-                    {actions.rulesNotice.changes?.length > 0 && <button className="secondary-button small" onClick={actions.undoPaymentRulesRefresh}>Undo</button>}
-                    <button className="text-button" onClick={actions.dismissRulesNotice}>Dismiss</button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {showUnbackedBanner && (
-            <div className={`unbacked-changes-banner backup-banner-${backupButtonLevel}`} role="status" aria-live="polite">
-              <div>
-                <strong>{backupReminder.title}</strong>
-                <span>{backupReminder.message} Browsers can warn before closing, but backup export should be done before you close the app.</span>
-              </div>
-              <div className="unbacked-changes-actions">
-                <button className="secondary-button small" onClick={actions.backupNow}>Backup now</button>
-                <button className="text-button" onClick={actions.dismissBackupBanner}>Not now</button>
-                <button className="text-button" onClick={() => setActivePage("settings")}>Backup settings</button>
-              </div>
-            </div>
-          )}
-        </div>
+        <BannerStack
+          actions={actions}
+          adminStatus={adminStatus}
+          backupButtonLevel={backupButtonLevel}
+          backupReminder={backupReminder}
+          setActivePage={setActivePage}
+          showInstallBanner={showInstallBanner}
+          showUnbackedBanner={showUnbackedBanner}
+          showUpdateBanner={showUpdateBanner}
+        />
       </div>
 
       <main className="page-content app-scroll-area">{children}</main>
