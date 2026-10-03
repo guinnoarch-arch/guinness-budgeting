@@ -18,7 +18,7 @@ function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpending
     return (
       <div className="summary-grid summary-grid-two dashboard-summary-grid">
         <SummaryCard label="Saved" value={summary.accountMoneyIn} change={summary.accountMoneyInChange} tone="positive" onClick={() => onBreakdown("Saved")} />
-        <SummaryCard label="Spent" value={summary.expenses} change={summary.expenseChange} tone="negative" onClick={onMajorSpends} />
+        <SummaryCard label="Spent" value={summary.expenses} change={summary.expenseChange} tone="negative" higherIsBetter={false} onClick={onMajorSpends} />
       </div>
     );
   }
@@ -26,7 +26,7 @@ function DashboardSummaryCards({ summary, isSavingsView, includeExcludedSpending
   return (
     <div className="summary-grid summary-grid-five dashboard-summary-grid">
       <SummaryCard label="Income" value={summary.income} change={summary.incomeChange} tone="positive" onClick={onMajorIncomes} />
-      <SummaryCard label="Spent" value={summary.expenses} change={summary.expenseChange} tone="negative" onClick={onMajorSpends} />
+      <SummaryCard label="Spent" value={summary.expenses} change={summary.expenseChange} tone="negative" higherIsBetter={false} onClick={onMajorSpends} />
       <SummaryCard label="Saved" value={summary.savingsTransfers} change={summary.savingsChange} tone="positive" onClick={() => onBreakdown("Saved")} />
       <SummaryCard label="Available balance" value={summary.spendableBalance} tone="neutral" detail="Budget-linked accounts" onClick={() => onBreakdown("Available Balance")} />
       <SummaryCard
@@ -199,10 +199,10 @@ export default function DashboardPage({ appData, actions }) {
       />
 
       {!isSavingsView && summary.carryForward !== 0 && (
-        <section className="card compact-insight-card clickable-card" role="button" tabIndex={0} onClick={() => openBreakdown("Carry-forward")}>
+        <button type="button" className="card compact-insight-card clickable-card" onClick={() => openBreakdown("Carry-forward")}>
           <strong>Carry-forward: {formatMoney(summary.carryForward)}</strong>
-          <small>Click to see the closed-month source.</small>
-        </section>
+          <small>Select to see the closed-month source.</small>
+        </button>
       )}
 
       {dashboardLayout === "simple" ? (

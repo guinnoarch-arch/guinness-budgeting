@@ -21,18 +21,16 @@ export default function TransactionTable({ appData, actions, transactions }) {
     };
   }, [receiptViewer?.url]);
 
-  async function handleDelete(txn) {
-    if (!confirm("Delete this transaction?")) return;
-
-    if (txn.receiptId) {
-      try {
-        await deleteStoredReceipt(txn.receiptId);
-      } catch (error) {
-        console.warn("Could not delete stored receipt:", error);
-      }
-    }
-
-    actions.updateAppData(deleteTransaction(appData, txn.id), { reason: "Transaction deleted" });
+  function handleDelete(txn) {
+    const partnerNote = txn.transferLinkId ? " The other side of the transfer was kept but is no longer linked." : "";
+    actions.updateAppDataWithUndo(deleteTransaction(appData, txn.id), {
+      reason: "Transaction deleted",
+      message: `Deleted "${txn.title}".${partnerNote}`,
+      // The receipt file is only removed once Undo is no longer possible.
+      onExpire: txn.receiptId
+        ? () => deleteStoredReceipt(txn.receiptId).catch(() => {})
+        : null
+    });
   }
 
   async function openReceipt(txn) {

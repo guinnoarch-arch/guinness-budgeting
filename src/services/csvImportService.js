@@ -53,6 +53,8 @@ const CATEGORY_KEYWORDS = [
   { categoryId: "cat_savings_interest", words: ["interest", "gross interest", "savings interest"] }
 ];
 
+const CSV_LINE_NUMBER_KEY = "csvLineNumber";
+
 export function parseCsvText(text) {
   const delimiter = detectCsvDelimiter(text);
   const rawRows = parseDelimitedRows(text, delimiter);
@@ -75,6 +77,8 @@ export function parseCsvText(text) {
       headers.forEach((header, index) => {
         item[header] = values[index] ?? "";
       });
+      // Non-enumerable so it never shows up as a column or gets saved.
+      Object.defineProperty(item, CSV_LINE_NUMBER_KEY, { value: values.lineNumber, enumerable: false });
       return item;
     });
 
@@ -87,11 +91,16 @@ export function parseCsvText(text) {
   };
 }
 
+// Each returned row carries `lineNumber`: its row number as a spreadsheet
+// would show it (blank lines count; line breaks inside quoted cells don't),
+// so import problems can point at "Row 14".
 function parseDelimitedRows(text, delimiter = ",") {
   const rows = [];
   let row = [];
   let cell = "";
   let inQuotes = false;
+  let lineNumber = 1;
+  let rowStartLine = 1;
   const source = String(text || "").replace(/^\uFEFF/, "");
 
   for (let index = 0; index < source.length; index += 1) {
@@ -117,9 +126,14 @@ function parseDelimitedRows(text, delimiter = ",") {
     if ((char === "\n" || char === "\r") && !inQuotes) {
       if (char === "\r" && next === "\n") index += 1;
       row.push(cell.trim());
-      if (row.some(value => value !== "")) rows.push(row);
+      if (row.some(value => value !== "")) {
+        row.lineNumber = rowStartLine;
+        rows.push(row);
+      }
       row = [];
       cell = "";
+      lineNumber += 1;
+      rowStartLine = lineNumber;
       continue;
     }
 
@@ -127,7 +141,10 @@ function parseDelimitedRows(text, delimiter = ",") {
   }
 
   row.push(cell.trim());
-  if (row.some(value => value !== "")) rows.push(row);
+  if (row.some(value => value !== "")) {
+    row.lineNumber = rowStartLine;
+    rows.push(row);
+  }
 
   return rows;
 }
@@ -282,20 +299,27 @@ export function analyseCsvImport(data, { accountId, fileName, headers, rows, col
   const matchIndex = buildTransactionMatchIndex(data.transactions, data.accounts);
   const claimedDuplicateIds = new Set();
 
+  // Rows that can't become a transaction (bad date, no amount) are listed
+  // with the reason instead of quietly disappearing from the preview.
+  const unreadableRows = [];
   const previewRows = safeRows
-    .map((row, rowIndex) => buildPreviewRow({
-      data,
-      row,
-      rowIndex,
-      accountId,
-      columnMap,
-      normalisedMappings,
-      transferRules,
-      importRules,
-      matchIndex,
-      claimedDuplicateIds,
-      now
-    }))
+    .map((row, rowIndex) => {
+      const previewRow = buildPreviewRow({
+        data,
+        row,
+        rowIndex,
+        accountId,
+        columnMap,
+        normalisedMappings,
+        transferRules,
+        importRules,
+        matchIndex,
+        claimedDuplicateIds,
+        now
+      });
+      if (!previewRow) unreadableRows.push(describeUnreadableCsvRow(row, rowIndex, columnMap));
+      return previewRow;
+    })
     .filter(Boolean);
 
   // Lloyds (and others) leave pending transactions off a statement until
@@ -390,7 +414,43 @@ export function analyseCsvImport(data, { accountId, fileName, headers, rows, col
     reconciliation,
     balanceChainCheck,
     firstCsvDate,
-    csvDailyBalances
+    csvDailyBalances,
+    unreadableRows
+  };
+}
+
+// Plain-English reason a CSV row was left out, numbered as the bank's
+// spreadsheet would number it. "info" rows (£0.00 lines some banks add) are
+// expected; "error" rows mean the file or the column mapping needs checking.
+function describeUnreadableCsvRow(row, rowIndex, columnMap) {
+  // Fallback for rows built without the parser: header row + 1-based index.
+  const rowNumber = row?.[CSV_LINE_NUMBER_KEY] || rowIndex + 2;
+  const rawDate = String(getCell(row, columnMap.date) || "").trim();
+  const { amount } = parseAmountFromRow(row, columnMap);
+
+  let kind = "error";
+  let problem;
+  if (!rawDate) {
+    problem = "the date is missing";
+  } else if (!parseDate(rawDate)) {
+    problem = `the date '${rawDate}' isn't a valid date`;
+  } else if (amount === null) {
+    const amountCells = [columnMap.amount, columnMap.paidIn, columnMap.paidOut]
+      .filter(Boolean)
+      .map(header => String(getCell(row, header) || "").trim())
+      .filter(Boolean);
+    problem = amountCells.length
+      ? `the amount '${amountCells[0]}' isn't a number`
+      : "there's no amount";
+  } else {
+    kind = "info";
+    problem = "the amount is £0.00, so there's nothing to import";
+  }
+
+  return {
+    rowNumber,
+    kind,
+    message: `Row ${rowNumber}: ${problem}.`
   };
 }
 
@@ -877,6 +937,8 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
   const importedTransactionIds = [];
   const linkedTransactionIds = [];
   const skippedRows = [];
+  // What happened to each row, for the "after import" summary only.
+  const outcomeCounts = createEmptyImportOutcomeCounts();
 
   analysis.rows.forEach(previewRow => {
     const edit = rowEdits[previewRow.id] || {};
@@ -890,6 +952,9 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
     const include = edit.include ?? previewRow.defaultInclude;
     if (!include) {
       skippedRows.push({ rowIndex: previewRow.rowIndex, reason: "not_selected" });
+      // Duplicates arrive unticked by default; report them as duplicates.
+      if ((edit.action || previewRow.action) === "duplicate") outcomeCounts.duplicates += 1;
+      else outcomeCounts.notSelected += 1;
       return;
     }
 
@@ -901,6 +966,7 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
 
     if (rowAction === "duplicate") {
       skippedRows.push({ rowIndex: previewRow.rowIndex, reason: "duplicate" });
+      outcomeCounts.duplicates += 1;
       return;
     }
 
@@ -932,6 +998,7 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
       nextData.transactions = [newLeg, ...nextData.transactions];
       importedTransactionIds.push(newLeg.id);
       linkedTransactionIds.push(matchTransactionId);
+      outcomeCounts.transferMatches += 1;
       rememberTransferMappings(nextData, effectivePreviewRow, accountId, linkedAccountId, now);
       return;
     }
@@ -943,6 +1010,7 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
         return mergeImportedTransaction(transaction, effectivePreviewRow, bankRow, now, Boolean(edit.excludeFromBudget ?? false));
       });
       linkedTransactionIds.push(matchTransactionId);
+      outcomeCounts.existingMatches += 1;
       rememberCategoryRule(nextData, effectivePreviewRow, finalCategoryIdForPlanned, edit.type || previewRow.type, now);
       return;
     }
@@ -968,6 +1036,7 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
     if (isTransferGuess) {
       if (!linkedAccountId || linkedAccountId === accountId) {
         skippedRows.push({ rowIndex: previewRow.rowIndex, reason: "transfer_missing_other_account" });
+        outcomeCounts.missingTransferAccount += 1;
         return;
       }
 
@@ -977,6 +1046,7 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
       });
       nextData.transactions = [guessTransaction, ...nextData.transactions];
       importedTransactionIds.push(guessTransaction.id);
+      outcomeCounts.added += 1;
       rememberTransferMappings(nextData, effectivePreviewRow, accountId, linkedAccountId, now);
       return;
     }
@@ -984,6 +1054,7 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
     const transaction = buildStandardTransaction(effectivePreviewRow, accountId, finalType, finalCategoryId, bankRow, now, finalExcludeFromBudget);
     nextData.transactions = [transaction, ...nextData.transactions];
     importedTransactionIds.push(transaction.id);
+    outcomeCounts.added += 1;
     rememberCategoryRule(nextData, effectivePreviewRow, finalCategoryId, finalType, now);
   });
 
@@ -1044,10 +1115,21 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
       importedTransactionIds,
       linkedTransactionIds,
       skippedRows,
+      outcomeCounts,
       reconciliationAdjustment,
       reconciliationAdjustments
     }
   };
+}
+
+export function createEmptyImportOutcomeCounts() {
+  return { added: 0, transferMatches: 0, existingMatches: 0, duplicates: 0, notSelected: 0, missingTransferAccount: 0 };
+}
+
+function addImportOutcomeCounts(total, counts) {
+  Object.keys(total).forEach(key => {
+    total[key] += counts?.[key] || 0;
+  });
 }
 
 
@@ -1815,14 +1897,12 @@ function parseDate(value) {
   if (!text) return null;
 
   const iso = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  if (iso) return buildValidIsoDate(iso[1], iso[2], iso[3]);
 
   const uk = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
   if (uk) {
-    const day = uk[1].padStart(2, "0");
-    const month = uk[2].padStart(2, "0");
     const year = uk[3].length === 2 ? `20${uk[3]}` : uk[3];
-    return `${year}-${month}-${day}`;
+    return buildValidIsoDate(year, uk[2], uk[1]);
   }
 
   const namedMonth = text.match(/^(\d{1,2})[-\s]([a-zA-Z]{3,})[-\s](\d{2,4})/);
@@ -1833,15 +1913,26 @@ function parseDate(value) {
       aug: "08", august: "08", sep: "09", sept: "09", september: "09", oct: "10", october: "10",
       nov: "11", november: "11", dec: "12", december: "12"
     };
-    const day = namedMonth[1].padStart(2, "0");
     const month = months[namedMonth[2].toLowerCase()];
     const year = namedMonth[3].length === 2 ? `20${namedMonth[3]}` : namedMonth[3];
-    if (month) return `${year}-${month}-${day}`;
+    if (month) return buildValidIsoDate(year, month, namedMonth[1]);
   }
 
   const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) return null;
   return formatIsoDateLocal(parsed);
+}
+
+// Returns YYYY-MM-DD, or null for dates that don't exist (31/02, month 13).
+function buildValidIsoDate(year, month, day) {
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  if (!Number.isInteger(y) || String(year).length !== 4) return null;
+  if (!Number.isInteger(m) || m < 1 || m > 12) return null;
+  const daysInMonth = new Date(y, m, 0).getDate();
+  if (!Number.isInteger(d) || d < 1 || d > daysInMonth) return null;
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 function parseTime(value) {
@@ -2155,7 +2246,7 @@ export function combineCsvAnalyses(analyses) {
 // against a file having been removed from the upload list).
 export function applyMultiCsvImport(appData, analyses, combinedRows, rowEditsByCombinedId, validFileIds, options = {}) {
   let workingData = appData;
-  const aggregate = { importedTransactionIds: [], linkedTransactionIds: [], skippedRows: [], batches: [], reconciliationAdjustments: [] };
+  const aggregate = { importedTransactionIds: [], linkedTransactionIds: [], skippedRows: [], outcomeCounts: createEmptyImportOutcomeCounts(), batches: [], reconciliationAdjustments: [] };
   const batchIdByAccount = new Map();
 
   for (const fileAnalysis of analyses) {
@@ -2236,6 +2327,7 @@ export function applyMultiCsvImport(appData, analyses, combinedRows, rowEditsByC
     aggregate.importedTransactionIds.push(...result.result.importedTransactionIds);
     aggregate.linkedTransactionIds.push(...result.result.linkedTransactionIds);
     aggregate.skippedRows.push(...result.result.skippedRows);
+    addImportOutcomeCounts(aggregate.outcomeCounts, result.result.outcomeCounts);
     aggregate.batches.push(result.result.importBatch);
     batchIdByAccount.set(fileAnalysis.accountId, result.result.importBatch.id);
   }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import BudgetCard from "../components/budgets/BudgetCard.jsx";
 import { getCategorySpend, getBudgetAccountIds } from "../utils/calculations.js";
 import { createId } from "../utils/ids.js";
+import { formatMonthLabel } from "../utils/dates.js";
 import { formatMoney } from "../utils/money.js";
 import { applyCategoryRules, undoCategoryRuleChanges } from "../services/transactionService.js";
 
@@ -334,10 +335,10 @@ export default function BudgetsPage({ appData, actions }) {
   }
 
   function archiveCategory(category) {
-    if (!category) return;
+    if (!category) return false;
     const activeBudgetCount = appData.budgets.filter(budget => budget.categoryId === category.id && !budget.isArchived && !budget.archivedAt).length;
     const detail = activeBudgetCount > 0 ? `\n\n${activeBudgetCount} active budget(s) using this category will also be archived.` : "";
-    if (!window.confirm(`Archive the ${category.name} category? Existing transactions will keep this category for history.${detail}`)) return;
+    if (!window.confirm(`Archive the ${category.name} category? Existing transactions will keep this category for history.${detail}`)) return false;
 
     const now = new Date().toISOString();
     actions.updateAppData({
@@ -353,6 +354,7 @@ export default function BudgetsPage({ appData, actions }) {
           : budget
       ))
     }, { reason: "Category archived" });
+    return true;
   }
 
   function restoreCategory(category) {
@@ -444,6 +446,16 @@ export default function BudgetsPage({ appData, actions }) {
           </div>
         )}
       </section>
+
+      {categorySpend.length === 0 && (
+        <section className="card empty-state-card">
+          <h3>No budgets for {formatMonthLabel(actions.selectedMonth)} yet</h3>
+          <p className="muted">Create one to start tracking spending. Set a monthly limit for a category, and its spending shows here as it comes in.</p>
+          <div className="row-actions">
+            <button type="button" className="primary-button" onClick={() => setShowBudgetManager(true)}>Create a budget</button>
+          </div>
+        </section>
+      )}
 
       <div className="budget-grid">
         {categorySpend.map(item => {

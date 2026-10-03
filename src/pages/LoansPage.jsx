@@ -992,6 +992,7 @@ export default function LoansPage({ appData, actions }) {
           contributionForm={contributionForm}
           updateContributionForm={updateContributionForm}
           submitContribution={submitContribution}
+          isSaving={sharingBusy === "contribution"}
           editingContribution={editingContribution}
           closeContributionModal={() => { setContributionHouse(null); setEditingContribution(null); }}
         />
@@ -1888,7 +1889,7 @@ function HouseModal({ houseForm, editingHouse, accounts, updateHouseForm, closeH
   );
 }
 
-function HouseContributionModal({ house, appData, contributionForm, updateContributionForm, submitContribution, editingContribution, closeContributionModal }) {
+function HouseContributionModal({ house, appData, contributionForm, updateContributionForm, submitContribution, editingContribution, closeContributionModal, isSaving = false }) {
   const people = (appData.housePeople || []).filter(person => person.houseId === house.id);
   const sourceOptions = house.isSharedHouse
     ? HOUSE_SOURCE_TYPES.filter(([key]) => key !== "linkedTransaction")
@@ -1931,7 +1932,7 @@ function HouseContributionModal({ house, appData, contributionForm, updateContri
         {contributionForm.sourceType === "linkedTransaction" && <p className="backup-warning-box">Linked transactions already affect account balances. This records the house contribution view only.</p>}
         <div className="modal-actions">
           <button type="button" className="secondary-button" onClick={closeContributionModal}>Cancel</button>
-          <button className="primary-button">{editingContribution ? "Save contribution" : "Add contribution"}</button>
+          <button className="primary-button" disabled={isSaving}>{isSaving ? "Saving…" : editingContribution ? "Save contribution" : "Add contribution"}</button>
         </div>
       </form>
     </div>

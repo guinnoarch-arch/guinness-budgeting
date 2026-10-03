@@ -723,8 +723,67 @@ function ImportAnalysisSummary({ analysis }) {
         <SummaryLine label="Large expenses flagged" value={totals.largeExpenses || 0} />
         <SummaryLine label="CSV closing/latest balance" value={balanceText} />
       </div>
+
+      <UnreadableRowsNotice files={analysis.files || []} />
     </section>
   );
+}
+
+// Rows the parser couldn't turn into a transaction, so they're visible
+// before confirming rather than silently missing from the preview.
+function UnreadableRowsNotice({ files }) {
+  const showFileName = files.length > 1;
+  const withFile = files.flatMap(file => (file.unreadableRows || []).map(row => ({
+    ...row,
+    label: showFileName ? `${file.fileName} — ${row.message}` : row.message
+  })));
+  const errors = withFile.filter(row => row.kind === "error");
+  const zeroRows = withFile.filter(row => row.kind === "info");
+  if (!errors.length && !zeroRows.length) return null;
+
+  return (
+    <div className="import-unreadable-rows">
+      {errors.length > 0 && (
+        <div className="restore-error-box" role="alert">
+          <strong>
+            {errors.length} row{errors.length === 1 ? "" : "s"} couldn't be read and won't be imported
+          </strong>
+          <span>Check these rows in your bank's CSV, or check the Date and Amount columns are mapped correctly above.</span>
+          <ul>
+            {errors.map(row => <li key={row.label}>{row.label}</li>)}
+          </ul>
+        </div>
+      )}
+      {zeroRows.length > 0 && (
+        <p className="muted-text">
+          {zeroRows.length} row{zeroRows.length === 1 ? " has" : "s have"} an amount of £0.00 and {zeroRows.length === 1 ? "was" : "were"} left out
+          ({zeroRows.map(row => `row ${row.rowNumber}`).join(", ")}).
+        </p>
+      )}
+    </div>
+  );
+}
+
+// "12 added · 4 matched as transfers · 3 skipped as duplicates" — only the
+// parts that actually happened.
+function describeImportOutcome(counts, unreadableCount) {
+  const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+  const parts = [
+    `${plural(counts.added, "transaction")} added`,
+    counts.transferMatches ? `${counts.transferMatches} matched as the other side of a transfer` : "",
+    counts.existingMatches ? `${counts.existingMatches} matched to existing transactions` : "",
+    counts.duplicates ? `${counts.duplicates} skipped as duplicates` : "",
+    counts.notSelected ? `${counts.notSelected} unticked and skipped` : "",
+    counts.missingTransferAccount ? `${plural(counts.missingTransferAccount, "transfer")} skipped (no other account chosen)` : "",
+    unreadableCount ? `${unreadableCount} unreadable row${unreadableCount === 1 ? "" : "s"} left out` : ""
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function countUnreadableRows(analysis) {
+  return (analysis?.files || []).reduce((total, file) => (
+    total + (file.unreadableRows || []).filter(row => row.kind === "error").length
+  ), 0);
 }
 
 export default function ImportPage({ appData, actions }) {
@@ -1347,7 +1406,8 @@ export default function ImportPage({ appData, actions }) {
       actions.updateAppData(savedData, { major: true, reason: "Multiple CSV imports completed", rulesTrigger: "import" });
       const verification = verifyImportBalances(workingData, timelines, groupAdjustmentsByAccount(aggregate.reconciliationAdjustments));
       setImportVerification(verification.length > 0 ? verification : null);
-      setStatus(`Import complete: ${aggregate.batches.length} statement(s), ${aggregate.importedTransactionIds.length} new, ${aggregate.linkedTransactionIds.length} linked, ${aggregate.skippedRows.length} skipped${aggregate.reconciliationAdjustments.length ? `, ${aggregate.reconciliationAdjustments.length} balance adjustment(s) to match the CSV` : ""}.`);
+      const adjustmentCount = aggregate.reconciliationAdjustments.length;
+      setStatus(`Import complete from ${aggregate.batches.length} statements: ${describeImportOutcome(aggregate.outcomeCounts, countUnreadableRows(analysis))}${adjustmentCount ? ` · ${adjustmentCount} balance adjustment${adjustmentCount === 1 ? "" : "s"} to match the CSV` : ""}.`);
       setAnalysis(null);
       setRows([]);
       setHeaders([]);
@@ -1388,7 +1448,7 @@ export default function ImportPage({ appData, actions }) {
     const adjustments = result.result.reconciliationAdjustments || [];
     const verification = verifyImportBalances(result.data, timelines, groupAdjustmentsByAccount(adjustments));
     setImportVerification(verification.length > 0 ? verification : null);
-    setStatus(`Import complete: ${result.result.importedTransactionIds.length} new, ${result.result.linkedTransactionIds.length} linked, ${result.result.skippedRows.length} skipped${adjustments.length ? `, ${adjustments.length} balance adjustment(s) to match the CSV` : ""}.`);
+    setStatus(`Import complete: ${describeImportOutcome(result.result.outcomeCounts, countUnreadableRows(analysis))}${adjustments.length ? ` · ${adjustments.length} balance adjustment${adjustments.length === 1 ? "" : "s"} to match the CSV` : ""}.`);
     setAnalysis(null);
     setRows([]);
     setHeaders([]);

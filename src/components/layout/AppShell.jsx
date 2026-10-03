@@ -279,16 +279,16 @@ export default function AppShell({
     <div className={`app-shell ${actions.phoneMode ? "phone-mode" : ""}`.trim()}>
       <div className="app-fixed-area">
         <header className="app-header">
-          <div className="brand" onClick={() => setActivePage("dashboard")} role="button" tabIndex={0}>
-            <div className="brand-icon"><img src="/icons/gb-icon-192.png" alt="" /></div>
-            <div>
-              <h1>Guinness & Holley Budgeting</h1>
-              <p className="brand-subtitle">
+          <button type="button" className="brand" onClick={() => setActivePage("dashboard")} title="Go to dashboard">
+            <span className="brand-icon"><img src="/icons/gb-icon-192.png" alt="" /></span>
+            <span className="brand-text">
+              <span className="brand-name">Guinness & Holley Budgeting</span>
+              <span className="brand-subtitle">
                 <span>Welcome back, {profileName}</span>
                 <span className={connectionClass}>{connectionLabel}</span>
-              </p>
-            </div>
-          </div>
+              </span>
+            </span>
+          </button>
 
           <div className="header-actions">
             <span className={`${connectionClass} header-connection-pill`}>{connectionLabel}</span>
@@ -525,11 +525,11 @@ export default function AppShell({
                 ["Add transaction", () => actions.openAddTransaction()],
                 ["Export backup", () => actions.backupNow()],
                 ["CSV import", () => setActivePage("import")],
-                ["Settings/Profile", () => setActivePage("settings")],
-                ["App health check", () => setActivePage("settings")],
-                ["Close month", () => setActivePage("settings")],
-                ["Add bill", () => setActivePage("bills")],
-                ["Add house contribution", () => setActivePage("loans")]
+                ["Profile", () => setActivePage("settings", { settingsSection: "profile" })],
+                ["App health check", () => setActivePage("settings", { settingsSection: "health" })],
+                ["Close month", () => setActivePage("settings", { settingsSection: "monthClose" })],
+                ["Add bill", () => setActivePage("bills", { intent: "add-bill" })],
+                ["House and loans", () => setActivePage("loans")]
               ].map(([label, handler]) => (
                 <button key={label} type="button" className="secondary-button" onClick={() => { setShowQuickActions(false); handler(); }}>{label}</button>
               ))}
@@ -591,6 +591,18 @@ export default function AppShell({
               <div className="unbacked-changes-actions">
                 <button className="primary-button small" onClick={actions.installApp}>Install app</button>
                 <button className="text-button" onClick={actions.dismissInstallPrompt}>Not now</button>
+              </div>
+            </div>
+          )}
+
+          {actions.undoOffer && (
+            <div className="unbacked-changes-banner backup-banner-notice undo-banner" role="status" aria-live="polite">
+              <div>
+                <strong>{actions.undoOffer.message}</strong>
+              </div>
+              <div className="unbacked-changes-actions">
+                <button type="button" className="secondary-button small" onClick={actions.undoLastChange}>Undo</button>
+                <button type="button" className="text-button" onClick={actions.dismissUndo}>Dismiss</button>
               </div>
             </div>
           )}

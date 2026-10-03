@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import AsyncButton from "../components/common/AsyncButton.jsx";
 import {
   APP_VERSION,
   DATA_SCHEMA_VERSION,
@@ -22,7 +23,7 @@ import { getInitialAppData, removeExampleDataFromAppData } from "../data/example
 import PwaInstallCard from "../components/settings/PwaInstallCard.jsx";
 import { createId } from "../utils/ids.js";
 import { applyExclusionRules, getMatchingExclusionRules, undoExclusionRuleChanges } from "../services/transactionService.js";
-import { calculateMonthSummary } from "../utils/calculations.js";
+import { calculateMonthSummary, getBudgetAccountIds } from "../utils/calculations.js";
 import { getMonthKey } from "../utils/dates.js";
 import { formatMoney } from "../utils/money.js";
 import { getReceiptStorageStats, restoreReceiptBackupRecords } from "../services/receiptStorageService.js";
@@ -259,6 +260,8 @@ const CHANGELOG_ITEMS = [
   "V2.6.24 added Supabase-backed house sharing."
 ];
 
+const EMPTY_PLANNED_DRAFT = { title: "", amount: "", date: "", type: "expense" };
+
 function riskLabelFromBackup(reminder, settings = {}) {
   const changes = Number(settings.changesSinceBackup || 0);
   if (reminder.level === "danger" || changes >= 25) return "Critical";
@@ -321,7 +324,8 @@ export default function SettingsPage({ appData, actions }) {
   const [adminProfileStatus, setAdminProfileStatus] = useState("");
   const [monthCloseMode, setMonthCloseMode] = useState("carry");
   const [monthCloseSavings, setMonthCloseSavings] = useState("");
-  const [plannedDraft, setPlannedDraft] = useState({ title: "", amount: "", date: "", type: "expense" });
+  const [plannedDraft, setPlannedDraft] = useState(EMPTY_PLANNED_DRAFT);
+  const [editingPlannedId, setEditingPlannedId] = useState(null);
   const [templateName, setTemplateName] = useState("");
   const [serverSuggestions, setServerSuggestions] = useState([]);
   const [serverSuggestionStatus, setServerSuggestionStatus] = useState("");
@@ -441,10 +445,13 @@ export default function SettingsPage({ appData, actions }) {
   }, [settings.cloudBackup?.cloudUserEmail, settings.cloudBackup?.cloudUsername, profile.email, profile.username]);
 
   useEffect(() => {
-    if (actions.preferredSettingsSection) {
-      setActiveSettingsSection(actions.preferredSettingsSection);
-    }
-  }, [actions.preferredSettingsSection]);
+    if (!actions.preferredSettingsSection) return;
+    setActiveSettingsSection(actions.preferredSettingsSection);
+    // Wait for the section to open before scrolling to it.
+    window.requestAnimationFrame(() => {
+      document.getElementById(`settings-section-${actions.preferredSettingsSection}`)?.scrollIntoView({ block: "start" });
+    });
+  }, [actions.preferredSettingsSection, actions.settingsSectionRequestId]);
 
   async function becomeAdmin() {
     if (!cloudSession?.signedIn) {
@@ -1343,7 +1350,10 @@ export default function SettingsPage({ appData, actions }) {
       id: createId("budget_template"),
       name,
       sourceMonth: selectedMonth,
-      items: monthBudgets.map(item => ({ categoryId: item.categoryId, accountId: item.accountId || "acc_current", limit: Number(item.limit || 0) })),
+      items: monthBudgets.map(item => {
+        const accountIds = getBudgetAccountIds(item);
+        return { categoryId: item.categoryId, accountIds, accountId: accountIds[0], limit: Number(item.limit || 0) };
+      }),
       createdAt: now,
       updatedAt: now
     };
@@ -1356,49 +1366,87 @@ export default function SettingsPage({ appData, actions }) {
 
   function applyBudgetTemplate(template) {
     if (!confirm(`Apply "${template.name}" to ${selectedMonth}? Existing active budgets for the same categories/accounts will be replaced.`)) return;
-    const keys = new Set((template.items || []).map(item => `${item.categoryId}_${item.accountId || "acc_current"}`));
+    // Templates saved before multi-account budgets only stored accountId;
+    // getBudgetAccountIds reads either shape.
+    const budgetKey = (categoryId, accountIds) => `${categoryId}_${[...accountIds].sort().join("+")}`;
+    const keys = new Set((template.items || []).map(item => budgetKey(item.categoryId, getBudgetAccountIds(item))));
     const now = new Date().toISOString();
     const nextBudgets = [
-      ...(appData.budgets || []).filter(item => item.month !== selectedMonth || !keys.has(`${item.categoryId}_${item.accountId || "acc_current"}`)),
-      ...(template.items || []).map(item => ({
-        id: createId("bud"),
-        categoryId: item.categoryId,
-        accountId: item.accountId || "acc_current",
-        month: selectedMonth,
-        limit: Number(item.limit || 0),
-        isEnabled: true,
-        isArchived: false,
-        archivedAt: null,
-        createdAt: now,
-        updatedAt: now
-      }))
+      ...(appData.budgets || []).filter(item => item.month !== selectedMonth || !keys.has(budgetKey(item.categoryId, getBudgetAccountIds(item)))),
+      ...(template.items || []).map(item => {
+        const accountIds = getBudgetAccountIds(item);
+        return {
+          id: createId("bud"),
+          categoryId: item.categoryId,
+          accountIds,
+          accountId: accountIds[0],
+          month: selectedMonth,
+          limit: Number(item.limit || 0),
+          isEnabled: true,
+          isArchived: false,
+          archivedAt: null,
+          createdAt: now,
+          updatedAt: now
+        };
+      })
     ];
     actions.updateAppData({ ...appData, budgets: nextBudgets }, { reason: "Budget template applied" });
   }
 
-  function addPlannedTransaction(event) {
+  function savePlannedTransaction(event) {
     event.preventDefault();
     const amount = Number(plannedDraft.amount || 0);
     if (!plannedDraft.title.trim() || amount <= 0 || !plannedDraft.date) return alert("Enter a title, amount and date.");
     const now = new Date().toISOString();
-    const planned = {
-      id: createId("planned"),
+    const fields = {
       title: plannedDraft.title.trim(),
       expectedAmount: amount,
       amount,
       expectedDate: plannedDraft.date,
       date: plannedDraft.date,
       type: plannedDraft.type,
-      status: "planned",
-      notes: "",
-      createdAt: now,
       updatedAt: now
     };
+
+    if (editingPlannedId) {
+      actions.updateAppData({
+        ...appData,
+        plannedTransactions: (appData.plannedTransactions || []).map(item => (
+          item.id === editingPlannedId ? { ...item, ...fields } : item
+        ))
+      }, { reason: "Planned transaction edited" });
+    } else {
+      const planned = { id: createId("planned"), ...fields, status: "planned", notes: "", createdAt: now };
+      actions.updateAppData({
+        ...appData,
+        plannedTransactions: [planned, ...(appData.plannedTransactions || [])]
+      }, { reason: "Planned transaction added" });
+    }
+    cancelPlannedEdit();
+  }
+
+  function startPlannedEdit(item) {
+    setEditingPlannedId(item.id);
+    setPlannedDraft({
+      title: item.title || "",
+      amount: String(item.expectedAmount ?? item.amount ?? ""),
+      date: item.expectedDate || item.date || "",
+      type: item.type || "expense"
+    });
+  }
+
+  function cancelPlannedEdit() {
+    setEditingPlannedId(null);
+    setPlannedDraft(EMPTY_PLANNED_DRAFT);
+  }
+
+  function deletePlannedTransaction(item) {
+    if (!confirm(`Delete the planned transaction "${item.title}"? This can't be undone.`)) return;
+    if (editingPlannedId === item.id) cancelPlannedEdit();
     actions.updateAppData({
       ...appData,
-      plannedTransactions: [planned, ...(appData.plannedTransactions || [])]
-    }, { reason: "Planned transaction added" });
-    setPlannedDraft({ title: "", amount: "", date: "", type: "expense" });
+      plannedTransactions: (appData.plannedTransactions || []).filter(existing => existing.id !== item.id)
+    }, { reason: "Planned transaction deleted" });
   }
 
   function toggleSettingsSection(sectionId) {
@@ -1411,6 +1459,7 @@ export default function SettingsPage({ appData, actions }) {
 
   function sectionHeaderProps(sectionId) {
     return {
+      id: `settings-section-${sectionId}`,
       role: "button",
       tabIndex: 0,
       "aria-expanded": activeSettingsSection === sectionId,
@@ -1463,7 +1512,7 @@ export default function SettingsPage({ appData, actions }) {
             <p><span>Unbacked changes</span><strong>{settings.hasUnbackedChanges ? "Yes" : "No"}</strong><small>{settings.changesSinceBackup || 0} change(s)</small></p>
             <p><span>Last backup</span><strong>{settings.lastBackupAt ? formatDateTime(settings.lastBackupAt) : "Never"}</strong></p>
             <p><span>Last major change</span><strong>{settings.lastMajorChangeAt ? formatDateTime(settings.lastMajorChangeAt) : "None recorded"}</strong></p>
-            <button type="button" className="primary-button" onClick={exportBackup}>Export JSON backup</button>
+            <AsyncButton busyLabel="Saving backup…" type="button" className="primary-button" onClick={exportBackup}>Export JSON backup</AsyncButton>
           </div>
         )}
       </section>
@@ -1613,9 +1662,9 @@ export default function SettingsPage({ appData, actions }) {
               </button>
             )}
             {!adminStatus.isAdmin && adminStatus.canClaimAdmin && (
-              <button type="button" className="secondary-button" onClick={becomeAdmin}>
+              <AsyncButton busyLabel="Checking…" type="button" className="secondary-button" onClick={becomeAdmin}>
                 Become admin
-              </button>
+              </AsyncButton>
             )}
             {!adminStatus.isAdmin && !adminStatus.canClaimAdmin && (
               <span className="pill">Not admin</span>
@@ -2266,9 +2315,9 @@ export default function SettingsPage({ appData, actions }) {
         </div>
 
         <div className="row-actions">
-          <button type="button" className="secondary-button" onClick={requestPersistentStorage}>
+          <AsyncButton busyLabel="Requesting…" type="button" className="secondary-button" onClick={requestPersistentStorage}>
             Request persistent browser storage
-          </button>
+          </AsyncButton>
         </div>
         <p className="muted-text">Persistent storage asks the browser not to automatically clear this app's IndexedDB data. JSON backups are still required.</p>
 
@@ -2285,8 +2334,8 @@ export default function SettingsPage({ appData, actions }) {
               <h4>Storage and migration logs</h4>
             </div>
             <div className="row-actions">
-              <button type="button" className="secondary-button small" onClick={refreshStorageLogList}>Refresh logs</button>
-              <button type="button" className="secondary-button small danger-text" onClick={clearStorageLogList}>Clear logs</button>
+              <AsyncButton busyLabel="Refreshing…" type="button" className="secondary-button small" onClick={refreshStorageLogList}>Refresh logs</AsyncButton>
+              <AsyncButton busyLabel="Clearing…" type="button" className="secondary-button small danger-text" onClick={clearStorageLogList}>Clear logs</AsyncButton>
             </div>
           </div>
           {storageLogStatus && <p className="muted-text">{storageLogStatus}</p>}
@@ -2325,7 +2374,7 @@ export default function SettingsPage({ appData, actions }) {
                 <strong>Existing local data is not linked yet</strong>
                 <span>To protect existing users, the app will not upload this browser's saved budget to the signed-in account until you confirm.</span>
                 <div className="row-actions">
-                  <button type="button" className="primary-button small" onClick={linkLocalDataToCloud}>Link local data and upload first backup</button>
+                  <AsyncButton busyLabel="Uploading…" type="button" className="primary-button small" onClick={linkLocalDataToCloud}>Link local data and upload first backup</AsyncButton>
                 </div>
               </div>
             )}
@@ -2337,7 +2386,7 @@ export default function SettingsPage({ appData, actions }) {
                 <div className="row-actions">
                   <button type="button" className="secondary-button small" onClick={actions.backupNow}>Download local backup first</button>
                   <button type="button" className="secondary-button small" onClick={() => saveCloudSettings({ cloudConflict: null })}>Keep local data</button>
-                  <button type="button" className="primary-button small" onClick={previewLatestCloudRestore}>Restore cloud backup</button>
+                  <AsyncButton busyLabel="Loading…" type="button" className="primary-button small" onClick={previewLatestCloudRestore}>Restore cloud backup</AsyncButton>
                 </div>
               </div>
             )}
@@ -2399,7 +2448,7 @@ export default function SettingsPage({ appData, actions }) {
                   </label>
                 </div>
                 <div className="row-actions cloud-action-row">
-                  <button type="button" className="primary-button" onClick={cloudSignIn} disabled={!cloudConfigured}>Sign in</button>
+                  <AsyncButton busyLabel="Signing in…" type="button" className="primary-button" onClick={cloudSignIn} disabled={!cloudConfigured}>Sign in</AsyncButton>
                   <button type="button" className="secondary-button" onClick={() => setCloudStatus("Use the login screen to create a new account if you are signed out.")}>Create account</button>
                 </div>
               </div>
@@ -2443,16 +2492,23 @@ export default function SettingsPage({ appData, actions }) {
                 <p className="muted-text">Last sync check {formatDateTime(cloudSettings.lastCloudSyncAt)}: {cloudSettings.lastCloudSyncMessage || "up to date"}.</p>
               )}
               <div className="cloud-sync-actions">
-                <button type="button" className="primary-button" onClick={uploadCloudBackupNow} disabled={!cloudSession.signedIn || !cloudConfigured}>
+                <AsyncButton busyLabel="Uploading…" type="button" className="primary-button" onClick={uploadCloudBackupNow} disabled={!cloudSession.signedIn || !cloudConfigured}>
                   Back up now
-                </button>
-                <button type="button" className="secondary-button" onClick={previewLatestCloudRestore} disabled={!cloudSession.signedIn || !cloudConfigured}>
+                </AsyncButton>
+                <AsyncButton busyLabel="Loading…" type="button" className="secondary-button" onClick={previewLatestCloudRestore} disabled={!cloudSession.signedIn || !cloudConfigured}>
                   Restore latest cloud backup
-                </button>
-                <button type="button" className="secondary-button" onClick={refreshCloudBackupList} disabled={!cloudSession.signedIn || !cloudConfigured}>
+                </AsyncButton>
+                <AsyncButton busyLabel="Refreshing…" type="button" className="secondary-button" onClick={refreshCloudBackupList} disabled={!cloudSession.signedIn || !cloudConfigured}>
                   Refresh cloud backup list
-                </button>
+                </AsyncButton>
               </div>
+              {(!cloudSession.signedIn || !cloudConfigured) && (
+                <p className="muted-text">
+                  {cloudConfigured
+                    ? "Sign in above to back up to the cloud or restore a cloud backup."
+                    : "Cloud backup isn't set up in this version of the app, so only local backups are available."}
+                </p>
+              )}
             </div>
 
             <div className="restore-preview-box">
@@ -2534,13 +2590,13 @@ export default function SettingsPage({ appData, actions }) {
 
                 <div className="modal-actions">
                   <button className="secondary-button" onClick={() => { setCloudRestorePreview(null); setCloudRestorePhrase(""); }}>Cancel</button>
-                  <button
+                  <AsyncButton busyLabel="Restoring…"
                     className="danger-button"
                     onClick={confirmCloudRestore}
                     disabled={cloudRestorePhrase !== "CLOUD RESTORE"}
                   >
                     Replace local data with this cloud backup
-                  </button>
+                  </AsyncButton>
                 </div>
               </div>
             )}
@@ -2563,14 +2619,14 @@ export default function SettingsPage({ appData, actions }) {
 
         <div className="row-actions">
           <button type="button" className="primary-button" onClick={runDataValidation}>Check app data</button>
-          <button
+          <AsyncButton busyLabel="Repairing…"
             type="button"
             className="secondary-button"
             onClick={repairValidationIssues}
             disabled={!validationReport || !validationReport.summary.repairableCount}
           >
             Repair safe issues
-          </button>
+          </AsyncButton>
         </div>
 
         {validationStatus && <p className="storage-validation-status">{validationStatus}</p>}
@@ -2620,9 +2676,9 @@ export default function SettingsPage({ appData, actions }) {
         <CountGrid counts={currentCounts} />
 
         <div className="backup-actions-row">
-          <button className="primary-button" onClick={exportBackup}>Export full backup</button>
+          <AsyncButton busyLabel="Saving backup…" className="primary-button" onClick={exportBackup}>Export full backup</AsyncButton>
           <button className="secondary-button" onClick={() => fileInputRef.current?.click()}>Import / restore backup</button>
-          <button className="secondary-button" onClick={exportRawData}>Export emergency raw data</button>
+          <AsyncButton busyLabel="Exporting…" className="secondary-button" onClick={exportRawData}>Export emergency raw data</AsyncButton>
           <input
             ref={fileInputRef}
             type="file"
@@ -2677,13 +2733,13 @@ export default function SettingsPage({ appData, actions }) {
 
             <div className="modal-actions">
               <button className="secondary-button" onClick={() => { setRestorePreview(null); setRestorePhrase(""); }}>Cancel</button>
-              <button
+              <AsyncButton busyLabel="Restoring…"
                 className="danger-button"
                 onClick={confirmRestore}
                 disabled={restorePhrase !== "RESTORE"}
               >
                 Replace current data with this backup
-              </button>
+              </AsyncButton>
             </div>
           </div>
         )}
@@ -2776,21 +2832,26 @@ export default function SettingsPage({ appData, actions }) {
         </div>
         {activeSettingsSection === "planned" && (
           <div className="suggestion-section">
-            <form className="suggestion-form" onSubmit={addPlannedTransaction}>
-              <input value={plannedDraft.title} onChange={event => setPlannedDraft(prev => ({ ...prev, title: event.target.value }))} placeholder="Title" />
-              <input type="number" min="0" step="0.01" value={plannedDraft.amount} onChange={event => setPlannedDraft(prev => ({ ...prev, amount: event.target.value }))} placeholder="Amount" />
-              <input type="date" value={plannedDraft.date} onChange={event => setPlannedDraft(prev => ({ ...prev, date: event.target.value }))} />
-              <select value={plannedDraft.type} onChange={event => setPlannedDraft(prev => ({ ...prev, type: event.target.value }))}>
+            <form className="suggestion-form" onSubmit={savePlannedTransaction}>
+              <input aria-label="Planned transaction title" value={plannedDraft.title} onChange={event => setPlannedDraft(prev => ({ ...prev, title: event.target.value }))} placeholder="Title" />
+              <input aria-label="Amount" type="number" min="0" step="0.01" value={plannedDraft.amount} onChange={event => setPlannedDraft(prev => ({ ...prev, amount: event.target.value }))} placeholder="Amount" />
+              <input aria-label="Expected date" type="date" value={plannedDraft.date} onChange={event => setPlannedDraft(prev => ({ ...prev, date: event.target.value }))} />
+              <select aria-label="Type" value={plannedDraft.type} onChange={event => setPlannedDraft(prev => ({ ...prev, type: event.target.value }))}>
                 <option value="income">Income</option>
                 <option value="expense">Expense</option>
                 <option value="transfer">Transfer</option>
               </select>
-              <button className="primary-button">Add planned</button>
+              <button className="primary-button">{editingPlannedId ? "Save changes" : "Add planned"}</button>
+              {editingPlannedId && <button type="button" className="secondary-button" onClick={cancelPlannedEdit}>Cancel</button>}
             </form>
             <div className="suggestion-list">
-              {(appData.plannedTransactions || []).length === 0 ? <p className="muted-text">No planned transactions yet.</p> : (appData.plannedTransactions || []).slice(0, 20).map(item => (
-                <div className="suggestion-row" key={item.id}>
+              {(appData.plannedTransactions || []).length === 0 ? <p className="muted-text">No planned transactions yet. Add money you expect to come in or go out, so you can see it coming.</p> : (appData.plannedTransactions || []).slice(0, 20).map(item => (
+                <div className={`suggestion-row ${editingPlannedId === item.id ? "is-editing" : ""}`} key={item.id}>
                   <div><strong>{item.title}</strong><small>{item.status} - {item.expectedDate} - {formatMoney(item.expectedAmount)}</small></div>
+                  <div className="row-actions">
+                    <button type="button" className="secondary-button small" onClick={() => startPlannedEdit(item)}>Edit</button>
+                    <button type="button" className="danger-button small" onClick={() => deletePlannedTransaction(item)}>Delete</button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -2848,7 +2909,7 @@ export default function SettingsPage({ appData, actions }) {
           </div>
           <SectionChevron sectionId="danger" />
         </div>
-        {activeSettingsSection === "danger" && <button className="danger-button" onClick={resetAll}>Reset all data</button>}
+        {activeSettingsSection === "danger" && <AsyncButton busyLabel="Resetting…" className="danger-button" onClick={resetAll}>Reset all data</AsyncButton>}
       </section>
 
       <section className={sectionClass("future")}>
@@ -2881,7 +2942,7 @@ export default function SettingsPage({ appData, actions }) {
                 <div>
                   <h4>Shared suggestions</h4>
                 </div>
-                <button type="button" className="secondary-button small" onClick={refreshSharedSuggestions}>Refresh</button>
+                <AsyncButton busyLabel="Refreshing…" type="button" className="secondary-button small" onClick={refreshSharedSuggestions}>Refresh</AsyncButton>
               </div>
               {serverSuggestionStatus && <p className="cloud-status-message compact-status">{serverSuggestionStatus}</p>}
               <div className="suggestion-list">
@@ -2893,8 +2954,8 @@ export default function SettingsPage({ appData, actions }) {
                       {item.admin_note && <small>Admin note: {item.admin_note}</small>}
                     </div>
                     <div className="row-actions">
-                      <button type="button" className="secondary-button small" onClick={() => voteOnSuggestion(item, 1)}>Up {item.up_votes || 0}</button>
-                      <button type="button" className="secondary-button small" onClick={() => voteOnSuggestion(item, -1)}>Down {item.down_votes || 0}</button>
+                      <AsyncButton type="button" className="secondary-button small" onClick={() => voteOnSuggestion(item, 1)}>Up {item.up_votes || 0}</AsyncButton>
+                      <AsyncButton type="button" className="secondary-button small" onClick={() => voteOnSuggestion(item, -1)}>Down {item.down_votes || 0}</AsyncButton>
                     </div>
                   </div>
                 ))}

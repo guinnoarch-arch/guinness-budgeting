@@ -19,6 +19,7 @@ import ReportsPage from "./pages/ReportsPage.jsx";
 import ImportPage from "./pages/ImportPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 import ControlCentrePage from "./pages/ControlCentrePage.jsx";
+import NotFoundPage from "./pages/NotFoundPage.jsx";
 
 import { getInitialAppData, removeExampleDataFromAppData } from "./data/exampleData.js";
 import {
@@ -122,6 +123,38 @@ const pages = {
   control: ControlCentrePage,
   settings: SettingsPage
 };
+
+const NOT_FOUND_PAGE = "notFound";
+const UNDO_WINDOW_MS = 10000;
+const CONTROL_CENTRE_PATHS = [ADMIN_ROUTE_PATH, "/control-centre"];
+
+// The URL is the source of truth for which page is open, so refresh,
+// shared links and browser Back/Forward all land on the same screen.
+function readRouteFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+
+  if (CONTROL_CENTRE_PATHS.includes(path)) return { page: "control", settingsSection: "" };
+  if (path !== "/" && path !== "/index.html") return { page: NOT_FOUND_PAGE, settingsSection: "" };
+
+  const requestedPage = params.get("page");
+  if (!requestedPage) return { page: "dashboard", settingsSection: "" };
+  if (!pages[requestedPage]) return { page: NOT_FOUND_PAGE, settingsSection: "" };
+
+  return {
+    page: requestedPage,
+    settingsSection: requestedPage === "settings" ? params.get("settings") || "" : ""
+  };
+}
+
+function buildPageUrl(page, settingsSection = "") {
+  if (page === "control") return ADMIN_ROUTE_PATH;
+  if (page === "dashboard") return "/";
+  if (page === "settings" && settingsSection) {
+    return `/?page=settings&settings=${encodeURIComponent(settingsSection)}`;
+  }
+  return `/?page=${encodeURIComponent(page)}`;
+}
 
 function PhoneModeToggle({ phoneMode, onToggle }) {
   return (
@@ -312,7 +345,7 @@ function App() {
   const [appData, setAppData] = useState(null);
   const [appLoadStatus, setAppLoadStatus] = useState("Loading saved data...");
   const [storageRecoveryError, setStorageRecoveryError] = useState(null);
-  const [activePage, setActivePage] = useState("dashboard");
+  const [activePage, setActivePage] = useState(() => readRouteFromLocation().page);
   const [selectedMonth, setSelectedMonth] = useState(getMonthKey(new Date()));
   const [selectedDashboardAccountId, setSelectedDashboardAccountId] = useState("all");
   const [showTransactionModal, setShowTransactionModal] = useState(false);
@@ -329,7 +362,13 @@ function App() {
   const [cloudConflict, setCloudConflict] = useState(null);
   const [localAccessUnlocked, setLocalAccessUnlocked] = useState(() => isLocalAccessSessionAllowed());
   const [phoneMode, setPhoneMode] = useState(readStoredPhoneMode);
-  const [preferredSettingsSection, setPreferredSettingsSection] = useState("");
+  const [preferredSettingsSection, setPreferredSettingsSection] = useState(() => readRouteFromLocation().settingsSection);
+  // Bumped on every request so asking for the same Settings section twice
+  // still re-opens and scrolls to it.
+  const [settingsSectionRequestId, setSettingsSectionRequestId] = useState(0);
+  // A one-off "do this when the page opens" request, e.g. open the Add bill
+  // form from Quick actions. The page clears it once handled.
+  const [pageIntent, setPageIntent] = useState(null);
   const [adminAccessState, setAdminAccessState] = useState(DEFAULT_ADMIN_ACCESS_STATE);
   const [appNotices, setAppNotices] = useState(DEFAULT_APP_NOTICES);
   const [dismissedBroadcastId, setDismissedBroadcastId] = useState(readStoredDismissedBroadcastId);
@@ -342,6 +381,10 @@ function App() {
   // automatic/confirmed refresh ({ mode: "applied", count, changes }) that
   // can be undone.
   const [rulesNotice, setRulesNotice] = useState(null);
+  // "Deleted X — Undo" offer: { message, restoreData, resultData, onExpire }.
+  const [undoOffer, setUndoOffer] = useState(null);
+  const undoOfferRef = useRef(null);
+  undoOfferRef.current = undoOffer;
   // Latest values for event listeners and code that runs after an await.
   const appDataRef = useRef(null);
   appDataRef.current = appData;
@@ -399,24 +442,31 @@ function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const requestedPage = params.get("page");
-    const requestedAction = params.get("action");
-
-    const path = window.location.pathname.replace(/\/+$/, "") || "/";
-    if (path === ADMIN_ROUTE_PATH || path === "/control-centre") {
-      setActivePage("control");
-    } else if (requestedPage && pages[requestedPage]) {
-      setActivePage(requestedPage);
-    }
-
-    if (requestedPage === "settings" && params.get("settings") === "profile") {
-      setPreferredSettingsSection("profile");
-    }
-
-    if (requestedAction === "add-transaction") {
+    if (params.get("action") === "add-transaction") {
       setShowTransactionModal(true);
     }
+
+    function handlePopState() {
+      const route = readRouteFromLocation();
+      setActivePage(route.page);
+      if (route.settingsSection) setPreferredSettingsSection(route.settingsSection);
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+
+  useEffect(() => {
+    if (!undoOffer) return undefined;
+    const timer = window.setTimeout(finaliseUndoOffer, UNDO_WINDOW_MS);
+    return () => window.clearTimeout(timer);
+  }, [undoOffer]);
+
+  useEffect(() => {
+    // Data replaced some other way (cloud sync, restore, recurring bills):
+    // Undo would roll that back too, so end the offer.
+    if (undoOfferRef.current && appData !== undoOfferRef.current.resultData) finaliseUndoOffer();
+  }, [appData]);
 
   useEffect(() => {
     if (!appData) return undefined;
@@ -513,7 +563,38 @@ function App() {
     }
   }, [phoneMode]);
 
+  // Ends the current Undo offer for good (e.g. finally deletes a receipt file
+  // that was kept around in case of Undo).
+  function finaliseUndoOffer() {
+    const offer = undoOfferRef.current;
+    if (!offer) return;
+    undoOfferRef.current = null;
+    setUndoOffer(null);
+    offer.onExpire?.();
+  }
+
+  // Applies a change that can be undone for a short time. Undo restores the
+  // snapshot from just before the change, so it's only allowed while that
+  // change is still the latest one — any later edit or sync ends the offer.
+  function updateAppDataWithUndo(nextData, { message, onExpire = null, ...options }) {
+    finaliseUndoOffer();
+    const restoreData = appDataRef.current;
+    const resultData = markAppDataChanged(nextData, options);
+    setAppData(resultData);
+    setUndoOffer({ message, restoreData, resultData, onExpire });
+  }
+
+  function undoLastChange() {
+    const offer = undoOfferRef.current;
+    if (!offer) return;
+    undoOfferRef.current = null;
+    setUndoOffer(null);
+    if (appDataRef.current !== offer.resultData) return;
+    setAppData(markAppDataChanged(offer.restoreData, { reason: "Undo" }));
+  }
+
   function updateAppData(nextOrUpdater, options = {}) {
+    finaliseUndoOffer();
     // A CSV import or a new transfer (options.rulesTrigger) brings in
     // transactions the Payment Rules haven't seen. If refreshing them would
     // change anything, either do it now (Settings > Payment Rules >
@@ -726,18 +807,17 @@ function App() {
 
   function navigateToPage(page, options = {}) {
     setActivePage(page);
-    if (options.settingsSection) setPreferredSettingsSection(options.settingsSection);
+    if (options.settingsSection) {
+      setPreferredSettingsSection(options.settingsSection);
+      setSettingsSectionRequestId(id => id + 1);
+    }
+    setPageIntent(options.intent ? { page, intent: options.intent } : null);
 
     try {
-      const nextPath = page === "control" ? ADMIN_ROUTE_PATH : "/";
-      const nextSearch = page === "dashboard"
-        ? ""
-        : page === "settings" && options.settingsSection
-          ? `?page=settings&settings=${encodeURIComponent(options.settingsSection)}`
-          : page === "control"
-            ? ""
-            : `?page=${encodeURIComponent(page)}`;
-      window.history.pushState({}, "", `${nextPath}${nextSearch}`);
+      const nextUrl = buildPageUrl(page, options.settingsSection);
+      const currentUrl = `${window.location.pathname}${window.location.search}`;
+      // Re-clicking the current tab shouldn't add a duplicate history entry.
+      if (nextUrl !== currentUrl) window.history.pushState({}, "", nextUrl);
     } catch {
       // URL updates are ergonomic only; keep in-app navigation working.
     }
@@ -1178,6 +1258,10 @@ function App() {
     refreshPaymentRulesNow,
     undoPaymentRulesRefresh,
     dismissRulesNotice: () => setRulesNotice(null),
+    updateAppDataWithUndo,
+    undoOffer,
+    undoLastChange,
+    dismissUndo: finaliseUndoOffer,
     toggleTheme: () => {
       updateAppData(prev => {
         const currentMode = prev.settings?.themeMode || (prev.settings?.darkModeEnabled ? "dark" : "light");
@@ -1238,11 +1322,14 @@ function App() {
     },
     setActivePage: navigateToPage,
     preferredSettingsSection,
+    settingsSectionRequestId,
+    pageIntent,
+    clearPageIntent: () => setPageIntent(null),
     selectedMonth,
     setSelectedMonth,
     selectedDashboardAccountId,
     setSelectedDashboardAccountId
-  }), [appData, rulesNotice, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode, adminAccessState, appNotices, preferredSettingsSection]);
+  }), [appData, rulesNotice, selectedMonth, selectedDashboardAccountId, installPrompt, installStatus, isInstalled, isOnline, serviceWorkerReady, waitingServiceWorker, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode, adminAccessState, appNotices, preferredSettingsSection, settingsSectionRequestId, pageIntent, undoOffer]);
 
   if (storageRecoveryError) {
     return (
@@ -1381,7 +1468,7 @@ function App() {
     (activePage === "import" && featureFlags.csvImport === false) ||
     (activePage === "loans" && featureFlags.loans === false)
   ) ? "dashboard" : activePage;
-  const CurrentPage = pages[visibleActivePage] || DashboardPage;
+  const CurrentPage = visibleActivePage === NOT_FOUND_PAGE ? NotFoundPage : pages[visibleActivePage] || DashboardPage;
 
   const activeBroadcast = appNotices.broadcast;
   const showBroadcast = Boolean(activeBroadcast && activeBroadcast.id !== dismissedBroadcastId);
