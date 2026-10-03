@@ -615,7 +615,6 @@ export default function ImportPage({ appData, actions }) {
           <div>
             <h3>1. Upload statement CSV</h3>
           </div>
-          <span className="pill">V2.2</span>
         </div>
 
         <div className="form-grid import-setup-grid">

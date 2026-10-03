@@ -34,7 +34,7 @@ export default function AppearanceSection({ appData, actions, settings, accordio
           <p className="eyebrow">Display</p>
           <h3>Appearance and dashboard layout</h3>
         </div>
-        <div className="settings-accordion-heading-side"><span className="pill">V2.6</span><SectionChevron sectionId="appearance" /></div>
+        <div className="settings-accordion-heading-side"><SectionChevron sectionId="appearance" /></div>
       </div>
 
       <div className="form-grid appearance-form-grid">

@@ -207,7 +207,7 @@ button {
 }
 
 .nav-item-admin {
-  color: var(--on-primary);
+  color: var(--on-solid);
   background: var(--blue);
   font-weight:600;
   letter-spacing: 0.04em;
@@ -363,6 +363,11 @@ h4 {
 
 .secondary-button {
   color: var(--text);
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.secondary-button:hover {
   background: var(--surface-2);
 }
 
@@ -372,13 +377,18 @@ h4 {
 }
 
 .danger-button {
-  color: var(--on-primary);
-  background: var(--red);
+  color: var(--negative-text);
+  background: var(--negative-soft);
+  box-shadow: inset 0 0 0 1px var(--negative-line);
+}
+
+.danger-button:hover {
+  background: var(--negative-line);
 }
 
 .text-button {
   background: transparent;
-  color: var(--primary);
+  color: var(--accent-text);
   padding: 4px 6px;
 }
 
@@ -400,17 +410,17 @@ h4 {
 
 .positive-text,
 .amount.income {
-  color: var(--green);
+  color: var(--positive-text);
 }
 
 .negative-text,
 .amount.expense,
 .danger-text {
-  color: var(--red);
+  color: var(--negative-text);
 }
 
 .amount.transfer {
-  color: var(--blue);
+  color: var(--info-text);
 }
 
 .muted {
@@ -529,18 +539,39 @@ small {
 
 label {
   display: grid;
+  align-content: start;
   gap: 6px;
-  font-weight:600;
-  font-size:var(--fs-md);
+  font-weight: 500;
+  font-size: var(--fs-md);
 }
 
 input,
 select,
 textarea {
-  border: 1px solid var(--line);
-  border-radius:var(--radius);
-  padding: 11px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
   background: var(--card);
+  color: var(--text);
+  font-weight: 400;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--primary);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--primary);
 }
 
 textarea {
@@ -2633,7 +2664,7 @@ th {
 .backup-now-button.backup-level-danger {
   border-color: var(--negative-line);
   background: var(--negative);
-  color: var(--on-primary);
+  color: var(--on-solid);
 }
 
 .backup-now-button.is-flashing {
@@ -3539,7 +3570,7 @@ th {
   border-radius:var(--radius-pill);
   padding: 0 5px;
   background: var(--red);
-  color: var(--on-primary);
+  color: var(--on-solid);
   display: inline-grid;
   place-items: center;
   font-size:var(--fs-xs);
@@ -3826,7 +3857,7 @@ button.compact-insight-card {
 .header-icon-button.active {
   border-color: rgba(var(--primary-rgb), 0.45);
   background: rgba(var(--primary-rgb), 0.09);
-  color: var(--primary);
+  color: var(--accent-text);
 }
 
 .header-icon-button svg,
@@ -5716,7 +5747,7 @@ textarea[aria-invalid="true"] {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  color: var(--red);
+  color: var(--negative-text);
   font-size:var(--fs-md);
   font-weight:600;
 }
@@ -5749,7 +5780,7 @@ textarea[aria-invalid="true"] {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--red);
+  color: var(--negative-text);
 }
 
 .error-summary ul {
@@ -5763,7 +5794,7 @@ textarea[aria-invalid="true"] {
 }
 
 .required-mark {
-  color: var(--red);
+  color: var(--negative-text);
 }
 
 .planned-form {
@@ -5870,4 +5901,14 @@ td.numeric {
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+td[data-label="Date"] {
+  white-space: nowrap;
+}
+
+.brand .brand-name {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  letter-spacing: 0;
 }

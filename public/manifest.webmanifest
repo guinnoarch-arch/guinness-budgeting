@@ -11,8 +11,8 @@
     "standalone",
     "browser"
   ],
-  "background_color": "#f5f7fb",
-  "theme_color": "#003b2d",
+  "background_color": "#f4efe4",
+  "theme_color": "#1c1b18",
   "orientation": "any",
   "categories": [
     "finance",

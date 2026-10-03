@@ -41,9 +41,9 @@ export default function LoansPage({ appData, actions }) {
           <h2>Loans tracker</h2>
         </div>
         <div className="row-actions">
-          <button type="button" className="primary-button" onClick={openAddHouseModal}>+ House</button>
+          <button type="button" className="secondary-button" onClick={openAddHouseModal}>+ House</button>
           <button type="button" className="secondary-button" onClick={() => openAddLoanModal("studentLoan")}>+ Student loan</button>
-          <button type="button" className="primary-button" onClick={() => openAddLoanModal("mortgage")}>+ Mortgage</button>
+          <button type="button" className="secondary-button" onClick={() => openAddLoanModal("mortgage")}>+ Mortgage</button>
         </div>
       </div>
 

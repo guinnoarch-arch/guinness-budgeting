@@ -27,6 +27,7 @@
   --primary-dark: #7f6330;
   --primary-rgb: 168, 132, 63;
   --on-primary: #1c1b18;
+  --on-solid: #fcfaf5;
   --accent-text: #7a5e26;
 
   /* Feature panel (the big "budget left" figure, account totals) */
@@ -105,6 +106,7 @@
   --line-strong: #4a463d;
 
   --accent-text: #d4b06a;
+  --on-solid: #1b1a17;
 
   --feature-bg: #24221e;
   --feature-text: #ece6d8;

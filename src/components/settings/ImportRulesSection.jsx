@@ -121,7 +121,6 @@ export default function ImportRulesSection({ appData, actions, removeArrayItem, 
       <section className={sectionClass("importRules", "settings-section-entry-card")}>
         <div className="section-header compact-header settings-accordion-heading" {...sectionHeaderProps("importRules")}>
           <div>
-            <p className="eyebrow">Settings section</p>
             <h3>Import Rules</h3>
           </div>
           <div className="settings-accordion-heading-side"><span className="pill">{(appData.importRules || []).length} rules</span><SectionChevron sectionId="importRules" /></div>
@@ -148,7 +147,6 @@ export default function ImportRulesSection({ appData, actions, removeArrayItem, 
             <div>
               <h3>Import Rules Manager</h3>
             </div>
-            <span className="pill">V2.6</span>
           </div>
 
           {ruleStatus && <div className="import-status-box">{ruleStatus}</div>}
