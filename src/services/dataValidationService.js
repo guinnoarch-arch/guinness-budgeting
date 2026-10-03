@@ -1,5 +1,6 @@
 import { normaliseAppData } from "./storageService.js";
 import { createId } from "../utils/ids.js";
+import { formatMoney } from "../utils/money.js";
 
 const VALID_TRANSACTION_TYPES = new Set(["income", "expense"]);
 const VALID_LOAN_TYPES = new Set(["studentLoan", "mortgage", "personalLoan", "otherLoan"]);
@@ -25,11 +26,6 @@ function todayString() {
 function asNumber(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
-}
-
-function money(value) {
-  const number = Number(value || 0);
-  return `£${number.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function createIssue(severity, code, title, detail, options = {}) {
@@ -72,8 +68,6 @@ export function validateCurrentAppData(rawData) {
   const accountIds = new Set(data.accounts.map(account => account.id).filter(Boolean));
   const activeAccountIds = new Set(data.accounts.filter(account => account.isActive !== false).map(account => account.id).filter(Boolean));
   const categoryIds = new Set(data.categories.map(category => category.id).filter(Boolean));
-  const activeCategoryIds = new Set(data.categories.filter(category => category.isActive !== false).map(category => category.id).filter(Boolean));
-  const budgetIds = new Set(data.budgets.map(budget => budget.id).filter(Boolean));
   const recurringIds = new Set(data.recurringItems.map(item => item.id).filter(Boolean));
   const transactionIds = new Set(data.transactions.map(transaction => transaction.id).filter(Boolean));
   const transactionsById = new Map(data.transactions.map(transaction => [transaction.id, transaction]));
@@ -172,7 +166,7 @@ export function validateCurrentAppData(rawData) {
         repairDescription: "Set amount to 0."
       }));
     } else if (Number(transaction.amount) < 0) {
-      issues.push(createIssue("warning", "transaction_negative_amount", "Transaction amount is negative", `${transaction.title || transaction.id || "A transaction"} is stored as ${money(transaction.amount)}. Amounts should be positive and type controls direction.`, {
+      issues.push(createIssue("warning", "transaction_negative_amount", "Transaction amount is negative", `${transaction.title || transaction.id || "A transaction"} is stored as ${formatMoney(transaction.amount)}. Amounts should be positive and type controls direction.`, {
         affectedType: "transactions",
         affectedId: transaction.id,
         repairable: true,
@@ -403,11 +397,8 @@ export function repairSafeAppDataIssues(rawData, validationReport = null) {
   const report = validationReport || validateCurrentAppData(data);
   const now = new Date().toISOString();
   const repairs = [];
-  const accountIds = new Set(data.accounts.map(account => account.id).filter(Boolean));
-  const categoryIds = new Set(data.categories.map(category => category.id).filter(Boolean));
   const recurringIds = new Set(data.recurringItems.map(item => item.id).filter(Boolean));
   const loanIds = new Set((data.loans || []).map(loan => loan.id).filter(Boolean));
-  const transactionIds = new Set(data.transactions.map(transaction => transaction.id).filter(Boolean));
   const savingsGoalIds = new Set((data.savingsGoals || []).map(goal => goal.id).filter(Boolean));
   const fallbackAccountId = findFallbackAccountId(data);
 

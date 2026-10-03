@@ -7,9 +7,9 @@ import {
 export const STABLE_PRODUCTION_APP_URL = "https://guinness-budgeting.vercel.app";
 export const ADMIN_ROUTE_PATH = "/admin";
 export const ADMIN_ROLE_FIELD = "public.profiles.role";
-export const ADMIN_ROLE_VALUE = "admin";
+const ADMIN_ROLE_VALUE = "admin";
 
-export const DEFAULT_FEATURE_FLAGS = {
+const DEFAULT_FEATURE_FLAGS = {
   bankLinkingBeta: false,
   csvImport: true,
   loans: true,
@@ -104,7 +104,7 @@ export function getFeatureFlags(settings = {}) {
   return normaliseFeatureFlags(settings?.featureFlags);
 }
 
-export function normaliseAdminAccessState(value = {}, cloudAuthSummary = getStoredCloudSessionSummary()) {
+function normaliseAdminAccessState(value = {}, cloudAuthSummary = getStoredCloudSessionSummary()) {
   const signedIn = Boolean(cloudAuthSummary?.signedIn);
   const role = String(value.role || value.current_role || "user").toLowerCase();
   const isAdmin = Boolean(value.isAdmin ?? value.is_admin ?? role === ADMIN_ROLE_VALUE);
@@ -377,7 +377,7 @@ export async function updateAdminFeatureSuggestion(settings = {}, suggestionId, 
   return row;
 }
 
-export function createAdminAuditEntry(action, details = {}, actor = {}) {
+function createAdminAuditEntry(action, details = {}, actor = {}) {
   return {
     id: `admin_audit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     action: String(action || "admin_action"),
@@ -387,7 +387,7 @@ export function createAdminAuditEntry(action, details = {}, actor = {}) {
   };
 }
 
-export function appendAdminAuditLog(settings = {}, entry) {
+function appendAdminAuditLog(settings = {}, entry) {
   const current = Array.isArray(settings.adminAuditLog) ? settings.adminAuditLog : [];
   return [entry, ...current].slice(0, 50);
 }

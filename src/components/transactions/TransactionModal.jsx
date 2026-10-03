@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
+import { logError } from "../../utils/logger.js";
 import { getErrorMessage } from "../../utils/errors.js";
 import { todayIsoDate } from "../../utils/dates.js";
-import { HOUSE_CONTRIBUTION_TYPES } from "../../utils/houseTracking.js";
 import { createId } from "../../utils/ids.js";
 import { getMatchingExclusionRules, linkTransferPair, unlinkTransferPair, upsertTransaction } from "../../services/transactionService.js";
-import { estimateLoanPaymentSplit } from "../../utils/loanLinking.js";
-import { deleteStoredReceipt, getStoredReceipt, saveTransactionReceipt } from "../../services/receiptStorageService.js";
-import { signedMoney } from "../../utils/money.js";
+import { estimateLoanPaymentSplit, getActiveLoans } from "../../utils/loanLinking.js";
+import { MAX_RECEIPT_BYTES, deleteStoredReceipt, getStoredReceipt, saveTransactionReceipt } from "../../services/receiptStorageService.js";
 import { checkMoneyAmount, checkRequiredDate, collectErrors } from "../../utils/validation.js";
 import useFormErrors from "../../hooks/useFormErrors.js";
 import { ErrorSummary, FieldError, FormError, RequiredMark } from "../common/FormFeedback.jsx";
+import { DEFAULT_ACCOUNT_ID } from "../../data/defaultAccounts.js";
+import { DEFAULT_LARGE_EXPENSE_THRESHOLD } from "../../config/appDefaults.js";
+import { TransferLinkPicker } from "./TransferLinkPicker.jsx";
+import { LoanLinkFields } from "./LoanLinkFields.jsx";
+import { HouseLinkFields } from "./HouseLinkFields.jsx";
+import { RecurringOptions } from "./RecurringOptions.jsx";
+import { ReceiptField } from "./ReceiptField.jsx";
 
 function validateTransactionForm(values) {
   return collectErrors({
@@ -21,13 +27,6 @@ function validateTransactionForm(values) {
   });
 }
 
-function formatFileSize(bytes) {
-  const value = Number(bytes || 0);
-  if (value >= 1024 * 1024) return `${Math.round((value / (1024 * 1024)) * 10) / 10} MB`;
-  if (value >= 1024) return `${Math.round((value / 1024) * 10) / 10} KB`;
-  return `${value} B`;
-}
-
 // If you're converting an existing expense/income into a transfer, the
 // account it's already on is almost always the side you want to keep — an
 // expense becomes the "from" account, income becomes "to" — leaving just
@@ -37,7 +36,7 @@ function formatFileSize(bytes) {
 function getDefaultFromAccountId(appData, editingTransaction) {
   if (editingTransaction && editingTransaction.type !== "income") return editingTransaction.accountId;
   const accounts = (appData.accounts || []).filter(acc => acc.isActive !== false);
-  return accounts.find(acc => acc.id === "acc_current")?.id || accounts[0]?.id || "acc_current";
+  return accounts.find(acc => acc.id === DEFAULT_ACCOUNT_ID)?.id || accounts[0]?.id || DEFAULT_ACCOUNT_ID;
 }
 
 function getDefaultToAccountId(appData, editingTransaction, fromAccountId) {
@@ -72,7 +71,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     title: editingTransaction?.title || "",
     note: editingTransaction?.note || "",
     categoryId: editingTransaction?.categoryId || "",
-    accountId: editingTransaction?.accountId || "acc_current",
+    accountId: editingTransaction?.accountId || DEFAULT_ACCOUNT_ID,
     fromAccountId,
     toAccountId,
     linkedSavingsGoalId: editingTransaction?.linkedSavingsGoalId || "",
@@ -124,9 +123,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
       ))
     : null;
 
-  const activeLoans = useMemo(() => (
-    (appData.loans || []).filter(loan => loan.status !== "archived" && loan.status !== "closed")
-  ), [appData.loans]);
+  const activeLoans = useMemo(() => getActiveLoans({ loans: appData.loans }), [appData.loans]);
   const selectedLoan = activeLoans.find(loan => loan.id === form.linkedLoanId) || null;
   const activeHouses = useMemo(() => (
     (appData.houses || []).filter(house => house.status !== "archived" && !house.archived)
@@ -142,7 +139,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
     ? (appData.savingsGoals || []).find(goal => goal.id === form.linkedSavingsGoalId && !activeSavingsGoals.some(activeGoal => activeGoal.id === goal.id))
     : null;
 
-  const largeExpenseThreshold = Number(appData.settings?.largeExpenseThreshold || 200);
+  const largeExpenseThreshold = Number(appData.settings?.largeExpenseThreshold || DEFAULT_LARGE_EXPENSE_THRESHOLD);
   const amountValue = Number(form.amount || 0);
   const isLargeExpense = form.type === "expense" && amountValue >= largeExpenseThreshold;
 
@@ -318,8 +315,8 @@ export default function TransactionModal({ appData, actions, editingTransaction 
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      setReceiptError("Receipt is too large. Use a file under 10 MB.");
+    if (file.size > MAX_RECEIPT_BYTES) {
+      setReceiptError("That receipt is too large. Use a file under 10 MB — for a photo, a smaller image size usually works.");
       event.target.value = "";
       return;
     }
@@ -365,7 +362,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
       });
       actions.closeTransactionModal();
     } catch (error) {
-      console.error("Could not save transaction or receipt:", error);
+      logError("Could not save transaction or receipt", error);
       setFormError(getErrorMessage(error, "The transaction couldn't be saved. If you attached a receipt, try a smaller file (under 10 MB) as a JPG, PNG or PDF."));
     } finally {
       setIsSubmitting(false);
@@ -402,42 +399,17 @@ export default function TransactionModal({ appData, actions, editingTransaction 
           )}
 
           {isEditing && !editingTransaction.transferLinkId && form.type !== "transfer" && (
-            <div className="full-width receipt-warning-box link-transfer-box">
-              <div className="section-header compact-header">
-                <div>
-                  <strong>Is this actually one half of a transfer?</strong>
-                  <p className="muted-text">If the other side is already recorded as its own transaction (e.g. imported separately), link them instead of creating a new one.</p>
-                </div>
-                <button type="button" className="secondary-button small" onClick={() => setShowLinkPicker(v => !v)}>
-                  {showLinkPicker ? "Cancel linking" : "Link to an existing transaction"}
-                </button>
-              </div>
-
-              {showLinkPicker && (
-                <div className="link-transfer-picker">
-                  <p className="muted-text">Only showing unlinked {editingTransaction.type === "expense" ? "income" : "expense"} transactions for the exact same amount ({signedMoney(form.amount || editingTransaction.amount, editingTransaction.type === "expense" ? "income" : "expense")}) — a transfer moves the same amount out one side and into the other.</p>
-                  <label>
-                    Narrow down by title or account
-                    <input value={linkSearch} onChange={e => setLinkSearch(e.target.value)} placeholder="e.g. ISA, Chase" />
-                  </label>
-                  <div className="rule-list-stack">
-                    {linkCandidates.length === 0 && <p className="muted">No unlinked {editingTransaction.type === "expense" ? "income" : "expense"} transactions for that exact amount.</p>}
-                    {linkCandidates.map(candidate => {
-                      const candidateAccount = (appData.accounts || []).find(acc => acc.id === candidate.accountId);
-                      return (
-                        <div key={candidate.id} className="rule-edit-row link-candidate-row">
-                          <div className="rule-readable-summary">
-                            <strong>{candidate.title}</strong>
-                            <span>{candidate.date} · {signedMoney(candidate.amount, candidate.type)} · {candidateAccount?.name || "Unknown account"}</span>
-                          </div>
-                          <button type="button" className="primary-button small" onClick={() => linkToExistingTransaction(candidate.id)}>Link this pair</button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
+            <TransferLinkPicker
+              appData={appData}
+              editingTransaction={editingTransaction}
+              form={form}
+              linkCandidates={linkCandidates}
+              linkSearch={linkSearch}
+              linkToExistingTransaction={linkToExistingTransaction}
+              setLinkSearch={setLinkSearch}
+              setShowLinkPicker={setShowLinkPicker}
+              showLinkPicker={showLinkPicker}
+            />
           )}
 
           <label>
@@ -561,135 +533,24 @@ export default function TransactionModal({ appData, actions, editingTransaction 
               )}
 
               {form.type === "expense" && (
-                <div className="loan-link-box full-width">
-                  <div className="section-header compact-header">
-                    <div>
-                      <h4>Loan / mortgage link</h4>
-                    </div>
-                  </div>
-
-                  <label>
-                    Is this linked to a loan?
-                    <select value={form.linkedLoanId || ""} onChange={e => update("linkedLoanId", e.target.value)}>
-                      <option value="">No</option>
-                      {activeLoans.map(loan => (
-                        <option key={loan.id} value={loan.id}>{loanName(loan)}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  {selectedLoan && (
-                    <div className="loan-link-split-grid">
-                      <label>
-                        Interest part
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={form.loanInterestAmount}
-                          onChange={e => update("loanInterestAmount", e.target.value)}
-                          placeholder="Estimated or from statement"
-                        />
-                      </label>
-
-                      <label>
-                        Capital / principal paid off
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={form.loanPrincipalAmount}
-                          onChange={e => update("loanPrincipalAmount", e.target.value)}
-                          placeholder="Amount reducing the balance"
-                        />
-                      </label>
-
-                      <label className="checkbox-label full-width">
-                        <input
-                          type="checkbox"
-                          checked={form.isLoanOverpayment}
-                          onChange={e => update("isLoanOverpayment", e.target.checked)}
-                        />
-                        <span>This includes an overpayment</span>
-                      </label>
-
-                      {form.isLoanOverpayment && (
-                        <label>
-                          Overpayment amount
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={form.loanOverpaymentAmount}
-                            onChange={e => update("loanOverpaymentAmount", e.target.value)}
-                            placeholder="Extra amount above normal payment"
-                          />
-                        </label>
-                      )}
-
-                      <div className="loan-link-actions full-width">
-                        <button type="button" className="secondary-button small" onClick={autoEstimateLoanSplit}>Auto-estimate split</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <LoanLinkFields
+                  activeLoans={activeLoans}
+                  autoEstimateLoanSplit={autoEstimateLoanSplit}
+                  form={form}
+                  loanName={loanName}
+                  selectedLoan={selectedLoan}
+                  update={update}
+                />
               )}
 
               {form.type === "expense" && activeHouses.length > 0 && (
-                <div className="loan-link-box full-width">
-                  <div className="section-header compact-header">
-                    <div>
-                      <h4>House link</h4>
-                      <p className="muted-text">Linked house payments still affect this account balance as normal, then also count in House contributions.</p>
-                    </div>
-                  </div>
-
-                  <label>
-                    Link to house
-                    <select value={form.linkedHouseId || ""} onChange={e => update("linkedHouseId", e.target.value)}>
-                      <option value="">No house link</option>
-                      {activeHouses.map(house => (
-                        <option key={house.id} value={house.id}>{house.name}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  {selectedHouse && (
-                    <div className="loan-link-split-grid">
-                      <label>
-                        Contribution type
-                        <select value={form.houseContributionType} onChange={e => update("houseContributionType", e.target.value)}>
-                          {HOUSE_CONTRIBUTION_TYPES.map(([key, label]) => (
-                            <option key={key} value={key}>{label}</option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label>
-                        Paid by
-                        <select value={form.housePersonId || ""} onChange={e => update("housePersonId", e.target.value)}>
-                          <option value="">Unassigned</option>
-                          {selectedHousePeople.map(person => (
-                            <option key={person.id} value={person.id}>{person.name}</option>
-                          ))}
-                        </select>
-                      </label>
-
-                      {selectedHousePeople.length === 0 && (
-                        <p className="muted-text full-width">Add people in Loans, House, People / Splits to attribute this payment.</p>
-                      )}
-
-                      <label className="full-width">
-                        House contribution note
-                        <input
-                          value={form.houseContributionNotes}
-                          onChange={e => update("houseContributionNotes", e.target.value)}
-                          placeholder="Safe note for the house contribution"
-                        />
-                      </label>
-                    </div>
-                  )}
-                </div>
+                <HouseLinkFields
+                  activeHouses={activeHouses}
+                  form={form}
+                  selectedHouse={selectedHouse}
+                  selectedHousePeople={selectedHousePeople}
+                  update={update}
+                />
               )}
             </>
           ) : (
@@ -745,103 +606,23 @@ export default function TransactionModal({ appData, actions, editingTransaction 
           )}
 
           {form.isRecurring && form.type !== "transfer" && (
-            <div className="recurring-options full-width">
-              <label>
-                Amount type
-                <select value={form.recurringAmountType} onChange={e => update("recurringAmountType", e.target.value)}>
-                  <option value="fixed">Fixed</option>
-                  <option value="variable">Variable</option>
-                </select>
-              </label>
-
-              <label>
-                Frequency
-                <select value={form.recurringFrequency} onChange={e => update("recurringFrequency", e.target.value)}>
-                  <option value="weekly">Weekly</option>
-                  <option value="fortnightly">Fortnightly</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="every_4_weeks">Every 4 weeks</option>
-                  <option value="yearly">Yearly</option>
-                </select>
-              </label>
-
-              <label>
-                Next due date
-                <input
-                  type="date"
-                  value={form.recurringNextDueDate}
-                  onChange={e => update("recurringNextDueDate", e.target.value)}
-                />
-              </label>
-
-              <label>
-                Add behaviour
-                <select
-                  value={form.recurringAutoAdd ? "auto" : "confirm"}
-                  onChange={e => update("recurringAutoAdd", e.target.value === "auto")}
-                >
-                  <option value="auto">Auto-add fixed bills</option>
-                  <option value="confirm">Confirm manually</option>
-                </select>
-              </label>
-
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={form.recurringReminderEnabled}
-                  onChange={e => update("recurringReminderEnabled", e.target.checked)}
-                />
-                <span>Reminder enabled</span>
-              </label>
-            </div>
+            <RecurringOptions
+              form={form}
+              update={update}
+            />
           )}
 
-          <div className="receipt-field full-width">
-            <div className="section-header compact-header">
-              <div>
-                <h4>Receipt attachment</h4>
-                <p className="muted-text">Stored locally in IndexedDB. Use images or PDF files under 10 MB.</p>
-              </div>
-              <span className="pill">V2.4</span>
-            </div>
-
-            {hasExistingReceipt && (
-              <div className="receipt-current-card">
-                <div>
-                  <strong>{form.receiptFileName || "Stored receipt"}</strong>
-                  <small>{formatFileSize(form.receiptSizeBytes)} · {form.receiptUploadedAt ? new Date(form.receiptUploadedAt).toLocaleString("en-GB") : "Stored locally"}</small>
-                </div>
-                {receiptPreview?.url && receiptPreview.mimeType?.startsWith("image/") && (
-                  <img src={receiptPreview.url} alt="Receipt preview" className="receipt-thumb" />
-                )}
-                {receiptPreview?.missing && <small className="danger-text">Receipt link exists, but the stored file was not found on this device.</small>}
-                {receiptPreview?.error && <small className="danger-text">{receiptPreview.error}</small>}
-                <button type="button" className="secondary-button small" onClick={() => { setRemoveExistingReceipt(true); setReceiptFile(null); }}>
-                  Remove receipt
-                </button>
-              </div>
-            )}
-
-            {removeExistingReceipt && !receiptFile && (
-              <div className="receipt-warning-box">Receipt will be removed when you save this transaction.</div>
-            )}
-
-            {receiptFile && (
-              <div className="receipt-current-card selected-receipt-card">
-                <div>
-                  <strong>Selected: {receiptFile.name}</strong>
-                  <small>{formatFileSize(receiptFile.size)} · will be attached when saved</small>
-                </div>
-                <button type="button" className="secondary-button small" onClick={() => setReceiptFile(null)}>Clear selected file</button>
-              </div>
-            )}
-
-            <label>
-              {hasExistingReceipt ? "Replace receipt" : "Attach receipt"}
-              <input type="file" accept="image/*,.pdf,application/pdf" onChange={handleReceiptFile} />
-            </label>
-            {receiptError && <small className="danger-text">{receiptError}</small>}
-          </div>
+          <ReceiptField
+            form={form}
+            handleReceiptFile={handleReceiptFile}
+            hasExistingReceipt={hasExistingReceipt}
+            receiptError={receiptError}
+            receiptFile={receiptFile}
+            receiptPreview={receiptPreview}
+            removeExistingReceipt={removeExistingReceipt}
+            setReceiptFile={setReceiptFile}
+            setRemoveExistingReceipt={setRemoveExistingReceipt}
+          />
         </div>
 
         <FormError message={formError} />

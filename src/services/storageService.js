@@ -1,4 +1,5 @@
 import { defaultCategories } from "../data/defaultCategories.js";
+import { logError, logWarning } from "../utils/logger.js";
 import { createId } from "../utils/ids.js";
 import {
   ensureHousesFromMortgageLoans,
@@ -23,7 +24,10 @@ import {
   saveAppDataSnapshot,
   saveCurrentAppDataRecord
 } from "./indexedDbStorageService.js";
+import { DEFAULT_BUDGET_AFFORDABILITY_THRESHOLD, DEFAULT_LARGE_EXPENSE_THRESHOLD, DEFAULT_LARGE_INCOME_THRESHOLD } from "../config/appDefaults.js";
 
+// Restoring larger files risks freezing the browser tab.
+const MAX_BACKUP_FILE_BYTES = 25 * 1024 * 1024;
 const STORAGE_KEY = "guinness-budgeting-data-v1";
 const STORAGE_META_KEY = "guinness-budgeting-storage-meta-v2";
 const LEGACY_MIGRATION_SNAPSHOT_KEY = "guinness-budgeting-v2-5-localstorage-migration-snapshot";
@@ -123,10 +127,6 @@ function applyActiveProfileToRecords(records, activeProfileId) {
   });
 }
 
-export function loadAppData() {
-  return loadLegacyLocalStorageData();
-}
-
 function readDataVersion(data, fallback = "unknown") {
   return data?.settings?.dataVersion || data?.settings?.appVersion || data?.dataSchemaVersion || data?.appVersion || fallback;
 }
@@ -165,7 +165,7 @@ async function writeStorageLogSafely(entry) {
   try {
     await addStorageLog(entry);
   } catch (error) {
-    console.warn("Could not write storage log:", error);
+    logWarning("Could not write storage log", error);
   }
 }
 
@@ -218,7 +218,7 @@ export async function loadAppDataAsync() {
       }
     } catch (error) {
       indexedDbError = error;
-      console.error("Failed to load IndexedDB app data:", error);
+      logError("Failed to load IndexedDB app data", error);
       await writeStorageLogSafely({
         level: "error",
         event: "indexeddb_load_failed",
@@ -276,7 +276,7 @@ export async function loadAppDataAsync() {
           lastSavedAt: migratedAt
         });
       } catch (error) {
-        console.error("Failed to migrate localStorage data into IndexedDB:", error);
+        logError("Failed to migrate localStorage data into IndexedDB", error);
         await writeStorageLogSafely({
           level: "error",
           event: "localstorage_migration_failed",
@@ -321,7 +321,7 @@ export function saveAppData(data) {
   return saveQueue;
 }
 
-export async function saveAppDataAsync(data) {
+async function saveAppDataAsync(data) {
   const safeData = normaliseAppData({
     ...data,
     settings: {
@@ -350,7 +350,7 @@ export async function saveAppDataAsync(data) {
       return { ok: true, storageMode: "indexedDB", savedAt };
     } catch (error) {
       lastSaveError = error;
-      console.error("Failed to save app data to IndexedDB:", error);
+      logError("Failed to save app data to IndexedDB", error);
       await writeStorageLogSafely({
         level: "error",
         event: "indexeddb_save_failed",
@@ -379,7 +379,7 @@ export async function saveAppDataAsync(data) {
     return { ok: true, storageMode: "localStorage-fallback", savedAt };
   } catch (error) {
     lastSaveError = error;
-    console.error("Failed to save app data to fallback localStorage:", error);
+    logError("Failed to save app data to fallback localStorage", error);
     await writeStorageLogSafely({
       level: "error",
       event: "all_storage_save_failed",
@@ -404,7 +404,7 @@ export async function clearAppData() {
     await clearAppDataSnapshots();
     await writeStorageLogSafely({ level: "warning", event: "app_data_cleared", message: "Cleared current app data and snapshots.", details: null });
   } catch (error) {
-    console.error("Failed to clear IndexedDB app data:", error);
+    logError("Failed to clear IndexedDB app data", error);
   }
 }
 
@@ -515,7 +515,7 @@ export async function parseBackupFile(file) {
 
   try {
     parsed = JSON.parse(rawText);
-  } catch (error) {
+  } catch {
     throw new Error("That file isn't a backup from this app. Choose the .json backup file you exported from Guinness & Holley Budgeting.");
   }
 
@@ -606,7 +606,7 @@ export function prepareRestoredAppData(backupData, filename, restoredAt = new Da
   });
 }
 
-export function validateAppData(data) {
+function validateAppData(data) {
   const errors = [];
   const warnings = [];
 
@@ -670,13 +670,12 @@ function normaliseCloudBackupConfig(value = {}) {
   };
 }
 
-export function isSupportedBackupFile(file) {
+function isSupportedBackupFile(file) {
   if (!file) {
     return { ok: false, message: "Choose a JSON backup file first." };
   }
 
-  const maxBytes = 25 * 1024 * 1024;
-  if (Number(file.size || 0) > maxBytes) {
+  if (Number(file.size || 0) > MAX_BACKUP_FILE_BYTES) {
     return { ok: false, message: "This backup file is over 25 MB. Export emergency raw data first, then split or inspect the file before restoring." };
   }
 
@@ -780,7 +779,7 @@ function normaliseLoanRecord(loanRecord) {
 // account's balance. This one-time migration splits every legacy transfer
 // into two plain income/expense transactions (one per account), linked by
 // transferLinkId, so each account's balance is only ever its own rows.
-export function migrateTransferTransactions(transactions, importBatches) {
+function migrateTransferTransactions(transactions, importBatches) {
   const source = Array.isArray(transactions) ? transactions : [];
   if (!source.some(transaction => transaction && transaction.type === "transfer")) {
     return { transactions: source, importBatches: Array.isArray(importBatches) ? importBatches : [] };
@@ -996,13 +995,13 @@ export function normaliseAppData(data) {
     darkModeEnabled: Boolean(baseSettings.darkModeEnabled || baseSettings.themeMode === "dark"),
     accentColor: baseSettings.accentColor || "#0b5d45",
     dashboardLayout: baseSettings.dashboardLayout || "full",
-    largeExpenseThreshold: Number(baseSettings.largeExpenseThreshold || 200),
-    largeIncomeThreshold: Number(baseSettings.largeIncomeThreshold || 200),
+    largeExpenseThreshold: Number(baseSettings.largeExpenseThreshold || DEFAULT_LARGE_EXPENSE_THRESHOLD),
+    largeIncomeThreshold: Number(baseSettings.largeIncomeThreshold || DEFAULT_LARGE_INCOME_THRESHOLD),
     budgetWarningThresholds: {
       greenMax: Number(baseSettings.budgetWarningThresholds?.greenMax ?? 75),
       orangeMax: Number(baseSettings.budgetWarningThresholds?.orangeMax ?? 100)
     },
-    budgetAffordabilityThreshold: Number(baseSettings.budgetAffordabilityThreshold || 100),
+    budgetAffordabilityThreshold: Number(baseSettings.budgetAffordabilityThreshold || DEFAULT_BUDGET_AFFORDABILITY_THRESHOLD),
     budgetAffordabilityWarningsEnabled: baseSettings.budgetAffordabilityWarningsEnabled !== false,
     billReminderDays: Number(baseSettings.billReminderDays ?? 7),
     futureSuggestions: Array.isArray(baseSettings.futureSuggestions) ? baseSettings.futureSuggestions : [],
@@ -1340,13 +1339,13 @@ export function buildRestoreComparisonWarnings(currentData, preview) {
   return warnings;
 }
 
-export function buildBackupFilename(exportedAt = new Date().toISOString()) {
+function buildBackupFilename(exportedAt = new Date().toISOString()) {
   const dateStamp = exportedAt.slice(0, 10);
   const timeStamp = exportedAt.slice(11, 16).replace(":", "");
   return `Guinness-Holley-Budgeting-Backup-${dateStamp}-${timeStamp}.json`;
 }
 
-export function buildRawDataFilename(exportedAt = new Date().toISOString()) {
+function buildRawDataFilename(exportedAt = new Date().toISOString()) {
   const dateStamp = exportedAt.slice(0, 10);
   const timeStamp = exportedAt.slice(11, 16).replace(":", "");
   return `Guinness-Holley-Budgeting-Raw-Storage-${dateStamp}-${timeStamp}.json`;
@@ -1393,7 +1392,7 @@ async function saveJsonPayload(payload, filename, description) {
         return { ok: false, cancelled: true, filename, method: "save-picker" };
       }
 
-      console.warn("Save picker failed; falling back to browser download:", error);
+      logWarning("Save picker failed; falling back to browser download", error);
     }
   }
 
@@ -1412,7 +1411,7 @@ function loadLegacyLocalStorageData() {
     raw = localStorage.getItem(STORAGE_KEY);
     return raw ? normaliseAppData(JSON.parse(raw)) : null;
   } catch (error) {
-    console.error("Failed to load legacy localStorage app data:", error);
+    logError("Failed to load legacy localStorage app data", error);
     preserveCorruptStorageSnapshot(raw, error);
     return null;
   }
@@ -1430,7 +1429,7 @@ function writeStorageMeta(patch = {}) {
     };
     localStorage.setItem(STORAGE_META_KEY, JSON.stringify(next));
   } catch (error) {
-    console.warn("Could not write storage metadata:", error);
+    logWarning("Could not write storage metadata", error);
   }
 }
 
@@ -1466,14 +1465,14 @@ async function preserveLegacyLocalStorageMigrationSnapshot(data, migratedAt) {
         data
       }));
     } catch (error) {
-      console.warn("Could not keep localStorage migration snapshot:", error);
+      logWarning("Could not keep localStorage migration snapshot", error);
     }
   }
 
   try {
     await saveAppDataSnapshot(data, "pre-indexeddb-migration");
   } catch (error) {
-    console.warn("Could not keep IndexedDB migration snapshot:", error);
+    logWarning("Could not keep IndexedDB migration snapshot", error);
   }
 }
 
@@ -1492,7 +1491,7 @@ function removeLegacyLiveDataAfterIndexedDbSave() {
       }
     }
   } catch (error) {
-    console.warn("Could not preserve legacy localStorage snapshot:", error);
+    logWarning("Could not preserve legacy localStorage snapshot", error);
   }
 }
 
@@ -1500,7 +1499,7 @@ function writeLocalStorageRecoveryCopy(data) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch (error) {
-    console.warn("Could not write localStorage recovery copy:", error);
+    logWarning("Could not write localStorage recovery copy", error);
   }
 }
 
@@ -1519,6 +1518,6 @@ function preserveCorruptStorageSnapshot(raw, error) {
     };
     localStorage.setItem(key, JSON.stringify(payload));
   } catch (snapshotError) {
-    console.error("Failed to preserve corrupt storage snapshot:", snapshotError);
+    logError("Failed to preserve corrupt storage snapshot", snapshotError);
   }
 }

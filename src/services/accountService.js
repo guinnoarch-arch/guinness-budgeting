@@ -7,7 +7,7 @@ export function isAccountArchived(account) {
 // What still points at this account. Transactions, balance adjustments and
 // active bills are money history or future payments, so they block a
 // permanent delete; everything else is tidied up automatically.
-export function getAccountUsage(data, accountId) {
+function getAccountUsage(data, accountId) {
   const transactions = (data.transactions || []).filter(txn => txn.accountId === accountId).length;
   const adjustments = (data.accountAdjustments || []).filter(adj => adj.accountId === accountId).length;
   const activeBills = (data.recurringItems || [])

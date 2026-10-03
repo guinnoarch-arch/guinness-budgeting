@@ -1,4 +1,6 @@
-export function padDatePart(value) {
+export const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function padDatePart(value) {
   return String(value).padStart(2, "0");
 }
 
@@ -74,4 +76,18 @@ export function daysElapsedInMonth(monthKey) {
   const [year, month] = monthKey.split("-").map(Number);
   if (monthKey === currentMonth) return now.getDate();
   return new Date(year, month, 0).getDate();
+}
+
+// "03 Oct 2026, 14:05" for timestamps such as backups and sign-ins.
+export function formatDateTime(value, emptyText = "Not recorded") {
+  if (!value) return emptyText;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return emptyText;
+  return date.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }

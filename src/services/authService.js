@@ -28,7 +28,7 @@ export function validateEmail(email) {
   return "";
 }
 
-export function normaliseLoginIdentifier(value) {
+function normaliseLoginIdentifier(value) {
   return String(value || "").trim();
 }
 
@@ -60,7 +60,7 @@ export function validateSignInPassword(password) {
   return "";
 }
 
-export async function signInWithEmail(settings, email, password) {
+async function signInWithEmail(settings, email, password) {
   const emailIssue = validateEmail(email);
   if (emailIssue) throw new Error(emailIssue);
   const passwordIssue = validateSignInPassword(password);
@@ -84,7 +84,7 @@ export async function signInWithEmailOrUsername(settings, identifier, password) 
   let resolvedEmail = null;
   try {
     resolvedEmail = await resolveSupabaseUsernameLogin(settings, username);
-  } catch (error) {
+  } catch {
     throw new Error("Signing in with a username isn't available right now. Use your email address instead.");
   }
   if (!resolvedEmail) {

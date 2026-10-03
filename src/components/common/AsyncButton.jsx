@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { logError } from "../../utils/logger.js";
 
 // A button for actions that take time (network, file saves). It disables
 // itself while the action runs so a double-click can't run it twice, and
@@ -20,7 +21,7 @@ export default function AsyncButton({ onClick, busyLabel = "", children, disable
     } catch (error) {
       // Actions handle expected failures themselves; this only catches bugs,
       // so they're visible in the console rather than an unhandled rejection.
-      console.error("Action failed:", error);
+      logError("Action failed", error);
     } finally {
       if (isMountedRef.current) setIsBusy(false);
     }

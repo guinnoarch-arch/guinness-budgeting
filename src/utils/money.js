@@ -15,6 +15,13 @@ export function formatMoney(value, showPence = true) {
   }).format(safeValue);
 }
 
+// "+£12.50" / "-£12.50" from a signed number (money in is positive).
+export function formatSignedAmount(value) {
+  const amount = roundMoney(value);
+  return `${amount >= 0 ? "+" : "-"}${formatMoney(Math.abs(amount))}`;
+}
+
+// "+£12.50" for income, "-£12.50" for an expense, plain for anything else.
 export function signedMoney(value, type) {
   if (type === "income") return `+${formatMoney(value)}`;
   if (type === "expense") return `-${formatMoney(value)}`;

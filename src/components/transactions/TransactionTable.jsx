@@ -4,13 +4,7 @@ import { deleteTransaction, getMatchingExclusionRules } from "../../services/tra
 import { deleteStoredReceipt, getStoredReceipt } from "../../services/receiptStorageService.js";
 import { signedMoney } from "../../utils/money.js";
 import { getLinkedLoanId, getLoanById, getTransactionLoanSplit } from "../../utils/loanLinking.js";
-
-function formatFileSize(bytes) {
-  const value = Number(bytes || 0);
-  if (value >= 1024 * 1024) return `${Math.round((value / (1024 * 1024)) * 10) / 10} MB`;
-  if (value >= 1024) return `${Math.round((value / 1024) * 10) / 10} KB`;
-  return `${value} B`;
-}
+import { formatFileSize } from "../../utils/files.js";
 
 export default function TransactionTable({ appData, actions, transactions }) {
   const [receiptViewer, setReceiptViewer] = useState(null);

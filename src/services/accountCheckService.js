@@ -1,5 +1,6 @@
 import { calculateAccountBalanceAtDate } from "../utils/calculations.js";
-import { addDaysToIsoDate } from "../utils/dates.js";
+import { MS_PER_DAY, addDaysToIsoDate } from "../utils/dates.js";
+import { formatSignedAmount, roundMoney } from "../utils/money.js";
 
 // A day-by-day health check of one account, independent of any import: every
 // transaction/adjustment per day, the app's end-of-day balance next to the
@@ -72,7 +73,7 @@ export function buildAccountCheck(data, accountId, { fromDate, toDate }) {
       const partnerName = accountNames.get(partner.accountId) || "another account";
       const problems = [];
       if (partner.accountId === accountId) problems.push("its other side is in this same account");
-      if (Math.abs(signedAmount(partner) + signed) > 0.005) problems.push(`the other side in ${partnerName} is ${formatSigned(signedAmount(partner))}, not ${formatSigned(-signed)}`);
+      if (Math.abs(signedAmount(partner) + signed) > 0.005) problems.push(`the other side in ${partnerName} is ${formatSignedAmount(signedAmount(partner))}, not ${formatSignedAmount(-signed)}`);
       if (partner.transferLinkId !== transaction.id) problems.push("the other side doesn't link back to this one");
       if (daysBetween(partner.date, transaction.date) > 3) problems.push(`the other side is dated ${partner.date}`);
       if (problems.length) {
@@ -277,17 +278,10 @@ function signedAmount(transaction) {
   return transaction.type === "income" ? Number(transaction.amount || 0) : -Number(transaction.amount || 0);
 }
 
-function formatSigned(value) {
-  return `${value >= 0 ? "+" : "-"}£${Math.abs(value).toFixed(2)}`;
-}
-
 function daysBetween(a, b) {
   const da = new Date(`${a}T00:00:00`);
   const db = new Date(`${b}T00:00:00`);
   if (Number.isNaN(da.getTime()) || Number.isNaN(db.getTime())) return 999;
-  return Math.abs(Math.round((da.getTime() - db.getTime()) / 86400000));
+  return Math.abs(Math.round((da.getTime() - db.getTime()) / MS_PER_DAY));
 }
 
-function roundMoney(value) {
-  return Math.round(Number(value || 0) * 100) / 100;
-}

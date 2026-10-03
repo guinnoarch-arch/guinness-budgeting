@@ -4,7 +4,9 @@ import { formatMoney } from "../utils/money.js";
 import { createId } from "../utils/ids.js";
 import { checkMoneyAmount, checkRequiredDate, checkRequiredText, collectErrors } from "../utils/validation.js";
 import useFormErrors from "../hooks/useFormErrors.js";
-import { ErrorSummary, FieldError, RequiredMark } from "../components/common/FormFeedback.jsx";
+import { DEFAULT_ACCOUNT_ID } from "../data/defaultAccounts.js";
+import { BillRow, RecurringPaymentCard } from "../components/bills/BillCards.jsx";
+import { RecurringItemModal } from "../components/bills/RecurringItemModal.jsx";
 
 function validateBillForm(values) {
   return collectErrors({
@@ -21,7 +23,7 @@ const emptyRecurringForm = {
   amount: "",
   amountType: "fixed",
   categoryId: "cat_bills",
-  accountId: "acc_current",
+  accountId: DEFAULT_ACCOUNT_ID,
   frequency: "monthly",
   nextDueDate: "",
   autoAdd: false,
@@ -82,7 +84,7 @@ export default function BillsPage({ appData, actions }) {
       amount: item.amount?.toString() || "",
       amountType: item.amountType || "fixed",
       categoryId: item.categoryId || expenseCategories[0]?.id || "cat_bills",
-      accountId: item.accountId || activeAccounts[0]?.id || "acc_current",
+      accountId: item.accountId || activeAccounts[0]?.id || DEFAULT_ACCOUNT_ID,
       frequency: item.frequency || "monthly",
       nextDueDate: item.nextDueDate || todayIsoDate(),
       autoAdd: Boolean(item.autoAdd),
@@ -293,180 +295,22 @@ export default function BillsPage({ appData, actions }) {
       </section>
 
       {editingItem && (
-        <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={saveRecurring} noValidate>
-            <div className="section-header">
-              <div>
-                <p className="eyebrow">Recurring payment</p>
-                <h2>{isAddingBill ? "Add bill" : `Edit ${editingItem.name}`}</h2>
-              </div>
-              <button type="button" className="icon-button" onClick={closeEditRecurring} aria-label="Close">×</button>
-            </div>
-
-            <ErrorSummary errors={errors} getFieldId={getFieldId} />
-
-            <div className="form-grid">
-              <label>
-                <span>Name<RequiredMark /></span>
-                <input
-                  {...fieldProps("name")}
-                  aria-required="true"
-                  type="text"
-                  value={form.name}
-                  onChange={e => updateForm("name", e.target.value)}
-                  placeholder="Netflix"
-                />
-                <FieldError fieldId={getFieldId("name")} message={errors.name} />
-              </label>
-
-              <label>
-                <span>Amount<RequiredMark /></span>
-                <input
-                  {...fieldProps("amount")}
-                  aria-required="true"
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  value={form.amount}
-                  onChange={e => updateForm("amount", e.target.value)}
-                  onBlur={() => validateFieldOnBlur("amount", form)}
-                  placeholder="13.00"
-                />
-                <FieldError fieldId={getFieldId("amount")} message={errors.amount} />
-              </label>
-
-              <label>
-                Amount type
-                <select value={form.amountType} onChange={e => updateForm("amountType", e.target.value)}>
-                  <option value="fixed">Fixed</option>
-                  <option value="variable">Variable</option>
-                </select>
-              </label>
-
-              <label>
-                Frequency
-                <select value={form.frequency} onChange={e => updateForm("frequency", e.target.value)}>
-                  <option value="weekly">Weekly</option>
-                  <option value="fortnightly">Fortnightly</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="every_4_weeks">Every 4 weeks</option>
-                  <option value="yearly">Yearly</option>
-                </select>
-              </label>
-
-              <label>
-                <span>Next due date<RequiredMark /></span>
-                <input
-                  {...fieldProps("nextDueDate")}
-                  aria-required="true"
-                  type="date"
-                  value={form.nextDueDate}
-                  onChange={e => updateForm("nextDueDate", e.target.value)}
-                />
-                <FieldError fieldId={getFieldId("nextDueDate")} message={errors.nextDueDate} />
-              </label>
-
-              <label>
-                Category
-                <select value={form.categoryId} onChange={e => updateForm("categoryId", e.target.value)}>
-                  {expenseCategories.map(category => (
-                    <option key={category.id} value={category.id}>{category.name}</option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                <span>Account<RequiredMark /></span>
-                <select {...fieldProps("accountId")} aria-required="true" value={form.accountId} onChange={e => updateForm("accountId", e.target.value)}>
-                  {activeAccounts.map(account => (
-                    <option key={account.id} value={account.id}>{account.name}</option>
-                  ))}
-                </select>
-                <FieldError fieldId={getFieldId("accountId")} message={errors.accountId} />
-              </label>
-
-              <label className="checkbox-label recurring-toggle-label">
-                <input
-                  type="checkbox"
-                  checked={form.autoAdd}
-                  onChange={e => updateForm("autoAdd", e.target.checked)}
-                />
-                Auto-add fixed payment
-              </label>
-
-              <label className="checkbox-label recurring-toggle-label">
-                <input
-                  type="checkbox"
-                  checked={form.reminderEnabled}
-                  onChange={e => updateForm("reminderEnabled", e.target.checked)}
-                />
-                Reminder enabled
-              </label>
-            </div>
-
-            <div className="modal-actions split-actions">
-              <div>
-                {!isAddingBill && (
-                  <button type="button" className="danger-button" onClick={() => {
-                    if (archiveRecurring(editingItem)) closeEditRecurring();
-                  }}>
-                    Archive bill
-                  </button>
-                )}
-              </div>
-              <div className="row-actions">
-                <button type="button" className="secondary-button" onClick={closeEditRecurring}>Cancel</button>
-                <button className="primary-button">{isAddingBill ? "Add bill" : "Save changes"}</button>
-              </div>
-            </div>
-          </form>
-        </div>
+        <RecurringItemModal
+          activeAccounts={activeAccounts}
+          archiveRecurring={archiveRecurring}
+          closeEditRecurring={closeEditRecurring}
+          editingItem={editingItem}
+          errors={errors}
+          expenseCategories={expenseCategories}
+          fieldProps={fieldProps}
+          form={form}
+          getFieldId={getFieldId}
+          isAddingBill={isAddingBill}
+          saveRecurring={saveRecurring}
+          updateForm={updateForm}
+          validateFieldOnBlur={validateFieldOnBlur}
+        />
       )}
     </div>
   );
-}
-
-function RecurringPaymentCard({ item, archived = false, onEdit, onArchive, onRestore, onDelete }) {
-  return (
-    <div className={`sub-card recurring-payment-card ${archived ? "archived-card" : ""}`}>
-      <div className="recurring-card-main">
-        <strong>{item.name}</strong>
-        <p>{formatMoney(item.amount)} · {item.amountType || "fixed"} · {formatFrequency(item.frequency)}</p>
-        <p>Next due: {item.nextDueDate || "Not set"}</p>
-        {archived && <p className="muted-text">Archived {item.archivedAt ? item.archivedAt.slice(0, 10) : ""}</p>}
-      </div>
-
-      <div className="recurring-card-actions">
-        <span className="pill">{item.autoAdd ? "Auto-add" : "Confirm"}</span>
-        {archived ? (
-          <>
-            <button className="secondary-button" type="button" onClick={() => onRestore(item)}>Restore</button>
-            <button className="danger-button" type="button" onClick={() => onDelete(item)}>Delete permanently</button>
-          </>
-        ) : (
-          <>
-            <button className="secondary-button" type="button" onClick={() => onEdit(item)}>Edit</button>
-            <button className="danger-button" type="button" onClick={() => onArchive(item)}>Archive</button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function BillRow({ item }) {
-  return (
-    <div className="simple-row">
-      <span>
-        <strong>{item.name}</strong>
-        <small>{item.nextDueDate}</small>
-      </span>
-      <strong>{formatMoney(item.amount)}</strong>
-    </div>
-  );
-}
-
-function formatFrequency(frequency) {
-  return String(frequency || "monthly").replaceAll("_", " ");
 }

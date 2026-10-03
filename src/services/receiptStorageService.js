@@ -1,7 +1,7 @@
 const DB_NAME = "guinness-holley-budgeting-receipts";
 const DB_VERSION = 1;
 const STORE_NAME = "receipts";
-const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
+export const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
 
 function isIndexedDbAvailable() {
   return typeof indexedDB !== "undefined";
@@ -111,11 +111,11 @@ export async function deleteStoredReceipt(receiptId) {
   return true;
 }
 
-export async function listStoredReceipts() {
+async function listStoredReceipts() {
   return withReceiptStore("readonly", store => requestToPromise(store.getAll()));
 }
 
-export async function clearAllStoredReceipts() {
+async function clearAllStoredReceipts() {
   await withReceiptStore("readwrite", store => store.clear());
   return true;
 }
@@ -235,4 +235,3 @@ export async function restoreReceiptBackupRecords(receiptStorage) {
   return { restoredReceipts: receipts.length };
 }
 
-export { MAX_RECEIPT_BYTES };
