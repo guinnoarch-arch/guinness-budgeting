@@ -4938,54 +4938,6 @@ button[disabled] {
   overflow-x: auto;
 }
 
-/* The transaction table has 9 columns — even shrunk, that only ever fits a
-   phone screen by scrolling sideways to see the amount or category. Turn
-   each row into a labeled card instead: no horizontal scrolling, and every
-   field is readable without hiding any of them. */
-.app-shell.phone-mode .phone-card-table {
-  display: block;
-  width: 100%;
-}
-
-.app-shell.phone-mode .phone-card-table thead {
-  display: none;
-}
-
-.app-shell.phone-mode .phone-card-table tbody {
-  display: block;
-}
-
-.app-shell.phone-mode .phone-card-table tr {
-  display: block;
-  border: 1px solid var(--line);
-  border-radius:var(--radius);
-  padding: 10px 14px;
-  margin-bottom: 10px;
-  background: var(--card);
-}
-
-.app-shell.phone-mode .phone-card-table td {
-  display: block;
-  padding: 7px 0;
-  border: none;
-  text-align: left;
-}
-
-.app-shell.phone-mode .phone-card-table td:not(:last-child) {
-  border-bottom: 1px solid var(--line);
-}
-
-.app-shell.phone-mode .phone-card-table td::before {
-  content: attr(data-label);
-  display: block;
-  margin-bottom: 2px;
-  color: var(--muted);
-  font-size:var(--fs-xs);
-  font-weight:600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
 .app-shell.phone-mode input,
 .app-shell.phone-mode select,
 .app-shell.phone-mode textarea {
@@ -5913,57 +5865,6 @@ td[data-label="Date"] {
   letter-spacing: 0;
 }
 
-/* Phone: each transaction is a compact card - title and amount first,
-   then date and type, then category and account, then actions. */
-.app-shell.phone-mode .phone-card-table tr {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "title amount"
-    "date type"
-    "category account"
-    "recurring receipt"
-    "actions actions";
-  column-gap: 12px;
-  row-gap: 2px;
-  padding: 12px 14px;
-}
-
-.app-shell.phone-mode .phone-card-table td {
-  padding: 2px 0;
-  border: 0 !important;
-  min-width: 0;
-}
-
-.app-shell.phone-mode .phone-card-table td::before {
-  display: none;
-}
-
-.app-shell.phone-mode .phone-card-table td[data-label="Title"] { grid-area: title; }
-.app-shell.phone-mode .phone-card-table td[data-label="Amount"] { grid-area: amount; text-align: right; font-weight: 600; font-size: var(--fs-lg); }
-.app-shell.phone-mode .phone-card-table td[data-label="Date"] { grid-area: date; color: var(--muted); font-size: var(--fs-sm); }
-.app-shell.phone-mode .phone-card-table td[data-label="Type"] { grid-area: type; text-align: right; }
-.app-shell.phone-mode .phone-card-table td[data-label="Category"] { grid-area: category; font-size: var(--fs-sm); }
-.app-shell.phone-mode .phone-card-table td[data-label="Account"] { grid-area: account; text-align: right; font-size: var(--fs-sm); }
-.app-shell.phone-mode .phone-card-table td[data-label="Recurring?"] { grid-area: recurring; color: var(--muted); font-size: var(--fs-sm); }
-.app-shell.phone-mode .phone-card-table td[data-label="Receipt"] { grid-area: receipt; text-align: right; color: var(--muted); font-size: var(--fs-sm); }
-.app-shell.phone-mode .phone-card-table td[data-label="Actions"] { grid-area: actions; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line) !important; }
-
-.app-shell.phone-mode .phone-card-table td[data-label="Recurring?"]::before,
-.app-shell.phone-mode .phone-card-table td[data-label="Receipt"]::before {
-  display: inline;
-  content: attr(data-label) " ";
-  margin: 0;
-  font-size: inherit;
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.app-shell.phone-mode .phone-card-table td[data-label="Actions"] > * {
-  display: inline-flex;
-}
-
 /* Phone: every control is at least 44px, the minimum comfortable touch target */
 .app-shell.phone-mode button,
 .app-shell.phone-mode select,
@@ -5993,12 +5894,6 @@ td[data-label="Date"] {
   .phone-mode-toggle {
     display: none;
   }
-}
-
-.app-shell.phone-mode .phone-card-table,
-.app-shell.phone-mode .phone-card-table tr {
-  min-width: 0;
-  width: 100%;
 }
 
 /* Page titles are the page's one top-level heading; sized like a section title */
@@ -6101,4 +5996,128 @@ h1.page-title {
 .app-shell.phone-mode .summary-inline-toggle {
   min-height: 44px;
   align-items: center;
+}
+
+/* Transactions: one line each (name, date, amount); the rest opens in a
+   details pop-up. */
+.transaction-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.transaction-list li + li {
+  border-top: 1px solid var(--line);
+}
+
+.transaction-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.transaction-row:hover {
+  background: var(--surface-2);
+}
+
+.transaction-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--primary);
+}
+
+.transaction-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.transaction-row-date {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+.transaction-row-amount {
+  min-width: 7.5em;
+  text-align: right;
+  white-space: nowrap;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell.phone-mode .transaction-row {
+  gap: 10px;
+  padding: 12px;
+}
+
+.app-shell.phone-mode .transaction-row-amount {
+  min-width: 0;
+}
+
+.transaction-details-modal {
+  max-width: 520px;
+}
+
+.transaction-details {
+  margin: 0 0 8px;
+}
+
+.transaction-details > div {
+  display: grid;
+  grid-template-columns: 8.5em minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.transaction-details dt {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.transaction-details dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.transaction-details dd small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.transaction-details dd.amount {
+  font-weight: 600;
+  font-size: var(--fs-lg);
+  font-variant-numeric: tabular-nums;
+}
+
+.transaction-details .text-button {
+  padding: 0;
+}
+
+.transaction-details-modal .modal-actions {
+  justify-content: space-between;
+}
+
+.app-shell.phone-mode .transaction-details-modal .modal-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.app-shell.phone-mode .transaction-details-modal .modal-actions > * {
+  width: 100%;
 }
