@@ -6121,3 +6121,55 @@ h1.page-title {
 .app-shell.phone-mode .transaction-details-modal .modal-actions > * {
   width: 100%;
 }
+
+/* On the dashboard its tab is replaced by the account picker, styled as
+   the highlighted tab, so the nav doesn't need room for both. The real
+   select is invisible and stretched over a label showing the chosen
+   account, so the tab is only as wide as that name. */
+.top-nav .nav-account-tab,
+.app-shell.phone-mode .top-nav .nav-account-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 10px 12px 10px 14px;
+  font-weight: 600;
+}
+
+.app-shell.phone-mode .top-nav .nav-account-tab {
+  min-height: 44px;
+  padding: 8px 9px 8px 10px;
+  font-size: var(--fs-md);
+}
+
+.top-nav .nav-account-tab .nav-account-select,
+[data-theme="dark"] .top-nav .nav-account-tab .nav-account-select,
+.app-shell.phone-mode .top-nav .nav-account-tab .nav-account-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  font-size: var(--fs-base);
+  cursor: pointer;
+}
+
+.top-nav .nav-account-tab:focus-within {
+  box-shadow: var(--focus-ring);
+}
+
+.top-nav .nav-account-tab .nav-account-select option {
+  background: var(--card);
+  color: var(--text);
+}
+
+.top-nav .nav-account-tab svg {
+  flex-shrink: 0;
+  pointer-events: none;
+}

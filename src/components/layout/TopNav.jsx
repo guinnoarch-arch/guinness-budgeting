@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { ChevronDown } from "lucide-react";
 
 const navItems = [
   ["dashboard", "Dashboard"],
@@ -22,6 +22,7 @@ export default function TopNav({
   const activeAccounts = (accounts || []).filter(account => account.isActive !== false);
   const selectedAccountExists = activeAccounts.some(account => account.id === selectedDashboardAccountId);
   const safeSelectedAccountId = selectedAccountExists ? selectedDashboardAccountId : "all";
+  const selectedAccountName = activeAccounts.find(account => account.id === safeSelectedAccountId)?.name || "All accounts";
   const visibleNavItems = navItems.filter(([key]) => key !== "loans" || featureFlags.loans !== false);
 
   return (
@@ -37,16 +38,9 @@ export default function TopNav({
       )}
 
       {visibleNavItems.map(([key, label]) => (
-        <Fragment key={key}>
-          <button
-            className={`nav-item ${activePage === key ? "active" : ""}`}
-            aria-current={activePage === key ? "page" : undefined}
-            onClick={() => setActivePage(key)}
-          >
-            {label}
-          </button>
-
-          {key === "dashboard" && activePage === "dashboard" && (
+        // On the dashboard its tab becomes the account picker, to save space.
+        key === "dashboard" && activePage === "dashboard" ? (
+          <span key={key} className="nav-item active nav-account-tab" aria-current="page">
             <select
               className="nav-account-select"
               value={safeSelectedAccountId}
@@ -58,8 +52,21 @@ export default function TopNav({
                 <option key={account.id} value={account.id}>{account.name}</option>
               ))}
             </select>
-          )}
-        </Fragment>
+            {/* The select is invisible and laid over this label, so the tab is
+                only as wide as the chosen account, not the longest one. */}
+            <span className="nav-account-label" aria-hidden="true">{selectedAccountName}</span>
+            <ChevronDown size={16} aria-hidden="true" />
+          </span>
+        ) : (
+          <button
+            key={key}
+            className={`nav-item ${activePage === key ? "active" : ""}`}
+            aria-current={activePage === key ? "page" : undefined}
+            onClick={() => setActivePage(key)}
+          >
+            {label}
+          </button>
+        )
       ))}
     </nav>
   );
