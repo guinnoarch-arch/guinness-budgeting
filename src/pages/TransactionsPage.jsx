@@ -39,7 +39,7 @@ export default function TransactionsPage({ appData, actions }) {
       <div className="page-title-row">
         <div>
           <p className="eyebrow">Transactions</p>
-          <h2>All money movements</h2>
+          <h1 className="page-title">All money movements</h1>
         </div>
       </div>
 

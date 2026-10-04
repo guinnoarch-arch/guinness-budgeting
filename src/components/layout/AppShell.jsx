@@ -79,6 +79,7 @@ export default function AppShell({
 
   return (
     <div className={`app-shell ${actions.phoneMode ? "phone-mode" : ""}`.trim()}>
+      <a className="skip-link" href="#main-content">Skip to content</a>
       <div className="app-fixed-area">
         <header className="app-header">
           <button type="button" className="brand" onClick={() => setActivePage("dashboard")} title="Go to dashboard">
@@ -102,14 +103,16 @@ export default function AppShell({
             >
               {themeMode === "dark" ? <SunIcon /> : <MoonIcon />}
             </HeaderIconButton>
-            <HeaderIconButton
-              label={actions.phoneMode ? "Desktop view" : "Phone view"}
-              title={actions.phoneMode ? "Return to desktop layout" : "Use compact phone-friendly layout"}
-              active={actions.phoneMode}
-              onClick={actions.togglePhoneMode}
-            >
-              {actions.phoneMode ? <LaptopIcon /> : <PhoneIcon />}
-            </HeaderIconButton>
+            {!actions.isNarrowScreen && (
+              <HeaderIconButton
+                label={actions.phoneMode ? "Desktop view" : "Phone view"}
+                title={actions.phoneMode ? "Return to desktop layout" : "Use compact phone-friendly layout"}
+                active={actions.phoneMode}
+                onClick={actions.togglePhoneMode}
+              >
+                {actions.phoneMode ? <LaptopIcon /> : <PhoneIcon />}
+              </HeaderIconButton>
+            )}
             <HeaderIconButton
               label="Global search"
               title="Search app data"
@@ -285,7 +288,7 @@ export default function AppShell({
         />
       </div>
 
-      <main className="page-content app-scroll-area">{children}</main>
+      <main id="main-content" className="page-content app-scroll-area" tabIndex={-1}>{children}</main>
 
       {showTransactionModal && (
         <TransactionModal

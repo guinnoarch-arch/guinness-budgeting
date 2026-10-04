@@ -340,7 +340,7 @@ export default function ControlCentrePage({ appData, actions }) {
       <section className="page-grid control-centre-page">
         <div className="card control-access-card">
           <p className="eyebrow">Control Centre</p>
-          <h2>Not authorised</h2>
+          <h1 className="page-title">Not authorised</h1>
           <p className="muted-text">{adminStatus.reason}</p>
           <div className="cloud-status-message compact-status warning-status">
             Admin access is checked by Supabase RPCs against public.profiles.role = 'admin'. Run the updated Supabase SQL setup if this route should be available to your account.
@@ -361,7 +361,7 @@ export default function ControlCentrePage({ appData, actions }) {
             Back to Budgeting
           </button>
           <p className="eyebrow">Admin</p>
-          <h2>Control Centre</h2>
+          <h1 className="page-title">Control Centre</h1>
         </div>
         <span className="pill storage-ok">Protected</span>
       </div>

@@ -3,7 +3,7 @@ import useIsSmallScreen from "../../hooks/useIsSmallScreen.js";
 import { smallMonthXAxisProps } from "../../utils/chartLabels.js";
 import { formatMoney } from "../../utils/money.js";
 import ExpandableChart from "../common/ExpandableChart.jsx";
-import { AXIS_TICK, CHART_SERIES, GRID_PROPS } from "../../utils/chartTheme.js";
+import { AXIS_TICK, CHART_ANIMATION, CHART_SERIES, GRID_PROPS } from "../../utils/chartTheme.js";
 
 export default function SpendingComparisonChart({ summary }) {
   const isSmallScreen = useIsSmallScreen();
@@ -33,7 +33,7 @@ export default function SpendingComparisonChart({ summary }) {
           />
           <YAxis tick={AXIS_TICK} tickFormatter={(value) => formatMoney(value, false)} />
           <Tooltip formatter={(value) => formatMoney(value)} />
-          <Line type="monotone" dataKey="spending" name={metricName} stroke={CHART_SERIES[0]} strokeWidth={2.5} />
+          <Line isAnimationActive={CHART_ANIMATION} type="monotone" dataKey="spending" name={metricName} stroke={CHART_SERIES[0]} strokeWidth={2.5} />
         </LineChart>
       </ExpandableChart>
     </section>

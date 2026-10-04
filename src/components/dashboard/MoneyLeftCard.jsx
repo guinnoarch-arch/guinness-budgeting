@@ -4,21 +4,27 @@ export default function MoneyLeftCard({ value, label = "Money left this month", 
   const isNegative = value < 0;
 
   return (
+    // Click anywhere with a mouse; the label is the keyboard/screen-reader button.
     <section
       className={`card money-left-card ${isNegative ? "danger" : ""} ${onClick ? "clickable-card" : ""}`}
-      onClick={onClick}
-      role={onClick ? "button" : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onKeyDown={event => {
-        if (!onClick) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onClick();
-        }
-      }}
+      onClick={onClick || undefined}
     >
       <div>
-        <p className="eyebrow">{label}</p>
+        <p className="eyebrow">
+          {onClick ? (
+            <button
+              type="button"
+              className="card-label-button"
+              aria-label={`${label}: show details`}
+              onClick={event => {
+                event.stopPropagation();
+                onClick();
+              }}
+            >
+              {label}
+            </button>
+          ) : label}
+        </p>
         <h2>{isNegative ? `${negativeLabel} ${formatMoney(Math.abs(value), false)}` : formatMoney(value, false)}</h2>
       </div>
       {description ? <p>{description}</p> : null}

@@ -38,7 +38,7 @@ export default function LoansPage({ appData, actions }) {
       <div className="page-title-row">
         <div>
           <p className="eyebrow">Loans</p>
-          <h2>Loans tracker</h2>
+          <h1 className="page-title">Loans tracker</h1>
         </div>
         <div className="row-actions">
           <button type="button" className="secondary-button" onClick={openAddHouseModal}>+ House</button>

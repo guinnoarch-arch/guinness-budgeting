@@ -212,7 +212,7 @@ export default function BillsPage({ appData, actions }) {
       <div className="page-title-row">
         <div>
           <p className="eyebrow">Bills</p>
-          <h2>Recurring payments and reminders</h2>
+          <h1 className="page-title">Recurring payments and reminders</h1>
         </div>
         <button type="button" className="primary-button" onClick={openAddRecurring}>+ Add bill</button>
       </div>

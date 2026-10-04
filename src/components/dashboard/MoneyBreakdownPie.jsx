@@ -1,7 +1,8 @@
 import { Cell, Pie, PieChart, Tooltip } from "recharts";
 import { formatMoney } from "../../utils/money.js";
 import ExpandableChart from "../common/ExpandableChart.jsx";
-import { CHART_SERIES } from "../../utils/chartTheme.js";
+import useIsSmallScreen from "../../hooks/useIsSmallScreen.js";
+import { CHART_ANIMATION, CHART_SERIES } from "../../utils/chartTheme.js";
 
 const MONEY_COLORS = CHART_SERIES;
 const GOAL_COLORS = CHART_SERIES;
@@ -164,6 +165,9 @@ export default function MoneyBreakdownPie({ summary, includeExcludedSpending = f
   const baseData = isSavingsView ? buildSavingsData(summary) : buildMoneyData(summary, includeExcludedSpending);
   const data = addTwoColumnLabelLayout(baseData);
   const colours = isSavingsView ? GOAL_COLORS : MONEY_COLORS;
+  // On a phone the labels round the pie don't fit, so they become a list
+  // under it instead.
+  const isSmallScreen = useIsSmallScreen();
 
   return (
     <section className="card chart-card money-pie-card">
@@ -174,21 +178,22 @@ export default function MoneyBreakdownPie({ summary, includeExcludedSpending = f
         <div className="money-pie-layout two-column-labels">
           <div className="money-pie-chart-wrap">
             <ExpandableChart title={isSavingsView ? "Where savings is saved for" : "Budget breakdown"} height={330}>
-              <PieChart margin={{ top: 6, right: 210, bottom: 6, left: 210 }}>
-                <Pie
+              <PieChart margin={isSmallScreen ? { top: 6, right: 6, bottom: 6, left: 6 } : { top: 6, right: 210, bottom: 6, left: 210 }}>
+                <Pie isAnimationActive={CHART_ANIMATION}
                   data={data}
                   dataKey="value"
                   nameKey="name"
                   outerRadius={82}
                   startAngle={90}
                   endAngle={-270}
-                  label={CustomPieLabel}
+                  label={isSmallScreen ? false : CustomPieLabel}
                   labelLine={false}
                 >
                   {data.map((entry, index) => (
                     <Cell
                       key={`cell-${index}`}
                       fill={colours[index % colours.length]}
+                      aria-label={entry.name}
                     />
                   ))}
                 </Pie>
@@ -207,6 +212,16 @@ export default function MoneyBreakdownPie({ summary, includeExcludedSpending = f
               </PieChart>
             </ExpandableChart>
           </div>
+          {isSmallScreen && (
+            <ul className="pie-legend">
+              {data.map((entry, index) => (
+                <li key={`legend-${index}`}>
+                  <span className="pie-legend-swatch" style={{ background: colours[index % colours.length] }} aria-hidden="true" />
+                  <span>{entry.name}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </section>

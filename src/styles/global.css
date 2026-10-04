@@ -4566,7 +4566,7 @@ button[disabled] {
 .welcome-screen.phone-mode .secondary-button,
 .storage-recovery-page.phone-mode .secondary-button,
 .storage-recovery-page.phone-mode .primary-button {
-  min-height: 38px;
+  min-height: 44px;
   padding: 8px 10px;
   font-size:var(--fs-md);
 }
@@ -4704,7 +4704,7 @@ button[disabled] {
 .app-shell.phone-mode .primary-button,
 .app-shell.phone-mode .secondary-button,
 .app-shell.phone-mode .danger-button {
-  min-height: 36px;
+  min-height: 44px;
   padding: 8px 10px;
   font-size:var(--fs-md);
 }
@@ -4712,9 +4712,9 @@ button[disabled] {
 .app-shell.phone-mode .notification-button,
 .app-shell.phone-mode .header-icon-button,
 .app-shell.phone-mode .icon-button {
-  width: 38px;
-  min-width: 38px;
-  height: 38px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
   padding: 8px;
   flex-shrink: 0;
 }
@@ -4855,7 +4855,7 @@ button[disabled] {
 .app-shell.phone-mode .dashboard-summary-grid,
 .app-shell.phone-mode .dashboard-summary-grid.summary-grid-five {
   gap: 8px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .app-shell.phone-mode .dashboard-summary-grid .summary-card {
@@ -5911,4 +5911,194 @@ td[data-label="Date"] {
   font-family: var(--font-serif);
   font-weight: 600;
   letter-spacing: 0;
+}
+
+/* Phone: each transaction is a compact card - title and amount first,
+   then date and type, then category and account, then actions. */
+.app-shell.phone-mode .phone-card-table tr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title amount"
+    "date type"
+    "category account"
+    "recurring receipt"
+    "actions actions";
+  column-gap: 12px;
+  row-gap: 2px;
+  padding: 12px 14px;
+}
+
+.app-shell.phone-mode .phone-card-table td {
+  padding: 2px 0;
+  border: 0 !important;
+  min-width: 0;
+}
+
+.app-shell.phone-mode .phone-card-table td::before {
+  display: none;
+}
+
+.app-shell.phone-mode .phone-card-table td[data-label="Title"] { grid-area: title; }
+.app-shell.phone-mode .phone-card-table td[data-label="Amount"] { grid-area: amount; text-align: right; font-weight: 600; font-size: var(--fs-lg); }
+.app-shell.phone-mode .phone-card-table td[data-label="Date"] { grid-area: date; color: var(--muted); font-size: var(--fs-sm); }
+.app-shell.phone-mode .phone-card-table td[data-label="Type"] { grid-area: type; text-align: right; }
+.app-shell.phone-mode .phone-card-table td[data-label="Category"] { grid-area: category; font-size: var(--fs-sm); }
+.app-shell.phone-mode .phone-card-table td[data-label="Account"] { grid-area: account; text-align: right; font-size: var(--fs-sm); }
+.app-shell.phone-mode .phone-card-table td[data-label="Recurring?"] { grid-area: recurring; color: var(--muted); font-size: var(--fs-sm); }
+.app-shell.phone-mode .phone-card-table td[data-label="Receipt"] { grid-area: receipt; text-align: right; color: var(--muted); font-size: var(--fs-sm); }
+.app-shell.phone-mode .phone-card-table td[data-label="Actions"] { grid-area: actions; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line) !important; }
+
+.app-shell.phone-mode .phone-card-table td[data-label="Recurring?"]::before,
+.app-shell.phone-mode .phone-card-table td[data-label="Receipt"]::before {
+  display: inline;
+  content: attr(data-label) " ";
+  margin: 0;
+  font-size: inherit;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.app-shell.phone-mode .phone-card-table td[data-label="Actions"] > * {
+  display: inline-flex;
+}
+
+/* Phone: every control is at least 44px, the minimum comfortable touch target */
+.app-shell.phone-mode button,
+.app-shell.phone-mode select,
+.app-shell.phone-mode input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+.app-shell.phone-mode .checkbox-label,
+.app-shell.phone-mode [role="button"] {
+  min-height: 44px;
+}
+
+.app-shell.phone-mode .icon-button,
+.app-shell.phone-mode .notification-button,
+.app-shell.phone-mode .month-selector button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.app-shell.phone-mode .text-button {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.app-shell.phone-mode .checkbox-label {
+  align-items: center;
+}
+
+@media (max-width: 720px) {
+  .phone-mode-toggle {
+    display: none;
+  }
+}
+
+.app-shell.phone-mode .phone-card-table,
+.app-shell.phone-mode .phone-card-table tr {
+  min-width: 0;
+  width: 100%;
+}
+
+/* Page titles are the page's one top-level heading; sized like a section title */
+h1.page-title {
+  margin: 0 0 0.6em;
+  font-size: 1.5rem;
+}
+
+.page-title-row h1.page-title,
+.overview-title-wrap h1.page-title,
+.settings-page-intro h1.page-title,
+.empty-state-card h1.page-title {
+  margin: 0;
+}
+
+/* The label of a clickable card doubles as its keyboard button */
+.card-label-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card-label-button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.app-shell.phone-mode .card-label-button {
+  min-height: 0;
+  padding: 0;
+}
+
+.clickable-card:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.pie-legend {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-sm);
+}
+
+.pie-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pie-legend-swatch {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+/* Keyboard users can jump past the header straight to the page */
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  z-index: 100;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 12px;
+}
+
+#main-content:focus {
+  outline: none;
+}
+
+/* Respect the device's "reduce motion" setting everywhere */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.app-shell.phone-mode .summary-inline-toggle {
+  min-height: 44px;
+  align-items: center;
 }

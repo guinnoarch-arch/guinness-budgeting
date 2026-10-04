@@ -20,7 +20,7 @@ export default function BudgetWarningsPanel({ appData, selectedMonth, accountId 
       {budgetItems.length === 0 ? (
         <p className="muted">No category budgets set for this month.</p>
       ) : (
-        <div className="stack budget-warning-stack">
+        <div className="stack budget-warning-stack" tabIndex={0} role="region" aria-label="Budget warnings list">
           {budgetItems.map(item => {
             const { tone, label, remainingText } = describeBudgetStatus(item, thresholds);
 

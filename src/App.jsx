@@ -31,12 +31,16 @@ import { clearLocalAccessSession, hasUsableLocalBudgetData, isLocalAccessSession
 
 import useAppRouting from "./hooks/useAppRouting.js";
 import useAppTheme from "./hooks/useAppTheme.js";
+import useDialogManager from "./hooks/useDialogManager.js";
 import usePhoneMode from "./hooks/usePhoneMode.js";
+import useIsSmallScreen from "./hooks/useIsSmallScreen.js";
 import useStatusMessage, { STATUS_ERROR_DURATION_MS } from "./hooks/useStatusMessage.js";
 import usePwaInstall from "./hooks/usePwaInstall.js";
 import useUndoOffer from "./hooks/useUndoOffer.js";
 import useCloudAccount from "./hooks/useCloudAccount.js";
 import useCloudSync from "./hooks/useCloudSync.js";
+
+const NARROW_SCREEN_QUERY = "(max-width: 720px)";
 
 export default function App() {
   const [appData, setAppData] = useState(null);
@@ -56,7 +60,11 @@ export default function App() {
   const appDataRef = useRef(null);
   appDataRef.current = appData;
 
-  const [phoneMode, setPhoneMode] = usePhoneMode();
+  const [phoneModeChoice, setPhoneMode] = usePhoneMode();
+  // Narrow screens always get the compact layout; on wider screens it is the
+  // "Phone view" choice from the header.
+  const isNarrowScreen = useIsSmallScreen(NARROW_SCREEN_QUERY);
+  const phoneMode = phoneModeChoice || isNarrowScreen;
   const routing = useAppRouting();
   const { statusMessage, notify } = useStatusMessage();
   const pwa = usePwaInstall({ hasUnbackedChanges: Boolean(appData?.settings?.hasUnbackedChanges) });
@@ -66,6 +74,7 @@ export default function App() {
   const cloudSync = useCloudSync({ appData, appDataRef, setAppData, cloudAuthSummary, adminAccessState, backupNow });
   const { cloudBackupStatus, setCloudBackupStatus, cloudStatusRetry, cloudConflict, cloudSyncReady, cloudBackupNow } = cloudSync;
   useAppTheme(appData?.settings);
+  useDialogManager();
 
   useEffect(() => {
     let cancelled = false;
@@ -305,6 +314,7 @@ export default function App() {
     retryCloudAction: cloudSync.retryCloudAction,
     dismissCloudStatus: cloudSync.dismissCloudStatus,
     phoneMode,
+    isNarrowScreen,
     cloudUsername: getDisplayUsernameFromSession(cloudAuthSummary),
     featureFlags: getFeatureFlags(appData?.settings),
     adminAccessState,
@@ -328,7 +338,7 @@ export default function App() {
     setSelectedMonth,
     selectedDashboardAccountId,
     setSelectedDashboardAccountId
-  }), [appData, rulesNotice, selectedMonth, selectedDashboardAccountId, pwa, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode, adminAccessState, appNotices, cloudStatusRetry, routing.activePage, routing.preferredSettingsSection, routing.settingsSectionRequestId, routing.pageIntent, undoOffer]);
+  }), [appData, rulesNotice, selectedMonth, selectedDashboardAccountId, pwa, cloudAuthSummary, cloudBackupStatus, localAccessUnlocked, phoneMode, isNarrowScreen, adminAccessState, appNotices, cloudStatusRetry, routing.activePage, routing.preferredSettingsSection, routing.settingsSectionRequestId, routing.pageIntent, undoOffer]);
 
   if (storageRecoveryError) {
     return (

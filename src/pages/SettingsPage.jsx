@@ -175,7 +175,7 @@ export default function SettingsPage({ appData, actions }) {
   return (
     <div className="page-grid">
       <div className="settings-page-intro">
-        <h2>App settings</h2>
+        <h1 className="page-title">App settings</h1>
       </div>
 
       <HealthCheckSection actions={actions} backupReminder={backupReminder} cloudConfigured={cloudConfigured} cloudSession={cloudSession} settings={settings} storageHealth={storageHealth} accordion={accordion} />

@@ -25,10 +25,11 @@ export default function TopNav({
   const visibleNavItems = navItems.filter(([key]) => key !== "loans" || featureFlags.loans !== false);
 
   return (
-    <nav className="top-nav">
+    <nav className="top-nav" aria-label="Main">
       {isAdmin && (
         <button
           className={`nav-item nav-item-admin ${activePage === "control" ? "active" : ""}`}
+          aria-current={activePage === "control" ? "page" : undefined}
           onClick={() => setActivePage("control")}
         >
           Admin
@@ -39,6 +40,7 @@ export default function TopNav({
         <Fragment key={key}>
           <button
             className={`nav-item ${activePage === key ? "active" : ""}`}
+            aria-current={activePage === key ? "page" : undefined}
             onClick={() => setActivePage(key)}
           >
             {label}

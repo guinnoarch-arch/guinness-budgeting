@@ -606,7 +606,7 @@ export default function ImportPage({ appData, actions }) {
       <div className="page-title-row">
         <div>
           <p className="eyebrow">Import</p>
-          <h2>Bank CSV import</h2>
+          <h1 className="page-title">Bank CSV import</h1>
         </div>
       </div>
 

@@ -185,7 +185,7 @@ export default function SavingsPage({ appData, actions }) {
       <div className="page-title-row">
         <div>
           <p className="eyebrow">Savings</p>
-          <h2>Savings goals</h2>
+          <h1 className="page-title">Savings goals</h1>
         </div>
         <button type="button" className="primary-button" onClick={openAddGoalModal}>+ Add savings goal</button>
       </div>

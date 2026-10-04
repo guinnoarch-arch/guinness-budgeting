@@ -8,7 +8,7 @@ export function RecurringPaymentCard({ item, archived = false, onEdit, onArchive
       <div className="recurring-card-main">
         <strong>{item.name}</strong>
         <p>{formatMoney(item.amount)} · {item.amountType || "fixed"} · {formatFrequency(item.frequency)}</p>
-        <p>Next due: {item.nextDueDate || "Not set"}</p>
+        <p>Next due: {item.nextDueDate ? formatDisplayDate(item.nextDueDate) : "Not set"}</p>
         {archived && <p className="muted-text">Archived {item.archivedAt ? formatDisplayDate(item.archivedAt) : ""}</p>}
       </div>
 
@@ -35,7 +35,7 @@ export function BillRow({ item }) {
     <div className="simple-row">
       <span>
         <strong>{item.name}</strong>
-        <small>{item.nextDueDate}</small>
+        <small>{formatDisplayDate(item.nextDueDate)}</small>
       </span>
       <strong>{formatMoney(item.amount)}</strong>
     </div>

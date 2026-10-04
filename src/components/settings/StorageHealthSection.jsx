@@ -10,7 +10,7 @@ function StorageLogList({ logs }) {
   }
 
   return (
-    <div className="storage-log-list">
+    <div className="storage-log-list" tabIndex={0} role="region" aria-label="Storage log">
       {logs.slice(0, 30).map(log => (
         <div key={log.id} className={`storage-log-row ${log.level || "info"}`}>
           <span>{formatDateTime(log.createdAt)}</span>

@@ -22,7 +22,7 @@ export function ReplacePeriodPanel({ range, accountName, appData, activePlan, ed
   return (
     <div className={`import-reconciliation-box ${activePlan ? "warning" : "muted-box"} import-replace-box`}>
       <div>
-        <strong>{accountName}: {range.fromDate} to {range.toDate}</strong>
+        <strong>{accountName}: {formatDisplayDate(range.fromDate)} to {formatDisplayDate(range.toDate)}</strong>
         {activePlan ? (
           <span>Replacing this period with the CSV: {removingCount} existing item(s) will be removed or put back to planned, then the CSV is imported fresh. Nothing is saved until Confirm import, and Undo import puts them back.</span>
         ) : (
@@ -58,7 +58,7 @@ export function ReplacePeriodPanel({ range, accountName, appData, activePlan, ed
                     onChange={event => toggle("selectedPartnerIds", item.partner.id, event.target.checked)}
                   />
                   <span>
-                    Also remove its other side in <strong>{item.partner.accountName}</strong>: {item.partner.date} · {item.partner.title} · {formatSignedAmount(item.partner.signedAmount)}
+                    Also remove its other side in <strong>{item.partner.accountName}</strong>: {formatDisplayDate(item.partner.date)} · {item.partner.title} · {formatSignedAmount(item.partner.signedAmount)}
                     <small className="muted"> — {item.partner.fromBank ? "from that account's bank statement; if kept it waits to be linked again" : "entered by hand, not from a bank statement"}</small>
                   </span>
                 </label>

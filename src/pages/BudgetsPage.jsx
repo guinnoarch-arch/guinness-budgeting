@@ -190,7 +190,7 @@ export default function BudgetsPage({ appData, actions }) {
       <div className="page-title-row">
         <div>
           <p className="eyebrow">Budgets</p>
-          <h2>Category limits</h2>
+          <h1 className="page-title">Category limits</h1>
         </div>
         <div className="budget-title-actions">
           <div className="mini-total-card">

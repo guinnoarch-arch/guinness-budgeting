@@ -1,4 +1,5 @@
 import { formatMoney } from "../../utils/money.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 export function BalanceChainCheckBox({ check, label }) {
   if (!check?.checked) {
@@ -20,7 +21,7 @@ export function BalanceChainCheckBox({ check, label }) {
         <ul className="import-balance-chain-mismatches">
           {check.mismatches.map(mismatch => (
             <li key={`${mismatch.rowIndex}_${mismatch.date}`}>
-              {mismatch.date} · {mismatch.description} — expected {formatMoney(mismatch.expectedBalance)}, CSV shows {formatMoney(mismatch.actualBalance)} ({mismatch.difference >= 0 ? "+" : ""}{formatMoney(mismatch.difference)})
+              {formatDisplayDate(mismatch.date)} · {mismatch.description} — expected {formatMoney(mismatch.expectedBalance)}, CSV shows {formatMoney(mismatch.actualBalance)} ({mismatch.difference >= 0 ? "+" : ""}{formatMoney(mismatch.difference)})
             </li>
           ))}
         </ul>

@@ -22,3 +22,6 @@ export const CHART_MEANING = {
 
 export const AXIS_TICK = { fill: "currentColor", fontSize: 12 };
 export const GRID_PROPS = { stroke: "currentColor", strokeOpacity: 0.12, strokeDasharray: "3 3" };
+
+// Charts animate in only when the device hasn't asked for reduced motion.
+export const CHART_ANIMATION = typeof window === "undefined" || !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;

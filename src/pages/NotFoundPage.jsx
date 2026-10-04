@@ -3,7 +3,7 @@ export default function NotFoundPage({ actions }) {
     <div className="page-grid">
       <section className="card empty-state-card">
         <p className="eyebrow">Page not found</p>
-        <h2>There's no page at this address</h2>
+        <h1 className="page-title">There's no page at this address</h1>
         <p className="muted">
           The link may be mistyped or out of date. Your budget data hasn't been affected.
         </p>
