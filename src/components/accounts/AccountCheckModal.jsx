@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { buildAccountCheck } from "../../services/accountCheckService.js";
 import { deleteTransaction, linkTransferPair } from "../../services/transactionService.js";
 import { addDaysToIsoDate, todayIsoDate } from "../../utils/dates.js";
-import { formatMoney } from "../../utils/money.js";
+import { formatMoney, formatSignedAmount } from "../../utils/money.js";
 
 const RANGE_PRESETS = [
   ["30", "30 days"],
@@ -18,11 +18,6 @@ const VIEW_FILTERS = [
   ["transfers", "Transfer gaps"],
   ["out", "Out vs bank"]
 ];
-
-function signedMoney(value) {
-  const amount = Number(value || 0);
-  return `${amount >= 0 ? "+" : "-"}${formatMoney(Math.abs(amount))}`;
-}
 
 function getEarliestDate(appData, accountId) {
   const dates = (appData.transactions || [])
@@ -55,7 +50,7 @@ export default function AccountCheckModal({ account, appData, actions, close }) 
   }
 
   function removeTransaction(item) {
-    if (!window.confirm(`Delete "${item.title}" (${signedMoney(item.signedAmount)})? This can't be undone from here.`)) return;
+    if (!window.confirm(`Delete "${item.title}" (${formatSignedAmount(item.signedAmount)})? This can't be undone from here.`)) return;
     actions.updateAppData(deleteTransaction(appData, item.id), { reason: "Account check: removed a duplicate transaction" });
     setMessage(`Deleted "${item.title}".`);
   }
@@ -148,7 +143,7 @@ export default function AccountCheckModal({ account, appData, actions, close }) 
                   <span className={day.isOut ? "account-check-out" : "account-check-in"} title={day.bankSource ? `Bank balance from "${day.bankSource}"` : undefined}>
                     Bank {formatMoney(day.bankBalance)}{" "}
                     {day.isOut
-                      ? <span className="import-overlap-gap">({signedMoney(day.gap)}{day.gapMoves ? `, moved ${signedMoney(day.gapChange)} today` : ""})</span>
+                      ? <span className="import-overlap-gap">({formatSignedAmount(day.gap)}{day.gapMoves ? `, moved ${formatSignedAmount(day.gapChange)} today` : ""})</span>
                       : "✓"}
                   </span>
                 ) : (
@@ -160,7 +155,7 @@ export default function AccountCheckModal({ account, appData, actions, close }) 
                 <div key={item.id} className="account-check-item">
                   <div className="import-overlap-cell">
                     <span>{item.title}</span>
-                    <strong className={item.signedAmount >= 0 ? "positive-text" : "negative-text"}>{signedMoney(item.signedAmount)}</strong>
+                    <strong className={item.signedAmount >= 0 ? "positive-text" : "negative-text"}>{formatSignedAmount(item.signedAmount)}</strong>
                     <small className="muted">{item.source}</small>
                   </div>
                   {item.flags.map((flag, index) => (

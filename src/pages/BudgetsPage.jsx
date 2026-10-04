@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
 import { checkMoneyAmount, checkRequiredText, collectErrors } from "../utils/validation.js";
 import useFormErrors from "../hooks/useFormErrors.js";
-import { FieldError, RequiredMark } from "../components/common/FormFeedback.jsx";
 import BudgetCard from "../components/budgets/BudgetCard.jsx";
 import { getCategorySpend, getBudgetAccountIds } from "../utils/calculations.js";
 import { createId } from "../utils/ids.js";
 import { formatMonthLabel } from "../utils/dates.js";
 import { formatMoney } from "../utils/money.js";
 import { applyCategoryRules, undoCategoryRuleChanges } from "../services/transactionService.js";
+import { DEFAULT_ACCOUNT_ID } from "../data/defaultAccounts.js";
+import { BudgetManagerModal } from "../components/budgets/BudgetManagerModal.jsx";
+import { BudgetEditorModal } from "../components/budgets/BudgetEditorModal.jsx";
+import { CategoryEditorModal } from "../components/budgets/CategoryEditorModal.jsx";
+import useBudgetEditor from "../hooks/useBudgetEditor.js";
+import useCategoryEditor from "../hooks/useCategoryEditor.js";
 
 function validateNewCategoryForm(values) {
   return collectErrors({
@@ -16,40 +21,13 @@ function validateNewCategoryForm(values) {
   });
 }
 
-function validateBudgetForm(values) {
-  return collectErrors({
-    limit: checkMoneyAmount(values.limit, { required: false, allowZero: true, example: "120" })
-  });
-}
-
-function validateCategoryNameForm(values) {
-  return collectErrors({
-    name: checkRequiredText(values.name, "a name for the category")
-  });
-}
-
 function isCategoryArchived(category) {
   return category.isActive === false || category.isArchived || category.archivedAt;
 }
 
-function fallbackCategoryId(categories, category) {
-  const preferredIds = category.type === "income"
-    ? ["cat_other_income", "cat_refund", "cat_gift"]
-    : ["cat_other_expense", "cat_everything_else", "cat_shopping"];
-
-  const preferred = preferredIds.find(id => id !== category.id && categories.some(item => item.id === id));
-  if (preferred) return preferred;
-
-  return categories.find(item => item.id !== category.id && item.type === category.type)?.id || null;
-}
-
 export default function BudgetsPage({ appData, actions }) {
-  const [editingBudget, setEditingBudget] = useState(null);
-  const [editingCategory, setEditingCategory] = useState(null);
-  const [budgetLimit, setBudgetLimit] = useState("");
-  const [budgetAccountIds, setBudgetAccountIds] = useState(["acc_current"]);
-  const [categoryName, setCategoryName] = useState("");
   const [openBudgetKey, setOpenBudgetKey] = useState(null);
+  const { archiveBudget, budgetAccountIds, budgetErrors, budgetLimit, closeBudgetEditor, editingBudget, getCurrentBudgetForCategory, handleEditBudget, permanentlyDeleteBudget, restoreBudget, saveBudget, setBudgetLimit, toggleBudgetAccount } = useBudgetEditor({ actions, appData, setOpenBudgetKey });
   const [showBudgetManager, setShowBudgetManager] = useState(false);
   const [categoryRefreshStatus, setCategoryRefreshStatus] = useState("");
   const [lastCategoryRuleChanges, setLastCategoryRuleChanges] = useState(null);
@@ -58,28 +36,16 @@ export default function BudgetsPage({ appData, actions }) {
     type: "expense",
     group: "Other",
     limit: "",
-    accountIds: ["acc_current"]
+    accountIds: [DEFAULT_ACCOUNT_ID]
   });
 
   const newCategoryErrors = useFormErrors("new-category", validateNewCategoryForm);
-  const budgetErrors = useFormErrors("budget", validateBudgetForm);
-  const categoryNameErrors = useFormErrors("category-name", validateCategoryNameForm);
 
   useEffect(() => {
     newCategoryErrors.clearFixedErrors(newCategoryDraft);
     // Only re-check when the values change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newCategoryDraft]);
-
-  useEffect(() => {
-    budgetErrors.clearFixedErrors({ limit: budgetLimit });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [budgetLimit]);
-
-  useEffect(() => {
-    categoryNameErrors.clearFixedErrors({ name: categoryName });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryName]);
 
   const activeAccounts = (appData.accounts || []).filter(account => account.isActive !== false);
   const categorySpend = getCategorySpend(appData, actions.selectedMonth)
@@ -105,6 +71,7 @@ export default function BudgetsPage({ appData, actions }) {
     .filter(item => item.category?.type !== "income")
     .reduce((sum, item) => sum + Math.max(0, Number(item.limit || 0) - Number(item.spent || 0)), 0);
   const now = new Date();
+  const { archiveCategory, categoryName, categoryNameErrors, closeCategoryEditor, editingCategory, handleEditCategory, permanentlyDeleteCategory, restoreCategory, saveCategory, setCategoryName } = useCategoryEditor({ actions, appData });
   const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const monthEnd = new Date(Number(actions.selectedMonth.slice(0, 4)), Number(actions.selectedMonth.slice(5, 7)), 0);
   const daysLeft = actions.selectedMonth === currentMonthKey
@@ -114,20 +81,6 @@ export default function BudgetsPage({ appData, actions }) {
   const activeManagerCategories = (appData.categories || [])
     .filter(category => category.isActive !== false && !category.isArchived && !category.archivedAt)
     .sort((a, b) => `${a.type}-${a.group || ""}-${a.name || ""}`.localeCompare(`${b.type}-${b.group || ""}-${b.name || ""}`));
-
-  // Looks up any existing budget row for this category/month, including a
-  // disabled one (limit 0, not yet shown on the Category limits list) — so
-  // opening the editor always re-seeds whichever accounts were actually
-  // saved, rather than falling back to a single default account just
-  // because no limit has been set yet.
-  function getCurrentBudgetForCategory(categoryId) {
-    return (appData.budgets || []).find(budget => (
-      budget.categoryId === categoryId
-      && budget.month === actions.selectedMonth
-      && !budget.isArchived
-      && !budget.archivedAt
-    )) || null;
-  }
 
   function refreshCategorisation() {
     const usableRules = (appData.importRules || []).filter(rule => (rule.matchText || "").trim() && rule.categoryId);
@@ -166,13 +119,6 @@ export default function BudgetsPage({ appData, actions }) {
     });
   }
 
-  function toggleBudgetAccount(accountId) {
-    setBudgetAccountIds(prev => {
-      const has = prev.includes(accountId);
-      return has ? prev.filter(id => id !== accountId) : [...prev, accountId];
-    });
-  }
-
   function addCategoryFromManager(event) {
     event.preventDefault();
     if (!newCategoryErrors.validateAll(newCategoryDraft)) return;
@@ -198,7 +144,7 @@ export default function BudgetsPage({ appData, actions }) {
       // limit set yet (isEnabled follows limit > 0, same as editing an
       // existing budget) — otherwise a limit of 0 silently discards which
       // accounts were ticked, since there'd be nothing left to hold them.
-      const accountIds = newCategoryDraft.accountIds.length > 0 ? newCategoryDraft.accountIds : [activeAccounts[0]?.id || "acc_current"];
+      const accountIds = newCategoryDraft.accountIds.length > 0 ? newCategoryDraft.accountIds : [activeAccounts[0]?.id || DEFAULT_ACCOUNT_ID];
       nextBudgets.push({
         id: createId("bud"),
         categoryId,
@@ -220,7 +166,7 @@ export default function BudgetsPage({ appData, actions }) {
       budgets: nextBudgets
     }, { reason: "Category and budget added" });
 
-    setNewCategoryDraft({ name: "", type: "expense", group: "Other", limit: "", accountIds: [activeAccounts[0]?.id || "acc_current"] });
+    setNewCategoryDraft({ name: "", type: "expense", group: "Other", limit: "", accountIds: [activeAccounts[0]?.id || DEFAULT_ACCOUNT_ID] });
   }
 
   function openBudgetEditorFromManager(category) {
@@ -230,232 +176,13 @@ export default function BudgetsPage({ appData, actions }) {
       category,
       budget,
       limit: Number(budget?.limit || 0),
-      accountIds: budget ? getBudgetAccountIds(budget) : [activeAccounts[0]?.id || "acc_current"]
+      accountIds: budget ? getBudgetAccountIds(budget) : [activeAccounts[0]?.id || DEFAULT_ACCOUNT_ID]
     });
   }
 
   function openCategoryEditorFromManager(category) {
     setShowBudgetManager(false);
     handleEditCategory(category);
-  }
-
-  function handleEditBudget(budgetItem) {
-    setEditingBudget(budgetItem);
-    setBudgetLimit(budgetItem.limit?.toString() || "");
-    const seededIds = budgetItem.accountIds
-      || (budgetItem.budget ? getBudgetAccountIds(budgetItem.budget) : null)
-      || ["acc_current"];
-    setBudgetAccountIds(seededIds);
-  }
-
-  function closeBudgetEditor() {
-    setEditingBudget(null);
-    budgetErrors.resetErrors();
-  }
-
-  function closeCategoryEditor() {
-    setEditingCategory(null);
-    categoryNameErrors.resetErrors();
-  }
-
-  function handleEditCategory(category) {
-    setEditingCategory(category);
-    setCategoryName(category.name);
-  }
-
-  function saveBudget() {
-    if (!editingBudget) return;
-    if (!budgetErrors.validateAll({ limit: budgetLimit })) return;
-    const limit = parseFloat(budgetLimit) || 0;
-    const accountIds = budgetAccountIds.length > 0 ? budgetAccountIds : ["acc_current"];
-    const accountIdsKey = [...accountIds].sort().join("+");
-    const existingBudget = editingBudget.budget
-      ? appData.budgets.find(b => b.id === editingBudget.budget.id)
-      : appData.budgets.find(
-          b => b.categoryId === editingBudget.category.id &&
-            b.month === actions.selectedMonth &&
-            [...getBudgetAccountIds(b)].sort().join("+") === accountIdsKey &&
-            !b.isArchived &&
-            !b.archivedAt
-        );
-
-    if (existingBudget) {
-      actions.updateAppData({
-        ...appData,
-        budgets: appData.budgets.map(b =>
-          b.id === existingBudget.id
-            ? {
-                ...b,
-                accountIds,
-                accountId: accountIds[0],
-                limit,
-                isEnabled: limit > 0,
-                isArchived: false,
-                archivedAt: null,
-                updatedAt: new Date().toISOString()
-              }
-            : b
-        )
-      }, { reason: "Budget edited" });
-    } else {
-      actions.updateAppData({
-        ...appData,
-        budgets: [
-          ...appData.budgets,
-          {
-            id: createId("bud"),
-            categoryId: editingBudget.category.id,
-            accountIds,
-            accountId: accountIds[0],
-            month: actions.selectedMonth,
-            limit,
-            isEnabled: limit > 0,
-            isArchived: false,
-            archivedAt: null,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          }
-        ]
-      }, { reason: "Budget added" });
-    }
-    setEditingBudget(null);
-    setBudgetLimit("");
-    setBudgetAccountIds(["acc_current"]);
-  }
-
-  function archiveBudget(budgetItem) {
-    if (!budgetItem?.budget) return false;
-    const confirmed = window.confirm(
-      `Archive the ${budgetItem.category.name} budget? Past transactions and archived budget history will stay unchanged.`
-    );
-    if (!confirmed) return false;
-
-    actions.updateAppData({
-      ...appData,
-      budgets: appData.budgets.map(budget =>
-        budget.id === budgetItem.budget.id
-          ? {
-              ...budget,
-              isEnabled: false,
-              isArchived: true,
-              archivedAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            }
-          : budget
-      )
-    }, { reason: "Budget archived" });
-    setOpenBudgetKey(null);
-    return true;
-  }
-
-  function restoreBudget(budget) {
-    actions.updateAppData({
-      ...appData,
-      budgets: appData.budgets.map(existing =>
-        existing.id === budget.id
-          ? {
-              ...existing,
-              isEnabled: true,
-              isArchived: false,
-              archivedAt: null,
-              updatedAt: new Date().toISOString()
-            }
-          : existing
-      )
-    }, { reason: "Budget restored" });
-  }
-
-  function permanentlyDeleteBudget(budget) {
-    if (!window.confirm(`Permanently delete the archived ${budget.category?.name || "category"} budget for ${budget.month}? This will not delete any transactions.`)) return;
-    actions.updateAppData({
-      ...appData,
-      budgets: appData.budgets.filter(existing => existing.id !== budget.id)
-    }, { reason: "Archived budget permanently deleted" });
-  }
-
-  function saveCategory() {
-    if (!editingCategory) return;
-    if (!categoryNameErrors.validateAll({ name: categoryName })) return;
-    actions.updateAppData({
-      ...appData,
-      categories: appData.categories.map(c =>
-        c.id === editingCategory.id
-          ? { ...c, name: categoryName.trim(), isActive: true, isArchived: false, archivedAt: null, updatedAt: new Date().toISOString() }
-          : c
-      )
-    }, { reason: "Category edited" });
-    setEditingCategory(null);
-    setCategoryName("");
-  }
-
-  function archiveCategory(category) {
-    if (!category) return false;
-    const activeBudgetCount = appData.budgets.filter(budget => budget.categoryId === category.id && !budget.isArchived && !budget.archivedAt).length;
-    const detail = activeBudgetCount > 0 ? `\n\n${activeBudgetCount} active budget(s) using this category will also be archived.` : "";
-    if (!window.confirm(`Archive the ${category.name} category? Existing transactions will keep this category for history.${detail}`)) return false;
-
-    const now = new Date().toISOString();
-    actions.updateAppData({
-      ...appData,
-      categories: appData.categories.map(item => (
-        item.id === category.id
-          ? { ...item, isActive: false, isArchived: true, archivedAt: now, updatedAt: now }
-          : item
-      )),
-      budgets: appData.budgets.map(budget => (
-        budget.categoryId === category.id && !budget.isArchived && !budget.archivedAt
-          ? { ...budget, isEnabled: false, isArchived: true, archivedAt: now, updatedAt: now }
-          : budget
-      ))
-    }, { reason: "Category archived" });
-    return true;
-  }
-
-  function restoreCategory(category) {
-    const now = new Date().toISOString();
-    actions.updateAppData({
-      ...appData,
-      categories: appData.categories.map(item => (
-        item.id === category.id
-          ? { ...item, isActive: true, isArchived: false, archivedAt: null, updatedAt: now }
-          : item
-      )),
-      settings: {
-        ...(appData.settings || {}),
-        deletedDefaultCategoryIds: (appData.settings?.deletedDefaultCategoryIds || []).filter(id => id !== category.id)
-      }
-    }, { reason: "Category restored" });
-  }
-
-  function permanentlyDeleteCategory(category) {
-    const linkedTransactions = appData.transactions.filter(txn => txn.categoryId === category.id).length;
-    const linkedBudgets = appData.budgets.filter(budget => budget.categoryId === category.id).length;
-    const replacementCategoryId = fallbackCategoryId(appData.categories, category);
-    const replacement = appData.categories.find(item => item.id === replacementCategoryId);
-    const moveText = linkedTransactions > 0
-      ? `\n\n${linkedTransactions} transaction(s) will be moved to ${replacement?.name || "no category"}.`
-      : "";
-    const budgetText = linkedBudgets > 0 ? `\n${linkedBudgets} budget record(s) using this category will be removed.` : "";
-
-    if (!window.confirm(`Permanently delete the archived ${category.name} category? This cannot be undone.${moveText}${budgetText}`)) return;
-
-    const deletedDefaultCategoryIds = category.isDefault
-      ? [...new Set([...(appData.settings?.deletedDefaultCategoryIds || []), category.id])]
-      : (appData.settings?.deletedDefaultCategoryIds || []);
-
-    actions.updateAppData({
-      ...appData,
-      categories: appData.categories.filter(item => item.id !== category.id),
-      transactions: appData.transactions.map(txn => (
-        txn.categoryId === category.id ? { ...txn, categoryId: replacementCategoryId, updatedAt: new Date().toISOString() } : txn
-      )),
-      budgets: appData.budgets.filter(budget => budget.categoryId !== category.id),
-      importRules: (appData.importRules || []).filter(rule => rule.categoryId !== category.id),
-      settings: {
-        ...(appData.settings || {}),
-        deletedDefaultCategoryIds
-      }
-    }, { reason: "Archived category permanently deleted" });
   }
 
   return (
@@ -592,230 +319,49 @@ export default function BudgetsPage({ appData, actions }) {
         )}
       </section>
 
-
       {showBudgetManager && (
-        <div className="modal-backdrop">
-          <div className="modal-card wide-modal-card">
-            <div className="section-header">
-              <div>
-                <p className="eyebrow">Budget manager</p>
-                <h2>Categories and budgets</h2>
-              </div>
-              <button type="button" className="icon-button" onClick={() => setShowBudgetManager(false)}>×</button>
-            </div>
-
-            <form className="manager-add-form" onSubmit={addCategoryFromManager} noValidate>
-              <label>
-                <span>New category<RequiredMark /></span>
-                <input
-                  {...newCategoryErrors.fieldProps("name")}
-                  aria-required="true"
-                  type="text"
-                  placeholder="Car insurance"
-                  value={newCategoryDraft.name}
-                  onChange={event => updateNewCategoryDraft("name", event.target.value)}
-                />
-                <FieldError fieldId={newCategoryErrors.getFieldId("name")} message={newCategoryErrors.errors.name} />
-              </label>
-              <label>
-                Type
-                <select value={newCategoryDraft.type} onChange={event => updateNewCategoryDraft("type", event.target.value)}>
-                  <option value="expense">Expense</option>
-                  <option value="income">Income</option>
-                </select>
-              </label>
-              <label>
-                Group
-                <select value={newCategoryDraft.group} onChange={event => updateNewCategoryDraft("group", event.target.value)}>
-                  <option value="Essentials">Essentials</option>
-                  <option value="Lifestyle">Lifestyle</option>
-                  <option value="Finance">Finance</option>
-                  <option value="Education">Education</option>
-                  <option value="Income">Income</option>
-                  <option value="Other">Other</option>
-                </select>
-              </label>
-              <label>
-                Budget limit
-                <input
-                  {...newCategoryErrors.fieldProps("limit")}
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={newCategoryDraft.limit}
-                  onChange={event => updateNewCategoryDraft("limit", event.target.value)}
-                  onBlur={() => newCategoryErrors.validateFieldOnBlur("limit", newCategoryDraft)}
-                  disabled={newCategoryDraft.type !== "expense"}
-                />
-                <FieldError fieldId={newCategoryErrors.getFieldId("limit")} message={newCategoryErrors.errors.limit} />
-              </label>
-              <label className="account-multiselect-label">
-                Account(s)
-                <div className="account-multiselect">
-                  {activeAccounts.map(account => (
-                    <label key={account.id} className="checkbox-label account-multiselect-option">
-                      <input
-                        type="checkbox"
-                        checked={newCategoryDraft.accountIds.includes(account.id)}
-                        onChange={() => toggleNewCategoryAccount(account.id)}
-                        disabled={newCategoryDraft.type !== "expense"}
-                      />
-                      <span>{account.name}</span>
-                    </label>
-                  ))}
-                </div>
-                <small>Pick one or more accounts this budget should track spending across.</small>
-              </label>
-              <button className="primary-button">Add</button>
-            </form>
-
-            <div className="budget-manager-list">
-              {activeManagerCategories.map(category => {
-                const budget = getCurrentBudgetForCategory(category.id);
-                const accountNames = budget ? getBudgetAccountIds(budget).map(id => activeAccounts.find(item => item.id === id)?.name).filter(Boolean).join(", ") : "";
-                return (
-                  <div key={category.id} className="budget-manager-row">
-                    <div>
-                      <strong>{category.name}</strong>
-                      <small>{category.type} · {category.group || "No group"}</small>
-                    </div>
-                    <div>
-                      {category.type === "expense" ? (
-                        <>
-                          <strong>{budget ? formatMoney(budget.limit) : "No budget"}</strong>
-                          <small>{budget ? `${actions.selectedMonth} · ${accountNames || "Current Account"}` : "Tracked, but no warning limit"}</small>
-                        </>
-                      ) : (
-                        <>
-                          <strong>Income category</strong>
-                          <small>No spending budget needed</small>
-                        </>
-                      )}
-                    </div>
-                    <div className="row-actions budget-manager-actions">
-                      <button type="button" className="secondary-button small" onClick={() => openCategoryEditorFromManager(category)}>Edit category</button>
-                      {category.type === "expense" && <button type="button" className="secondary-button small" onClick={() => openBudgetEditorFromManager(category)}>Edit budget</button>}
-                      <button type="button" className="danger-button small" onClick={() => archiveCategory(category)}>Archive</button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+        <BudgetManagerModal
+          actions={actions}
+          activeAccounts={activeAccounts}
+          activeManagerCategories={activeManagerCategories}
+          addCategoryFromManager={addCategoryFromManager}
+          archiveCategory={archiveCategory}
+          getCurrentBudgetForCategory={getCurrentBudgetForCategory}
+          newCategoryDraft={newCategoryDraft}
+          newCategoryErrors={newCategoryErrors}
+          openBudgetEditorFromManager={openBudgetEditorFromManager}
+          openCategoryEditorFromManager={openCategoryEditorFromManager}
+          setShowBudgetManager={setShowBudgetManager}
+          toggleNewCategoryAccount={toggleNewCategoryAccount}
+          updateNewCategoryDraft={updateNewCategoryDraft}
+        />
       )}
 
       {editingBudget && (
-        <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={e => { e.preventDefault(); saveBudget(); }} noValidate>
-            <div className="section-header">
-              <h2>Edit budget for {editingBudget.category.name}</h2>
-              <button type="button" className="icon-button" onClick={closeBudgetEditor} aria-label="Close">×</button>
-            </div>
-
-            <div className="form-grid">
-              <label>
-                Budget limit
-                <input
-                  {...budgetErrors.fieldProps("limit")}
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  placeholder="100.00"
-                  value={budgetLimit}
-                  onChange={e => setBudgetLimit(e.target.value)}
-                  onBlur={() => budgetErrors.validateFieldOnBlur("limit", { limit: budgetLimit })}
-                />
-                <FieldError fieldId={budgetErrors.getFieldId("limit")} message={budgetErrors.errors.limit} />
-                <small>Leave at 0 to track spending in this category without a limit.</small>
-              </label>
-
-              <label className="account-multiselect-label">
-                Linked account(s)
-                <div className="account-multiselect">
-                  {activeAccounts.map(account => (
-                    <label key={account.id} className="checkbox-label account-multiselect-option">
-                      <input
-                        type="checkbox"
-                        checked={budgetAccountIds.includes(account.id)}
-                        onChange={() => toggleBudgetAccount(account.id)}
-                      />
-                      <span>{account.name}</span>
-                    </label>
-                  ))}
-                </div>
-                <small>Spending across every selected account counts toward this one budget. This budget appears on each selected account's view, plus the All accounts view.</small>
-              </label>
-            </div>
-
-            <div className="modal-actions split-modal-actions">
-              <div>
-                {editingBudget.budget && (
-                  <button
-                    type="button"
-                    className="danger-button"
-                    onClick={() => {
-                      if (archiveBudget(editingBudget)) closeBudgetEditor();
-                    }}
-                  >
-                    Archive budget
-                  </button>
-                )}
-              </div>
-              <div className="row-actions">
-                <button type="button" className="secondary-button" onClick={closeBudgetEditor}>Cancel</button>
-                <button className="primary-button">Save budget</button>
-              </div>
-            </div>
-          </form>
-        </div>
+        <BudgetEditorModal
+          activeAccounts={activeAccounts}
+          archiveBudget={archiveBudget}
+          budgetAccountIds={budgetAccountIds}
+          budgetErrors={budgetErrors}
+          budgetLimit={budgetLimit}
+          closeBudgetEditor={closeBudgetEditor}
+          editingBudget={editingBudget}
+          saveBudget={saveBudget}
+          setBudgetLimit={setBudgetLimit}
+          toggleBudgetAccount={toggleBudgetAccount}
+        />
       )}
 
       {editingCategory && (
-        <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={e => { e.preventDefault(); saveCategory(); }} noValidate>
-            <div className="section-header">
-              <h2>Edit category</h2>
-              <button type="button" className="icon-button" onClick={closeCategoryEditor} aria-label="Close">×</button>
-            </div>
-
-            <div className="form-grid">
-              <label>
-                <span>Category name<RequiredMark /></span>
-                <input
-                  {...categoryNameErrors.fieldProps("name")}
-                  aria-required="true"
-                  type="text"
-                  placeholder="Category name"
-                  value={categoryName}
-                  onChange={e => setCategoryName(e.target.value)}
-                />
-                <FieldError fieldId={categoryNameErrors.getFieldId("name")} message={categoryNameErrors.errors.name} />
-              </label>
-            </div>
-
-            <div className="modal-actions split-modal-actions">
-              <div>
-                <button
-                  type="button"
-                  className="danger-button"
-                  onClick={() => {
-                    if (archiveCategory(editingCategory)) closeCategoryEditor();
-                  }}
-                >
-                  Archive category
-                </button>
-              </div>
-              <div className="row-actions">
-                <button type="button" className="secondary-button" onClick={closeCategoryEditor}>Cancel</button>
-                <button className="primary-button">Save category</button>
-              </div>
-            </div>
-          </form>
-        </div>
+        <CategoryEditorModal
+          archiveCategory={archiveCategory}
+          categoryName={categoryName}
+          categoryNameErrors={categoryNameErrors}
+          closeCategoryEditor={closeCategoryEditor}
+          editingCategory={editingCategory}
+          saveCategory={saveCategory}
+          setCategoryName={setCategoryName}
+        />
       )}
     </div>
   );

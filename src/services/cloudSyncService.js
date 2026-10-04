@@ -14,7 +14,6 @@ import { normaliseAppData } from "./storageService.js";
 // not the version that opens.
 
 export const SYNC_SAFETY_BACKUP_TYPE = "sync-safety";
-export const SYNC_SAFETY_SOURCE = `${SYNC_SAFETY_BACKUP_TYPE}-cloud-backup`;
 
 // A device that has never been set up: still on the first-run screen, never
 // linked to the cloud, nothing real entered. It should just open the cloud
@@ -27,7 +26,7 @@ export function isFreshDevice(data) {
   return !(data.transactions || []).some(item => item && !item.isExample);
 }
 
-export function getDataChangedTime(data, fallback = null) {
+function getDataChangedTime(data, fallback = null) {
   const value = data?.settings?.lastDataChangedAt || fallback;
   const time = value ? new Date(value).getTime() : 0;
   return Number.isFinite(time) ? time : 0;

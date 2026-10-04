@@ -1,4 +1,5 @@
 import React from "react";
+import { logError } from "../../utils/logger.js";
 import { exportRawSavedData } from "../../services/storageService.js";
 
 export default class ErrorBoundary extends React.Component {
@@ -20,7 +21,7 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     // Kept so a crash can still be diagnosed from the browser console.
-    console.error("GH Budgeting caught render error:", error, info);
+    logError("GH Budgeting caught render error", error, info);
   }
 
   async exportEmergencyBackup() {

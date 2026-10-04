@@ -299,10 +299,6 @@ h4 {
   gap: 16px;
 }
 
-.summary-grid.summary-grid-three {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
 .summary-grid.summary-grid-two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -464,14 +460,6 @@ small {
   background: #eef2f7;
 }
 
-.mini-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
 .filters-card,
 .form-grid {
   display: grid;
@@ -540,10 +528,6 @@ textarea {
   gap: 8px;
 }
 
-.disabled-field {
-  color: var(--muted);
-}
-
 .table-card {
   overflow-x: auto;
 }
@@ -602,8 +586,7 @@ th {
   flex-wrap: wrap;
 }
 
-.budget-grid,
-.list-grid {
+.budget-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 16px;
@@ -710,7 +693,6 @@ th {
   .two-column,
   .three-column,
   .budget-grid,
-  .list-grid,
   .filters-card,
   .form-grid {
     grid-template-columns: 1fr;
@@ -802,17 +784,6 @@ th {
   margin: 0;
 }
 
-.inline-account-select {
-  width: auto;
-  min-width: 190px;
-  padding: 9px 40px 9px 13px;
-  border-radius: 999px;
-  font-size: 1.05rem;
-  font-weight: 800;
-  color: var(--text);
-  background: white;
-}
-
 .account-card-actions {
   display: flex;
   gap: 8px;
@@ -828,10 +799,6 @@ th {
   .overview-title-wrap {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .inline-account-select {
-    width: 100%;
   }
 }
 
@@ -1186,8 +1153,7 @@ th {
   background: #fee2e2;
 }
 
-.storage-reminder,
-.dashboard-backup-reminder {
+.storage-reminder {
   display: flex;
   justify-content: space-between;
   gap: 14px;
@@ -1197,9 +1163,7 @@ th {
 }
 
 .storage-reminder strong,
-.dashboard-backup-reminder strong,
-.storage-reminder span,
-.dashboard-backup-reminder span {
+.storage-reminder span {
   display: block;
 }
 
@@ -1208,8 +1172,7 @@ th {
   background: #f0fdf4;
 }
 
-.storage-reminder.notice,
-.dashboard-backup-reminder.warning {
+.storage-reminder.notice {
   border: 1px solid #fed7aa;
   background: #fff7ed;
 }
@@ -1219,15 +1182,9 @@ th {
   background: #fffbeb;
 }
 
-.storage-reminder.danger,
-.dashboard-backup-reminder.danger {
+.storage-reminder.danger {
   border: 1px solid #fecaca;
   background: #fef2f2;
-}
-
-.dashboard-backup-reminder .secondary-button {
-  flex: 0 0 auto;
-  background: #ffffff;
 }
 
 .restore-confirm-label {
@@ -1253,8 +1210,7 @@ th {
     grid-template-columns: 1fr;
   }
 
-  .storage-reminder,
-  .dashboard-backup-reminder {
+  .storage-reminder {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -1752,12 +1708,6 @@ th {
   gap: 14px;
 }
 
-.rules-manager-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px;
-}
-
 .rules-manager-panel {
   padding: 16px;
   border: 1px solid var(--line);
@@ -1871,8 +1821,7 @@ th {
 }
 
 .settings-section-summary-grid span,
-.rule-readable-summary span,
-.transfer-rule-readable span {
+.rule-readable-summary span {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 800;
@@ -1890,11 +1839,6 @@ th {
   padding: 10px;
   border-radius: 14px;
   background: #f3f4f6;
-}
-
-.category-rule-groups {
-  display: grid;
-  gap: 14px;
 }
 
 .category-rule-group {
@@ -1944,48 +1888,12 @@ th {
   width: 100%;
 }
 
-.transfer-rule-card {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: #ffffff;
-}
-
-.transfer-rule-readable {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 8px;
-  align-items: center;
-  padding: 10px;
-  border-radius: 14px;
-  background: #f3f4f6;
-}
-
-.transfer-rule-controls {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(160px, 220px) minmax(180px, 1fr) auto;
-  gap: 10px;
-  align-items: end;
-}
-
-.transfer-rule-controls label {
-  margin: 0;
-}
-
-.transfer-rule-controls input,
-.transfer-rule-controls select {
-  width: 100%;
-}
-
 @media (max-width: 1100px) {
   .settings-section-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .external-account-rule-row,
-  .transfer-rule-controls,
   .category-match-row.unassigned-match-row {
     grid-template-columns: 1fr;
   }
@@ -2406,10 +2314,6 @@ th {
   background: radial-gradient(circle at top left, rgba(20, 184, 166, 0.12), transparent 32rem), var(--bg);
 }
 
-.theme-toggle-button {
-  border: 1px solid var(--line);
-}
-
 .dashboard-display-controls {
   display: flex;
   flex-wrap: wrap;
@@ -2473,8 +2377,7 @@ th {
 [data-theme="dark"] .manual-rule-add-box,
 [data-theme="dark"] .restore-preview-box,
 [data-theme="dark"] .rule-edit-row,
-[data-theme="dark"] .import-status-box,
-[data-theme="dark"] .receipt-preview-box {
+[data-theme="dark"] .import-status-box {
   background: #162432;
   color: var(--text);
   border-color: var(--line);
@@ -2482,8 +2385,7 @@ th {
 
 [data-theme="dark"] input,
 [data-theme="dark"] select,
-[data-theme="dark"] textarea,
-[data-theme="dark"] .inline-account-select {
+[data-theme="dark"] textarea {
   background: #0b1720;
   border-color: var(--line);
   color: var(--text);
@@ -2559,7 +2461,6 @@ th {
 }
 
 [data-theme="dark"] .unbacked-changes-banner,
-[data-theme="dark"] .dashboard-backup-reminder,
 [data-theme="dark"] .storage-reminder {
   background: #162432;
   border-color: var(--line);
@@ -2791,7 +2692,6 @@ th {
   }
 }
 
-
 /* V2.6.4: wider app frame and dashboard account filter in tab bar */
 .app-shell {
   max-width: none;
@@ -2860,7 +2760,6 @@ th {
 [data-theme="dark"] .rule-map-summary,
 [data-theme="dark"] .rule-readable-summary,
 [data-theme="dark"] .category-rule-group,
-[data-theme="dark"] .transfer-rule-card,
 [data-theme="dark"] .manual-rule-add-box,
 [data-theme="dark"] .summary-line,
 [data-theme="dark"] .import-filter-row,
@@ -2925,7 +2824,6 @@ th {
 
 [data-theme="dark"] .report-summary-card.danger-soft,
 [data-theme="dark"] .storage-reminder.danger,
-[data-theme="dark"] .dashboard-backup-reminder.danger,
 [data-theme="dark"] .restore-error-box,
 [data-theme="dark"] .receipt-warning-box {
   background: rgba(127, 29, 29, 0.28);
@@ -2978,8 +2876,7 @@ th {
 [data-theme="dark"] .profile-meta-grid span,
 [data-theme="dark"] .storage-health-grid span,
 [data-theme="dark"] .rule-map-summary small,
-[data-theme="dark"] .rule-readable-summary span,
-[data-theme="dark"] .transfer-rule-readable span {
+[data-theme="dark"] .rule-readable-summary span {
   color: var(--muted);
 }
 
@@ -3014,7 +2911,6 @@ th {
 [data-theme="dark"] input,
 [data-theme="dark"] select,
 [data-theme="dark"] textarea,
-[data-theme="dark"] .inline-account-select,
 [data-theme="dark"] .nav-account-select {
   background: #0b1720;
   border-color: var(--line);
@@ -3026,7 +2922,6 @@ th {
   background: #0b1720;
   border-color: var(--line);
 }
-
 
 /* V2.6.6: configurable accent colour and consistent green status cards */
 .primary-button,
@@ -3374,7 +3269,6 @@ th {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
-
 /* V2.6.9: category/goal archiving and inline budget transaction editing */
 .budget-transaction-row {
   align-items: flex-start;
@@ -3579,8 +3473,7 @@ th {
   margin-bottom: 0;
 }
 
-.summary-inline-toggle,
-.chart-toggle-label {
+.summary-inline-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -3594,8 +3487,7 @@ th {
   padding: 7px 10px;
 }
 
-.summary-inline-toggle input,
-.chart-toggle-label input {
+.summary-inline-toggle input {
   width: auto;
   accent-color: var(--blue);
 }
@@ -3604,8 +3496,6 @@ th {
   .chart-title-with-toggle {
     align-items: stretch;
   }
-
-  .chart-toggle-label,
   .summary-inline-toggle {
     width: fit-content;
   }
@@ -3615,8 +3505,6 @@ th {
     flex-direction: column;
   }
 }
-
-[data-theme="dark"] .chart-toggle-label,
 [data-theme="dark"] .summary-inline-toggle {
   background: rgba(148, 163, 184, 0.08);
   border-color: rgba(148, 163, 184, 0.22);
@@ -4147,12 +4035,6 @@ button.compact-insight-card {
   color: var(--muted);
 }
 
-.error-boundary-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
 /* V2.5: permanent storage loading/safety states */
 .loading-page {
   min-height: 100vh;
@@ -4467,15 +4349,6 @@ button[disabled] {
   align-items: end;
 }
 
-.login-status-grid {
-  margin-top: 0;
-}
-
-.cloud-login-lock-row {
-  margin-top: 4px;
-  max-width: 560px;
-}
-
 .danger-box {
   border-color: rgba(185, 28, 28, 0.22);
   background: rgba(185, 28, 28, 0.08);
@@ -4525,17 +4398,6 @@ button[disabled] {
   color: #92400e;
   background: #fef3c7;
   border-color: #fcd34d;
-}
-
-.local-access-box {
-  display: grid;
-  gap: 0.55rem;
-  border-color: rgba(245, 158, 11, 0.35);
-  background: rgba(245, 158, 11, 0.08);
-}
-
-.local-access-box .secondary-button {
-  width: fit-content;
 }
 
 .device-share-wrapper {
@@ -4617,10 +4479,6 @@ button[disabled] {
   background: rgba(245, 158, 11, 0.18);
   color: #fbbf24;
   border-color: rgba(251, 191, 36, 0.35);
-}
-
-[data-theme="dark"] .local-access-box {
-  background: rgba(245, 158, 11, 0.12);
 }
 
 [data-theme="dark"] .device-share-panel {
@@ -4823,8 +4681,7 @@ button[disabled] {
   flex: 1 1 100%;
 }
 
-.app-shell.phone-mode .header-connection-pill,
-.app-shell.phone-mode .header-logout-button {
+.app-shell.phone-mode .header-connection-pill {
   display: none;
 }
 
@@ -4921,9 +4778,7 @@ button[disabled] {
 
 .app-shell.phone-mode .summary-grid,
 .app-shell.phone-mode .summary-grid.summary-grid-two,
-.app-shell.phone-mode .summary-grid.summary-grid-three,
 .app-shell.phone-mode .budget-grid,
-.app-shell.phone-mode .list-grid,
 .app-shell.phone-mode .filters-card,
 .app-shell.phone-mode .form-grid,
 .app-shell.phone-mode .profile-form-grid,
@@ -5060,8 +4915,6 @@ button[disabled] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-
-.app-shell.phone-mode .transaction-table,
 .app-shell.phone-mode table {
   font-size: 0.84rem;
 }

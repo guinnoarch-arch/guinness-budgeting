@@ -1,4 +1,4 @@
-import { formatIsoDateLocal, getMonthKey, isInMonth } from "./dates.js";
+import { formatIsoDateLocal, isInMonth } from "./dates.js";
 
 export function getActiveLoans(data) {
   return (data?.loans || []).filter(loan => loan && loan.status !== "archived" && loan.status !== "closed");
@@ -13,7 +13,7 @@ export function getLinkedLoanId(transaction) {
   return transaction?.linkedLoanId || transaction?.loanId || transaction?.relatedLoanId || transaction?.mortgageLoanId || "";
 }
 
-export function isLoanLinkedTransaction(transaction) {
+function isLoanLinkedTransaction(transaction) {
   return Boolean(getLinkedLoanId(transaction));
 }
 
@@ -95,7 +95,7 @@ export function estimateLoanPaymentSplit(paymentAmount, loan) {
   return { interestAmount: 0, principalAmount: roundCurrency(amount) };
 }
 
-export function buildLoanEventFromTransaction(transaction, loan) {
+function buildLoanEventFromTransaction(transaction, loan) {
   const loanId = getLinkedLoanId(transaction);
   if (!loanId || transaction.type !== "expense") return null;
 

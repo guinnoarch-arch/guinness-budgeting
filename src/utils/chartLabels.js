@@ -1,4 +1,4 @@
-export function abbreviateMonthLabel(value) {
+function abbreviateMonthLabel(value) {
   const text = String(value || "").trim();
   if (!text) return "";
 

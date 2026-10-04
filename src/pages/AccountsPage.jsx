@@ -1,31 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  
-  Tooltip,
-  XAxis,
-  YAxis
-} from "recharts";
-import {
-  calculateAccountBalance,
-  transactionMatchesAccount
-} from "../utils/calculations.js";
+import { calculateAccountBalance, transactionMatchesAccount } from "../utils/calculations.js";
 import { formatMoney, roundMoney } from "../utils/money.js";
 import { createId } from "../utils/ids.js";
 import AccountCheckModal from "../components/accounts/AccountCheckModal.jsx";
-import {
-  deleteAccountPermanently,
-  getAccountDeleteBlocker,
-  isAccountArchived,
-  setAccountArchived
-} from "../services/accountService.js";
-import { formatIsoDateLocal, todayIsoDate } from "../utils/dates.js";
-import ExpandableChart from "../components/common/ExpandableChart.jsx";
+import { deleteAccountPermanently, getAccountDeleteBlocker, isAccountArchived, setAccountArchived } from "../services/accountService.js";
+import { todayIsoDate } from "../utils/dates.js";
 import { checkMoneyAmount, collectErrors, validateAccountForm } from "../utils/validation.js";
 import useFormErrors from "../hooks/useFormErrors.js";
-import { ErrorSummary, FieldError, FormError, RequiredMark } from "../components/common/FormFeedback.jsx";
+import { buildBalanceTimeline } from "../utils/balanceTimeline.js";
+import { AccountBalanceChartCard } from "../components/accounts/AccountBalanceChartCard.jsx";
+import { ArchivedAccountsCard } from "../components/accounts/ArchivedAccountsCard.jsx";
+import { AccountFormModal } from "../components/accounts/AccountFormModal.jsx";
+import { ReconcileModal } from "../components/accounts/ReconcileModal.jsx";
+import { formatAccountType } from "../components/accounts/accountDisplay.js";
 
 function validateReconcileForm(values) {
   return collectErrors({
@@ -38,233 +25,6 @@ const emptyAccountForm = {
   type: "current",
   openingBalance: "0"
 };
-
-const ACCOUNT_LINE_COLOURS = [
-  "#0f766e",
-  "#2563eb",
-  "#f59e0b",
-  "#7c3aed",
-  "#dc2626",
-  "#0891b2",
-  "#65a30d",
-  "#db2777"
-];
-
-const BALANCE_RANGE_OPTIONS = [
-  { value: "days", label: "Last 30 days", shortLabel: "Days" },
-  { value: "weeks", label: "Last 12 weeks", shortLabel: "Weeks" },
-  { value: "months", label: "Last 12 months", shortLabel: "Months" },
-  { value: "years", label: "Last 5 years", shortLabel: "Years" },
-  { value: "all", label: "All time", shortLabel: "All" }
-];
-
-function formatAccountType(type) {
-  const labels = {
-    current: "Current account",
-    savings: "Savings account",
-    cash: "Cash",
-    investment: "Investment account",
-    other: "Other account"
-  };
-
-  return labels[type] || type;
-}
-
-function isoDate(date) {
-  return formatIsoDateLocal(date);
-}
-
-function addDays(date, amount) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + amount);
-  return next;
-}
-
-function addMonths(date, amount) {
-  const next = new Date(date);
-  next.setMonth(next.getMonth() + amount);
-  return next;
-}
-
-function addYears(date, amount) {
-  const next = new Date(date);
-  next.setFullYear(next.getFullYear() + amount);
-  return next;
-}
-
-function endOfMonth(date) {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
-}
-
-function endOfYear(date) {
-  return new Date(date.getFullYear(), 11, 31);
-}
-
-function validIsoDate(value) {
-  if (!value) return null;
-  const datePart = String(value).slice(0, 10);
-  const parsed = new Date(`${datePart}T00:00:00`);
-  return Number.isNaN(parsed.getTime()) ? null : datePart;
-}
-
-function getEarliestAccountDate(data, accounts) {
-  const dates = [];
-
-  (data.transactions || []).forEach(transaction => {
-    if (transaction.date) dates.push(transaction.date);
-  });
-
-  (data.accountAdjustments || []).forEach(adjustment => {
-    if (adjustment.date) dates.push(adjustment.date);
-  });
-
-  accounts.forEach(account => {
-    const createdDate = validIsoDate(account.createdAt || account.updatedAt);
-    if (createdDate) dates.push(createdDate);
-  });
-
-  const validDates = dates
-    .map(validIsoDate)
-    .filter(Boolean)
-    .sort();
-
-  return validDates[0] || todayIsoDate();
-}
-
-function formatBalanceTick(dateString, range) {
-  const date = new Date(`${dateString}T00:00:00`);
-  if (range === "days") {
-    return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
-  }
-  if (range === "weeks") {
-    return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
-  }
-  if (range === "years") {
-    return date.toLocaleDateString("en-GB", { year: "numeric" });
-  }
-  return date.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
-}
-
-function buildBalanceTimeline(data, accounts, range) {
-  const today = new Date(`${todayIsoDate()}T00:00:00`);
-  const earliest = new Date(`${getEarliestAccountDate(data, accounts)}T00:00:00`);
-  const points = [];
-
-  if (range === "days") {
-    for (let i = 29; i >= 0; i -= 1) {
-      points.push(addDays(today, -i));
-    }
-  } else if (range === "weeks") {
-    for (let i = 11; i >= 0; i -= 1) {
-      points.push(addDays(today, -(i * 7)));
-    }
-  } else if (range === "months") {
-    for (let i = 11; i >= 0; i -= 1) {
-      const point = addMonths(today, -i);
-      points.push(i === 0 ? today : endOfMonth(point));
-    }
-  } else if (range === "years") {
-    for (let i = 4; i >= 0; i -= 1) {
-      const point = addYears(today, -i);
-      points.push(i === 0 ? today : endOfYear(point));
-    }
-  } else {
-    const diffDays = Math.max(1, Math.ceil((today - earliest) / (1000 * 60 * 60 * 24)));
-    if (diffDays > 730) {
-      const startYear = earliest.getFullYear();
-      const endYear = today.getFullYear();
-      for (let year = startYear; year <= endYear; year += 1) {
-        points.push(year === endYear ? today : new Date(year, 11, 31));
-      }
-    } else {
-      const start = new Date(earliest.getFullYear(), earliest.getMonth(), 1);
-      let cursor = start;
-      while (cursor <= today) {
-        const point = cursor.getFullYear() === today.getFullYear() && cursor.getMonth() === today.getMonth()
-          ? today
-          : endOfMonth(cursor);
-        points.push(point);
-        cursor = addMonths(cursor, 1);
-      }
-    }
-  }
-
-  const uniqueDates = [...new Set(points.map(isoDate))].sort();
-  return buildBalanceRowsFromDeltas(data, accounts, uniqueDates, range);
-}
-
-function buildBalanceRowsFromDeltas(data, accounts, dateStrings, range) {
-  const deltasByAccount = new Map(accounts.map(account => [account.id, []]));
-
-  (data.accountAdjustments || []).forEach(adjustment => {
-    const date = validIsoDate(adjustment.date);
-    if (!date || !deltasByAccount.has(adjustment.accountId)) return;
-    deltasByAccount.get(adjustment.accountId).push({ date, amount: Number(adjustment.amount || 0) });
-  });
-
-  (data.transactions || []).forEach(transaction => {
-    const date = validIsoDate(transaction.date);
-    const amount = Number(transaction.amount || 0);
-    if (!date || !Number.isFinite(amount)) return;
-
-    if (transaction.type === "income" && deltasByAccount.has(transaction.accountId)) {
-      deltasByAccount.get(transaction.accountId).push({ date, amount });
-    } else if (transaction.type === "expense" && deltasByAccount.has(transaction.accountId)) {
-      deltasByAccount.get(transaction.accountId).push({ date, amount: -amount });
-    }
-  });
-
-  const balancesByAccount = new Map();
-  accounts.forEach(account => {
-    const deltas = (deltasByAccount.get(account.id) || []).sort((a, b) => a.date.localeCompare(b.date));
-    let pointer = 0;
-    let runningBalance = Number(account.openingBalance || 0);
-    const values = new Map();
-
-    dateStrings.forEach(dateString => {
-      while (pointer < deltas.length && deltas[pointer].date <= dateString) {
-        runningBalance += deltas[pointer].amount;
-        pointer += 1;
-      }
-      values.set(dateString, runningBalance);
-    });
-
-    balancesByAccount.set(account.id, values);
-  });
-
-  return dateStrings.map(dateString => {
-    const row = {
-      date: dateString,
-      label: formatBalanceTick(dateString, range)
-    };
-
-    accounts.forEach(account => {
-      row[account.id] = balancesByAccount.get(account.id)?.get(dateString) ?? Number(account.openingBalance || 0);
-    });
-
-    return row;
-  });
-}
-
-function BalanceChartTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null;
-
-  const visiblePayload = payload
-    .filter(item => item.value !== null && item.value !== undefined)
-    .sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
-
-  return (
-    <div className="chart-tooltip-card account-balance-tooltip">
-      <strong>{label}</strong>
-      {visiblePayload.map(item => (
-        <p key={item.dataKey}>
-          <span style={{ color: item.color }}>{item.name}</span>
-          <strong>{formatMoney(item.value)}</strong>
-        </p>
-      ))}
-    </div>
-  );
-}
 
 export default function AccountsPage({ appData, actions }) {
   const [reconciling, setReconciling] = useState(null);
@@ -538,97 +298,20 @@ export default function AccountsPage({ appData, actions }) {
         </div>
       </section>
 
-      <section className="card account-balance-chart-card">
-        <div className="section-header compact-header account-balance-chart-header">
-          <div>
-            <h3>Account balances over time</h3>
-          </div>
-          <div className="account-chart-controls">
-            <label className="compact-field account-range-select">
-              Range
-              <select value={balanceRange} onChange={event => setBalanceRange(event.target.value)}>
-                {BALANCE_RANGE_OPTIONS.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-            <div className="account-picker">
-              <button
-                type="button"
-                className="secondary-button account-picker-button"
-                onClick={() => setAccountPickerOpen(prev => !prev)}
-              >
-                {selectedAccountLabel}
-              </button>
-              {accountPickerOpen && (
-                <div className="account-picker-menu">
-                  <div className="account-picker-actions">
-                    <button type="button" className="text-button" onClick={selectAllChartAccounts}>All accounts</button>
-                    <button
-                      type="button"
-                      className="text-button"
-                      onClick={() => setAccountPickerOpen(false)}
-                    >
-                      Done
-                    </button>
-                  </div>
-                  {accounts.map(account => (
-                    <label key={account.id} className="account-picker-option">
-                      <input
-                        type="checkbox"
-                        checked={visibleChartAccountIds.includes(account.id)}
-                        onChange={() => toggleChartAccount(account.id)}
-                      />
-                      <span>{account.name}</span>
-                      <button
-                        type="button"
-                        className="text-button mini-text-button"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          selectOnlyChartAccount(account.id);
-                        }}
-                      >
-                        Only
-                      </button>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {selectedChartAccounts.length === 0 ? (
-          <p className="muted-text">Select at least one account to show the balance chart.</p>
-        ) : (
-          <ExpandableChart title={"Account balances over time"} height={320}>
-            <LineChart data={balanceChartData} margin={{ top: 12, right: 22, left: 8, bottom: 16 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis
-                dataKey="label"
-                interval="preserveStartEnd"
-                minTickGap={16}
-                tick={{ fill: "#4b5563", fontSize: 12 }}
-              />
-              <YAxis tick={{ fill: "#4b5563", fontSize: 12 }} tickFormatter={(value) => formatMoney(value, false)} />
-              <Tooltip content={<BalanceChartTooltip />} />
-              {selectedChartAccounts.map((account, index) => (
-                <Line
-                  key={account.id}
-                  type="monotone"
-                  dataKey={account.id}
-                  name={account.name}
-                  stroke={ACCOUNT_LINE_COLOURS[index % ACCOUNT_LINE_COLOURS.length]}
-                  strokeWidth={2.5}
-                  dot={balanceChartData.length <= 12}
-                  connectNulls
-                />
-              ))}
-            </LineChart>
-          </ExpandableChart>
-        )}
-      </section>
+      <AccountBalanceChartCard
+        accountPickerOpen={accountPickerOpen}
+        accounts={accounts}
+        balanceChartData={balanceChartData}
+        balanceRange={balanceRange}
+        selectAllChartAccounts={selectAllChartAccounts}
+        selectOnlyChartAccount={selectOnlyChartAccount}
+        selectedAccountLabel={selectedAccountLabel}
+        selectedChartAccounts={selectedChartAccounts}
+        setAccountPickerOpen={setAccountPickerOpen}
+        setBalanceRange={setBalanceRange}
+        toggleChartAccount={toggleChartAccount}
+        visibleChartAccountIds={visibleChartAccountIds}
+      />
 
       <div className="summary-grid">
         {accounts.map(account => {
@@ -680,120 +363,24 @@ export default function AccountsPage({ appData, actions }) {
         )}
       </section>
 
-      <section className="card archived-card">
-        <div className="section-header compact-header">
-          <div>
-            <h3>Archived accounts</h3>
-          </div>
-        </div>
-        {archivedAccounts.length === 0 ? (
-          <p className="muted">No archived accounts. Archive an account from Edit account when you close it, and it'll move here.</p>
-        ) : (
-          <div className="archive-list">
-            {archivedAccounts.map(account => {
-              const deleteBlocker = getAccountDeleteBlocker(appData, account);
-              return (
-                <div key={account.id} className="archive-row">
-                  <div>
-                    <strong>{account.name}</strong>
-                    <small>{formatAccountType(account.type)} · balance {formatMoney(calculateAccountBalance(appData, account.id))}</small>
-                    {deleteBlocker && <small>{deleteBlocker}</small>}
-                  </div>
-                  <div className="row-actions archive-row-actions">
-                    <button type="button" className="secondary-button" onClick={() => restoreAccount(account)}>Restore</button>
-                    <button
-                      type="button"
-                      className="danger-button"
-                      onClick={() => deleteAccount(account)}
-                      disabled={Boolean(deleteBlocker)}
-                      title={deleteBlocker || undefined}
-                    >
-                      Delete permanently
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+      <ArchivedAccountsCard
+        appData={appData}
+        archivedAccounts={archivedAccounts}
+        deleteAccount={deleteAccount}
+        restoreAccount={restoreAccount}
+      />
 
       {accountModalOpen && (
-        <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={saveAccount} noValidate>
-            <div className="section-header">
-              <h2>{editingAccount ? "Edit account" : "Add account"}</h2>
-              <button type="button" className="icon-button" onClick={closeAccountModal} aria-label="Close">×</button>
-            </div>
-
-            <ErrorSummary errors={accountErrors.errors} getFieldId={accountErrors.getFieldId} />
-
-            <div className="form-grid">
-              <label>
-                <span>Account name<RequiredMark /></span>
-                <input
-                  {...accountErrors.fieldProps("name")}
-                  aria-required="true"
-                  placeholder="Monzo, NatWest, Cash, Savings"
-                  value={accountForm.name}
-                  onChange={event => updateAccountForm("name", event.target.value)}
-                />
-                <FieldError fieldId={accountErrors.getFieldId("name")} message={accountErrors.errors.name} />
-              </label>
-
-              <label>
-                Account type
-                <select
-                  value={accountForm.type}
-                  onChange={event => updateAccountForm("type", event.target.value)}
-                >
-                  <option value="current">Current account</option>
-                  <option value="savings">Savings account</option>
-                  <option value="investment">Investment account</option>
-                  <option value="cash">Cash</option>
-                  <option value="other">Other account</option>
-                </select>
-              </label>
-
-              <label>
-                Opening balance
-                <input
-                  {...accountErrors.fieldProps("openingBalance")}
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={accountForm.openingBalance}
-                  onChange={event => updateAccountForm("openingBalance", event.target.value)}
-                  onBlur={() => accountErrors.validateFieldOnBlur("openingBalance", accountForm)}
-                />
-                <FieldError fieldId={accountErrors.getFieldId("openingBalance")} message={accountErrors.errors.openingBalance} />
-              </label>
-            </div>
-
-            <FormError message={accountModalError} />
-
-            <div className="modal-actions split-modal-actions">
-              <div>
-                {editingAccount && (
-                  <button
-                    type="button"
-                    className="danger-button"
-                    onClick={() => {
-                      if (archiveAccount(editingAccount)) closeAccountModal();
-                    }}
-                  >
-                    Archive account
-                  </button>
-                )}
-              </div>
-              <div className="row-actions">
-                <button type="button" className="secondary-button" onClick={closeAccountModal}>Cancel</button>
-                <button className="primary-button">{editingAccount ? "Save account" : "Add account"}</button>
-              </div>
-            </div>
-          </form>
-        </div>
+        <AccountFormModal
+          accountErrors={accountErrors}
+          accountForm={accountForm}
+          accountModalError={accountModalError}
+          archiveAccount={archiveAccount}
+          closeAccountModal={closeAccountModal}
+          editingAccount={editingAccount}
+          saveAccount={saveAccount}
+          updateAccountForm={updateAccountForm}
+        />
       )}
 
       {checkingAccountId && accounts.some(account => account.id === checkingAccountId) && (
@@ -806,56 +393,15 @@ export default function AccountsPage({ appData, actions }) {
       )}
 
       {reconciling && (
-        <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={e => { e.preventDefault(); saveReconcile(); }} noValidate>
-            <div className="section-header">
-              <h2>Reconcile {reconciling.name}</h2>
-              <button type="button" className="icon-button" onClick={closeReconcile} aria-label="Close">×</button>
-            </div>
-
-            <div className="form-grid">
-              <label>
-                Current balance
-                <input
-                  type="text"
-                  disabled
-                  value={formatMoney(calculateAccountBalance(appData, reconciling.id))}
-                />
-              </label>
-
-              <label>
-                <span>Actual balance<RequiredMark /></span>
-                <input
-                  {...reconcileErrors.fieldProps("actualBalance")}
-                  aria-required="true"
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={reconcileAmount}
-                  onChange={e => setReconcileAmount(e.target.value)}
-                  onBlur={() => reconcileErrors.validateFieldOnBlur("actualBalance", { actualBalance: reconcileAmount })}
-                />
-                <FieldError fieldId={reconcileErrors.getFieldId("actualBalance")} message={reconcileErrors.errors.actualBalance} />
-              </label>
-            </div>
-
-            <p className="muted">
-              {(() => {
-                const entered = parseFloat(reconcileAmount);
-                if (!Number.isFinite(entered)) return "Enter the balance shown by your bank.";
-                const difference = roundMoney(entered - calculateAccountBalance(appData, reconciling.id));
-                if (difference === 0) return "No adjustment needed — the balances already match.";
-                return `This will add an adjustment of ${difference > 0 ? "+" : "−"}${formatMoney(Math.abs(difference))}.`;
-              })()}
-            </p>
-
-            <div className="modal-actions">
-              <button type="button" className="secondary-button" onClick={closeReconcile}>Cancel</button>
-              <button className="primary-button">Reconcile</button>
-            </div>
-          </form>
-        </div>
+        <ReconcileModal
+          appData={appData}
+          closeReconcile={closeReconcile}
+          reconcileAmount={reconcileAmount}
+          reconcileErrors={reconcileErrors}
+          reconciling={reconciling}
+          saveReconcile={saveReconcile}
+          setReconcileAmount={setReconcileAmount}
+        />
       )}
     </div>
   );

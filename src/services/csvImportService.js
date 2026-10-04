@@ -1,6 +1,8 @@
 import { createId } from "../utils/ids.js";
 import { calculateAccountBalanceAtDate } from "../utils/calculations.js";
 import { addDaysToIsoDate, formatIsoDateLocal, todayIsoDate } from "../utils/dates.js";
+import { DEFAULT_LARGE_EXPENSE_THRESHOLD } from "../config/appDefaults.js";
+import { formatMoney, roundMoney } from "../utils/money.js";
 
 // "started date" sits ahead of "completed date" on purpose: for a bank that
 // exports both (Revolut among them), the started/initiated timestamp is the
@@ -53,6 +55,7 @@ const CATEGORY_KEYWORDS = [
   { categoryId: "cat_savings_interest", words: ["interest", "gross interest", "savings interest"] }
 ];
 
+const MS_PER_MINUTE = 60 * 1000;
 const CSV_LINE_NUMBER_KEY = "csvLineNumber";
 
 export function parseCsvText(text) {
@@ -275,7 +278,7 @@ export function suggestColumnMap(headers, rows = []) {
   };
 }
 
-export function buildCsvHeaderSignature(headers = []) {
+function buildCsvHeaderSignature(headers = []) {
   return headers
     .map(header => normaliseText(header))
     .filter(Boolean)
@@ -807,7 +810,7 @@ export function alignAccountToCsvTimeline(data, accountId, timeline, { importBat
       accountId,
       date: day.date,
       amount: step,
-      note: `Trusted CSV balance from ${day.fileName || fileName}: the bank showed ${formatAmountForNote(day.balance)} at the end of ${day.date}, the app had ${formatAmountForNote(Number(day.balance) - gap)}.`,
+      note: `Trusted CSV balance from ${day.fileName || fileName}: the bank showed ${formatMoney(day.balance)} at the end of ${day.date}, the app had ${formatMoney(Number(day.balance) - gap)}.`,
       source: "csv_import_reconciliation",
       importBatchId,
       createdAt: now
@@ -852,7 +855,7 @@ function checkCsvBalanceChain(csvBalanceRows) {
       reconciled: true,
       order: "file_order",
       ...forward,
-      message: `Running balance reconciles: ${formatAmountForNote(forward.openingBalance)} on ${forward.firstDate} to ${formatAmountForNote(forward.closingBalance)} on ${forward.lastDate} across ${forward.rowsChecked} row(s).`
+      message: `Running balance reconciles: ${formatMoney(forward.openingBalance)} on ${forward.firstDate} to ${formatMoney(forward.closingBalance)} on ${forward.lastDate} across ${forward.rowsChecked} row(s).`
     };
   }
 
@@ -863,7 +866,7 @@ function checkCsvBalanceChain(csvBalanceRows) {
       reconciled: true,
       order: "reversed",
       ...reversed,
-      message: `Running balance reconciles once read newest-first-to-oldest: ${formatAmountForNote(reversed.openingBalance)} to ${formatAmountForNote(reversed.closingBalance)} across ${reversed.rowsChecked} row(s).`
+      message: `Running balance reconciles once read newest-first-to-oldest: ${formatMoney(reversed.openingBalance)} to ${formatMoney(reversed.closingBalance)} across ${reversed.rowsChecked} row(s).`
     };
   }
 
@@ -877,8 +880,8 @@ function checkCsvBalanceChain(csvBalanceRows) {
     order: bestOrder,
     ...best,
     message: worstMismatch
-      ? `Running balance doesn't add up: ${best.mismatchCount} row(s) break the chain, largest gap ${formatAmountForNote(worstMismatch.difference)} at "${worstMismatch.description}" on ${worstMismatch.date}. Check the column mapping (amount / paid in / paid out) is correct for this file.`
-      : `Running balance doesn't add up by ${formatAmountForNote(best.finalDifference)} from ${best.openingBalance !== null ? formatAmountForNote(best.openingBalance) : "the opening balance"} to ${best.closingBalance !== null ? formatAmountForNote(best.closingBalance) : "the closing balance"}. Check the column mapping for this file.`
+      ? `Running balance doesn't add up: ${best.mismatchCount} row(s) break the chain, largest gap ${formatMoney(worstMismatch.difference)} at "${worstMismatch.description}" on ${worstMismatch.date}. Check the column mapping (amount / paid in / paid out) is correct for this file.`
+      : `Running balance doesn't add up by ${formatMoney(best.finalDifference)} from ${best.openingBalance !== null ? formatMoney(best.openingBalance) : "the opening balance"} to ${best.closingBalance !== null ? formatMoney(best.closingBalance) : "the closing balance"}. Check the column mapping for this file.`
   };
 }
 
@@ -1122,7 +1125,7 @@ export function applyCsvImport(data, analysis, rowEdits = {}, options = {}) {
   };
 }
 
-export function createEmptyImportOutcomeCounts() {
+function createEmptyImportOutcomeCounts() {
   return { added: 0, transferMatches: 0, existingMatches: 0, duplicates: 0, notSelected: 0, missingTransferAccount: 0 };
 }
 
@@ -1495,7 +1498,7 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
     : null;
 
   const suggestedCategoryId = suggestCategoryId(data, baseType, description, importRules);
-  const largeExpenseThreshold = Number(data.settings?.largeExpenseThreshold || 200);
+  const largeExpenseThreshold = Number(data.settings?.largeExpenseThreshold || DEFAULT_LARGE_EXPENSE_THRESHOLD);
   const suggestedExcludeFromBudget = baseType === "expense" && absoluteAmount >= largeExpenseThreshold;
   const externalAccountName = extractExternalAccountName(description, data.accounts, mappedExternalAccount);
 
@@ -1544,7 +1547,7 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
     type = plannedMatch.type || baseType;
     matchTransactionId = plannedMatch.id;
     warning = plannedMatch.amountDifference
-      ? `Actual amount differs by ${formatAmountForNote(plannedMatch.amountDifference)}.`
+      ? `Actual amount differs by ${formatMoney(plannedMatch.amountDifference)}.`
       : "";
   } else if (likelyTransfer) {
     action = "new_transfer";
@@ -1565,8 +1568,8 @@ function buildPreviewRow({ data, row, rowIndex, accountId, columnMap, normalised
 
   if (suggestedExcludeFromBudget) {
     warning = warning
-      ? `${warning} Large expense over ${formatAmountForNote(largeExpenseThreshold)}: consider excluding from monthly budget.`
-      : `Large expense over ${formatAmountForNote(largeExpenseThreshold)}: consider excluding from monthly budget.`;
+      ? `${warning} Large expense over ${formatMoney(largeExpenseThreshold)}: consider excluding from monthly budget.`
+      : `Large expense over ${formatMoney(largeExpenseThreshold)}: consider excluding from monthly budget.`;
   }
 
   return {
@@ -2192,7 +2195,7 @@ export function combineCsvAnalyses(analyses) {
     a.linkedAccountId = b.sourceAccountId;
     a.defaultInclude = true;
     a.warning = hasEvidence
-      ? `Likely transfer matched with ${b.sourceFileName} (${describeWhen(b)}, ${formatAmountForNote(b.amount)} opposite sign).`
+      ? `Likely transfer matched with ${b.sourceFileName} (${describeWhen(b)}, ${formatMoney(b.amount)} opposite sign).`
       : `Unconfirmed possible transfer: same amount as a row in ${b.sourceFileName} (${describeWhen(b)}), but the descriptions don't match — could be a coincidence. Included by default; double-check before importing.`;
     a.confidence = confidence;
 
@@ -2202,7 +2205,7 @@ export function combineCsvAnalyses(analyses) {
     b.linkedAccountId = a.sourceAccountId;
     b.defaultInclude = true;
     b.warning = hasEvidence
-      ? `Likely transfer matched with ${a.sourceFileName} (${describeWhen(a)}, ${formatAmountForNote(a.amount)} opposite sign).`
+      ? `Likely transfer matched with ${a.sourceFileName} (${describeWhen(a)}, ${formatMoney(a.amount)} opposite sign).`
       : `Unconfirmed possible transfer: same amount as a row in ${a.sourceFileName} (${describeWhen(a)}), but the descriptions don't match — could be a coincidence. Included by default; double-check before importing.`;
     b.confidence = confidence;
 
@@ -2700,7 +2703,7 @@ function minutesBetween(dateA, timeA, dateB, timeB) {
   const a = new Date(`${dateA}T${timeA || "12:00"}:00`);
   const b = new Date(`${dateB}T${timeB || "12:00"}:00`);
   if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return Infinity;
-  return Math.abs(a.getTime() - b.getTime()) / 60000;
+  return Math.abs(a.getTime() - b.getTime()) / MS_PER_MINUTE;
 }
 
 export { minutesBetween };
@@ -2768,10 +2771,3 @@ function summarisePreviewRows(rows) {
   });
 }
 
-function roundMoney(value) {
-  return Math.round(Number(value || 0) * 100) / 100;
-}
-
-function formatAmountForNote(value) {
-  return `£${Number(value || 0).toFixed(2)}`;
-}
