@@ -1,4 +1,5 @@
 import { FieldError, RequiredMark } from "../common/FormFeedback.jsx";
+import { X } from "lucide-react";
 
 export function HousePersonModal({ house, personForm, updatePersonForm, submitPerson, closePersonModal, validation }) {
   return (
@@ -6,7 +7,7 @@ export function HousePersonModal({ house, personForm, updatePersonForm, submitPe
       <form className="modal-card" onSubmit={submitPerson} noValidate>
         <div className="section-header">
           <h2>Add person: {house.name}</h2>
-          <button type="button" className="icon-button" onClick={closePersonModal} aria-label="Close">×</button>
+          <button type="button" className="icon-button" onClick={closePersonModal} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
         <div className="form-grid">
           <label>

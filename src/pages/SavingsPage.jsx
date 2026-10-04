@@ -5,6 +5,8 @@ import { formatMoney } from "../utils/money.js";
 import { checkMoneyAmount, checkRequiredText, collectErrors } from "../utils/validation.js";
 import useFormErrors from "../hooks/useFormErrors.js";
 import { ErrorSummary, FieldError, RequiredMark } from "../components/common/FormFeedback.jsx";
+import { X } from "lucide-react";
+import { formatDisplayDate } from "../utils/dates.js";
 
 const blankGoalForm = {
   name: "",
@@ -223,7 +225,7 @@ export default function SavingsPage({ appData, actions }) {
               <div key={goal.id} className="archive-row">
                 <div>
                   <strong>{goal.name}</strong>
-                  <small>{formatMoney(goal.currentManualAmount || 0)} saved manually · target {formatMoney(goal.targetAmount || 0)}{goal.archivedAt ? ` · archived ${goal.archivedAt.slice(0, 10)}` : ""}</small>
+                  <small>{formatMoney(goal.currentManualAmount || 0)} saved manually · target {formatMoney(goal.targetAmount || 0)}{goal.archivedAt ? ` · archived ${formatDisplayDate(goal.archivedAt)}` : ""}</small>
                 </div>
                 <div className="row-actions archive-row-actions">
                   <button type="button" className="secondary-button" onClick={() => restoreGoal(goal)}>Restore</button>
@@ -240,7 +242,7 @@ export default function SavingsPage({ appData, actions }) {
           <form className="modal-card" onSubmit={submitGoal} noValidate>
             <div className="section-header">
               <h2>{editingGoalId ? "Edit savings goal" : "Add savings goal"}</h2>
-              <button type="button" className="icon-button" onClick={closeGoalModal} aria-label="Close">×</button>
+              <button type="button" className="icon-button" onClick={closeGoalModal} aria-label="Close"><X size={18} aria-hidden="true" /></button>
             </div>
 
             <ErrorSummary errors={errors} getFieldId={getFieldId} />

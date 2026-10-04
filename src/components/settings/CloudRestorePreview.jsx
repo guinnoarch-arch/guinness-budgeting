@@ -1,6 +1,7 @@
 import AsyncButton from "../common/AsyncButton.jsx";
 import { buildRestoreComparisonWarnings } from "../../services/storageService.js";
 import { CountGrid, WarningList, formatDateTime } from "./settingsHelpers.jsx";
+import { X } from "lucide-react";
 
 // What a chosen cloud backup contains, and the confirm step for restoring it.
 export function CloudRestorePreview({ appData, cloudRestorePhrase, cloudRestorePreview, confirmCloudRestore, setCloudRestorePhrase, setCloudRestorePreview }) {
@@ -11,7 +12,7 @@ export function CloudRestorePreview({ appData, cloudRestorePhrase, cloudRestoreP
           <h4>Cloud restore preview</h4>
           <p className="muted-text">This will replace the current local IndexedDB data. Check counts first.</p>
         </div>
-        <button className="icon-button" onClick={() => { setCloudRestorePreview(null); setCloudRestorePhrase(""); }}>×</button>
+        <button className="icon-button" onClick={() => { setCloudRestorePreview(null); setCloudRestorePhrase(""); }} aria-label="Close"><X size={18} aria-hidden="true" /></button>
       </div>
 
       <div className="backup-meta-grid">

@@ -1,4 +1,5 @@
 import { ErrorSummary, FieldError, RequiredMark } from "../common/FormFeedback.jsx";
+import { X } from "lucide-react";
 
 // Pop-up for adding or editing a recurring payment.
 export function RecurringItemModal({ activeAccounts, archiveRecurring, closeEditRecurring, editingItem, errors, expenseCategories, fieldProps, form, getFieldId, isAddingBill, saveRecurring, updateForm, validateFieldOnBlur }) {
@@ -10,7 +11,7 @@ export function RecurringItemModal({ activeAccounts, archiveRecurring, closeEdit
             <p className="eyebrow">Recurring payment</p>
             <h2>{isAddingBill ? "Add bill" : `Edit ${editingItem.name}`}</h2>
           </div>
-          <button type="button" className="icon-button" onClick={closeEditRecurring} aria-label="Close">×</button>
+          <button type="button" className="icon-button" onClick={closeEditRecurring} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
 
         <ErrorSummary errors={errors} getFieldId={getFieldId} />

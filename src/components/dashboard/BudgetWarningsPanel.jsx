@@ -1,11 +1,6 @@
 import { getCategorySpend } from "../../utils/calculations.js";
 import { formatMoney } from "../../utils/money.js";
-
-function getBudgetTone(item, thresholds) {
-  if (item.usedPercent > thresholds.orangeMax) return "red";
-  if (item.usedPercent >= thresholds.greenMax) return "orange";
-  return "green";
-}
+import { describeBudgetStatus } from "../../utils/budgetStatus.js";
 
 export default function BudgetWarningsPanel({ appData, selectedMonth, accountId = null, onViewAll }) {
   const thresholds = appData.settings?.budgetWarningThresholds || { greenMax: 75, orangeMax: 100 };
@@ -27,10 +22,7 @@ export default function BudgetWarningsPanel({ appData, selectedMonth, accountId 
       ) : (
         <div className="stack budget-warning-stack">
           {budgetItems.map(item => {
-            const tone = getBudgetTone(item, thresholds);
-            const remainingText = item.remaining >= 0
-              ? `${formatMoney(item.remaining)} left`
-              : `${formatMoney(Math.abs(item.remaining))} over`;
+            const { tone, label, remainingText } = describeBudgetStatus(item, thresholds);
 
             return (
               <div key={item.category.id} className={`warning-row ${tone}`}>
@@ -38,7 +30,10 @@ export default function BudgetWarningsPanel({ appData, selectedMonth, accountId 
                   <strong>{item.category.name}</strong>
                   <small>{formatMoney(item.spent)} spent of {formatMoney(item.limit)}</small>
                 </div>
-                <span>{item.usedPercent.toFixed(0)}% used · {remainingText}</span>
+                <span>
+                  <span className={`budget-status-label ${tone}`}>{label}</span>
+                  {item.usedPercent.toFixed(0)}% used · {remainingText}
+                </span>
               </div>
             );
           })}

@@ -2,6 +2,7 @@ import { calculateHouseSummary } from "../../utils/houseTracking.js";
 import { formatMoney } from "../../utils/money.js";
 import { HouseDetailPanel } from "./HouseDetailPanel.jsx";
 import { formatLoanToValue } from "./loanDisplay.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 export function HouseSection({
   appData,
@@ -128,7 +129,7 @@ export function HouseSection({
               <div key={house.id} className="archive-row">
                 <div>
                   <strong>{house.name}</strong>
-                  <small>Archived {house.archivedAt ? house.archivedAt.slice(0, 10) : ""}</small>
+                  <small>Archived {house.archivedAt ? formatDisplayDate(house.archivedAt) : ""}</small>
                 </div>
                 <div className="row-actions archive-row-actions">
                   <button type="button" className="secondary-button" onClick={() => onRestoreHouse(house)}>Restore</button>

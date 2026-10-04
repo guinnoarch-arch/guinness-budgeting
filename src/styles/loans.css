@@ -21,10 +21,10 @@
   text-align: left;
   padding: 18px;
   border: 1px solid var(--line);
-  border-radius: 22px;
+  border-radius:var(--radius-lg);
   background: var(--card);
   color: var(--text);
-  box-shadow: none;
+  box-shadow:none;
   transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
@@ -32,38 +32,38 @@
 .loan-summary-tile:focus-visible {
   transform: translateY(-1px);
   border-color: var(--primary);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  box-shadow:var(--shadow);
   outline: none;
 }
 
 .loan-summary-tile.selected {
   border-color: var(--primary);
   background: rgba(var(--primary-rgb), 0.055);
-  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.10);
+  box-shadow:var(--focus-ring);
 }
 
 .loan-summary-type {
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-size: 0.72rem;
-  font-weight: 800;
+  font-size:var(--fs-xs);
+  font-weight:600;
 }
 
 .loan-summary-tile strong {
-  font-size: 1.05rem;
+  font-size:var(--fs-base);
 }
 
 .loan-summary-amount {
-  font-size: clamp(1.4rem, 3vw, 2.1rem);
-  font-weight: 900;
+  font-size:clamp(1.4rem, 3vw, 2.1rem);
+  font-weight:600;
   line-height: 1;
 }
 
 .loan-summary-tile small,
 .loan-detail-card small {
   color: var(--muted);
-  font-weight: 700;
+  font-weight:600;
 }
 
 .loan-closed-state-card {
@@ -92,16 +92,16 @@
 }
 
 .loan-detail-card strong {
-  font-size: 1.35rem;
+  font-size:var(--fs-xl);
 }
 
 .mortgage-main-card strong {
-  font-size: clamp(1.3rem, 2.5vw, 1.9rem);
+  font-size:clamp(1.3rem, 2.5vw, 1.9rem);
 }
 
 .positive-card-soft {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
+  border-color: var(--positive-line);
+  background: var(--positive-soft);
 }
 
 .loan-chart-card {
@@ -109,7 +109,7 @@
   gap: 10px;
   padding: 16px;
   border: 1px solid var(--line);
-  border-radius: 20px;
+  border-radius:var(--radius-lg);
   background: var(--card);
 }
 
@@ -121,15 +121,15 @@
 .loan-extra-details-card {
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 20px;
-  background: rgba(249, 250, 251, 0.82);
+  border-radius:var(--radius-lg);
+  background: var(--surface-2);
   overflow: hidden;
 }
 
 .loan-extra-details-card > summary {
   padding: 16px;
   cursor: pointer;
-  font-weight: 900;
+  font-weight:600;
   list-style: none;
 }
 
@@ -141,7 +141,7 @@
   content: "+";
   float: right;
   color: var(--muted);
-  font-weight: 900;
+  font-weight:600;
 }
 
 .loan-extra-details-card[open] > summary::after {
@@ -180,8 +180,8 @@
 }
 
 [data-theme="dark"] .positive-card-soft {
-  border-color: rgba(34, 197, 94, 0.35);
-  background: rgba(34, 197, 94, 0.12);
+  border-color: var(--positive-line);
+  background: var(--positive-soft);
 }
 
 @media (max-width: 720px) {
@@ -202,10 +202,10 @@
   gap: 6px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius:var(--radius);
   background: var(--card);
   color: var(--text);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  box-shadow:var(--shadow);
 }
 
 .loan-chart-tooltip small {
@@ -231,7 +231,7 @@
   max-height: 280px;
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius:var(--radius);
 }
 
 .loan-event-table {
@@ -250,7 +250,7 @@
 
 .loan-event-table th {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size:var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   background: rgba(var(--primary-rgb), 0.045);
@@ -387,7 +387,7 @@
 .loan-detail-card .loan-detail-note {
   display: block;
   margin-top: 4px;
-  font-size: 12px;
+  font-size:var(--fs-xs);
   line-height: 1.35;
   color: var(--muted);
 }

@@ -1,6 +1,7 @@
 import { FieldError, RequiredMark } from "../common/FormFeedback.jsx";
 import { getBudgetAccountIds } from "../../utils/calculations.js";
 import { formatMoney } from "../../utils/money.js";
+import { X } from "lucide-react";
 
 // Budget manager pop-up: add categories and jump to their budget or category editor.
 export function BudgetManagerModal({ actions, activeAccounts, activeManagerCategories, addCategoryFromManager, archiveCategory, getCurrentBudgetForCategory, newCategoryDraft, newCategoryErrors, openBudgetEditorFromManager, openCategoryEditorFromManager, setShowBudgetManager, toggleNewCategoryAccount, updateNewCategoryDraft }) {
@@ -12,7 +13,7 @@ export function BudgetManagerModal({ actions, activeAccounts, activeManagerCateg
             <p className="eyebrow">Budget manager</p>
             <h2>Categories and budgets</h2>
           </div>
-          <button type="button" className="icon-button" onClick={() => setShowBudgetManager(false)}>×</button>
+          <button type="button" className="icon-button" onClick={() => setShowBudgetManager(false)} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
 
         <form className="manager-add-form" onSubmit={addCategoryFromManager} noValidate>

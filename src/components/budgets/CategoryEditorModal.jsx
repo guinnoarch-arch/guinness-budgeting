@@ -1,4 +1,5 @@
 import { FieldError, RequiredMark } from "../common/FormFeedback.jsx";
+import { X } from "lucide-react";
 
 // Pop-up for renaming, archiving or deleting a category.
 export function CategoryEditorModal({ archiveCategory, categoryName, categoryNameErrors, closeCategoryEditor, editingCategory, saveCategory, setCategoryName }) {
@@ -7,7 +8,7 @@ export function CategoryEditorModal({ archiveCategory, categoryName, categoryNam
       <form className="modal-card" onSubmit={e => { e.preventDefault(); saveCategory(); }} noValidate>
         <div className="section-header">
           <h2>Edit category</h2>
-          <button type="button" className="icon-button" onClick={closeCategoryEditor} aria-label="Close">×</button>
+          <button type="button" className="icon-button" onClick={closeCategoryEditor} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
 
         <div className="form-grid">

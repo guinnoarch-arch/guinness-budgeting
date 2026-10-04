@@ -79,7 +79,7 @@ export function buildAccountCheck(data, accountId, { fromDate, toDate }) {
       if (problems.length) {
         addFlag(transaction.id, { kind: "transfer", level: "likely", text: `Transfer ${signed < 0 ? "to" : "from"} ${partnerName}, but ${problems.join("; ")}.` });
       } else {
-        addFlag(transaction.id, { kind: "transfer_ok", level: "info", text: `Transfer ${signed < 0 ? "to" : "from"} ${partnerName} (${partner.date}) ✓` });
+        addFlag(transaction.id, { kind: "transfer_ok", level: "info", text: `Transfer ${signed < 0 ? "to" : "from"} ${partnerName} (${partner.date}), matched` });
       }
       return;
     }

@@ -1,4 +1,5 @@
 import { FieldError, RequiredMark } from "../common/FormFeedback.jsx";
+import { X } from "lucide-react";
 
 // "Add account" pop-up for a statement or transfer whose account doesn't exist yet.
 export function ImportAccountModal({ form, validation, updateForm, onSave, onClose }) {
@@ -9,7 +10,7 @@ export function ImportAccountModal({ form, validation, updateForm, onSave, onClo
           <div>
             <h2>Add account</h2>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">×</button>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
 
         <div className="form-grid">

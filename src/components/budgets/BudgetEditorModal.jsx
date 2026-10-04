@@ -1,4 +1,5 @@
 import { FieldError } from "../common/FormFeedback.jsx";
+import { X } from "lucide-react";
 
 // Pop-up for setting or changing one category's budget.
 export function BudgetEditorModal({ activeAccounts, archiveBudget, budgetAccountIds, budgetErrors, budgetLimit, closeBudgetEditor, editingBudget, saveBudget, setBudgetLimit, toggleBudgetAccount }) {
@@ -7,7 +8,7 @@ export function BudgetEditorModal({ activeAccounts, archiveBudget, budgetAccount
       <form className="modal-card" onSubmit={e => { e.preventDefault(); saveBudget(); }} noValidate>
         <div className="section-header">
           <h2>Edit budget for {editingBudget.category.name}</h2>
-          <button type="button" className="icon-button" onClick={closeBudgetEditor} aria-label="Close">×</button>
+          <button type="button" className="icon-button" onClick={closeBudgetEditor} aria-label="Close"><X size={18} aria-hidden="true" /></button>
         </div>
 
         <div className="form-grid">

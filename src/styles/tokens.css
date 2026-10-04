@@ -1,0 +1,140 @@
+/*
+ * Design tokens. Every colour, radius, type size and shadow in the app
+ * comes from here, so light and dark mode only differ in this file.
+ *
+ * Palette: near-black ink on warm cream, off-white cards, and one muted
+ * gold accent taken from the GH logo. The accent (--primary) can be
+ * changed in Settings > Appearance; --on-primary is worked out to stay
+ * readable on whichever accent is chosen.
+ */
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --bg: #f4efe4;
+  --card: #fcfaf5;
+  --surface-2: #f0eadd;
+  --overlay: rgba(27, 26, 23, 0.45);
+
+  /* Text */
+  --text: #1c1b18;
+  --muted: #6a6457;
+  --line: #e2daca;
+  --line-strong: #cbc1ab;
+
+  /* Accent (set from Settings at runtime) */
+  --primary: #a8843f;
+  --primary-dark: #7f6330;
+  --primary-rgb: 168, 132, 63;
+  --on-primary: #1c1b18;
+  --on-solid: #fcfaf5;
+  --accent-text: #7a5e26;
+
+  /* Feature panel (the big "budget left" figure, account totals) */
+  --feature-bg: #1c1b18;
+  --feature-text: #f4efe4;
+  --feature-muted: #b9b1a0;
+
+  /* Meaning colours: muted, and always paired with words in the UI */
+  --positive: #3d7a5a;
+  --positive-text: #2c5e44;
+  --positive-soft: #e6eee5;
+  --positive-line: #c2d4c3;
+
+  --negative: #a24646;
+  --negative-text: #8c3434;
+  --negative-soft: #f5e5e1;
+  --negative-line: #e3c2bb;
+
+  --warning: #b07a2a;
+  --warning-text: #7d561a;
+  --warning-soft: #f6ecd8;
+  --warning-line: #e4cfa3;
+
+  --info: #4e6f8e;
+  --info-text: #3b5671;
+  --info-soft: #e5ebf0;
+  --info-line: #c4d0db;
+
+  --accent: var(--primary);
+  --accent-soft: rgba(var(--primary-rgb), 0.12);
+  --accent-line: rgba(var(--primary-rgb), 0.4);
+
+  /* Older names still used in a few places */
+  --green: var(--positive);
+  --red: var(--negative);
+  --orange: var(--warning);
+  --blue: var(--info);
+
+  /* Shape */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 6px;
+
+  /* Depth: a single soft shadow, no glows */
+  --shadow: 0 1px 2px rgba(28, 27, 24, 0.06), 0 4px 12px rgba(28, 27, 24, 0.04);
+  --focus-ring: 0 0 0 3px rgba(var(--primary-rgb), 0.35);
+
+  /* Type */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-md: 0.875rem;
+  --fs-base: 1rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.375rem;
+  --fs-2xl: 1.75rem;
+  --fs-display: clamp(2.25rem, 5vw, 3.25rem);
+
+  /* Chart colours (also used from JavaScript via utils/chartTheme.js) */
+  --chart-grid: rgba(28, 27, 24, 0.1);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #121210;
+  --card: #1b1a17;
+  --surface-2: #24221e;
+  --overlay: rgba(0, 0, 0, 0.6);
+
+  --text: #ece6d8;
+  --muted: #a39c8d;
+  --line: #34312b;
+  --line-strong: #4a463d;
+
+  --accent-text: #d4b06a;
+  --on-solid: #1b1a17;
+
+  --feature-bg: #24221e;
+  --feature-text: #ece6d8;
+  --feature-muted: #a39c8d;
+
+  --positive: #6fa585;
+  --positive-text: #8fc0a2;
+  --positive-soft: rgba(111, 165, 133, 0.14);
+  --positive-line: rgba(111, 165, 133, 0.35);
+
+  --negative: #c46e6e;
+  --negative-text: #e09a92;
+  --negative-soft: rgba(196, 110, 110, 0.14);
+  --negative-line: rgba(196, 110, 110, 0.38);
+
+  --warning: #c99a4b;
+  --warning-text: #e0bb7a;
+  --warning-soft: rgba(201, 154, 75, 0.14);
+  --warning-line: rgba(201, 154, 75, 0.38);
+
+  --info: #7d9bb8;
+  --info-text: #a6bfd6;
+  --info-soft: rgba(125, 155, 184, 0.14);
+  --info-line: rgba(125, 155, 184, 0.35);
+
+  --accent-soft: rgba(var(--primary-rgb), 0.16);
+  --accent-line: rgba(var(--primary-rgb), 0.45);
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --chart-grid: rgba(236, 230, 216, 0.12);
+}

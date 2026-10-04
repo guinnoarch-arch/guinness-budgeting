@@ -1,5 +1,6 @@
 import { getCategoryById } from "../../utils/calculations.js";
 import { formatMoney } from "../../utils/money.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 // Shared by the Spent card (major spends) and the Income card (big incomes):
 // every transaction at or above the relevant threshold this month, biggest
@@ -39,7 +40,7 @@ export default function MajorSpendsModal({ appData, spends, threshold, includeEx
                 <button key={transaction.id} className="transaction-mini-row" onClick={() => onEdit(transaction)}>
                   <span>
                     <strong>{transaction.title}</strong>
-                    <small>{transaction.date}{category ? ` · ${category.name}` : ""}</small>
+                    <small>{formatDisplayDate(transaction.date)}{category ? ` · ${category.name}` : ""}</small>
                   </span>
                   <span className={`amount ${isIncome ? "income" : "expense"}`}>{formatMoney(transaction.amount)}</span>
                 </button>

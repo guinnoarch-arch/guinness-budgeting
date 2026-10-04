@@ -20,7 +20,7 @@ export default function BudgetBehaviourSection({ appData, actions, settings, acc
           <p className="eyebrow">Budget logic</p>
           <h3>Budget behaviour</h3>
         </div>
-        <div className="settings-accordion-heading-side"><span className="pill">V2.6.9</span><SectionChevron sectionId="budgetBehaviour" /></div>
+        <div className="settings-accordion-heading-side"><SectionChevron sectionId="budgetBehaviour" /></div>
       </div>
 
       <div className="form-grid appearance-form-grid">
