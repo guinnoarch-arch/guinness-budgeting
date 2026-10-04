@@ -42,6 +42,7 @@ export default function TransactionModal({ appData, actions, editingTransaction 
   const [removeExistingReceipt, setRemoveExistingReceipt] = useState(false);
   const [receiptError, setReceiptError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
   const [showLinkPicker, setShowLinkPicker] = useState(false);
   const [linkSearch, setLinkSearch] = useState("");
 
@@ -309,6 +310,10 @@ export default function TransactionModal({ appData, actions, editingTransaction 
   async function submit(event) {
     event.preventDefault();
     if (!form.amount || Number(form.amount) <= 0) return alert("Enter an amount above zero.");
+    if (form.type === "transfer" && form.fromAccountId === form.toAccountId) {
+      return setFormError("A transfer needs two different accounts. Choose where the money is going in To account.");
+    }
+    setFormError("");
 
     setIsSubmitting(true);
     setReceiptError("");
@@ -805,6 +810,8 @@ export default function TransactionModal({ appData, actions, editingTransaction 
             {receiptError && <small className="danger-text">{receiptError}</small>}
           </div>
         </div>
+
+        {formError && <p className="restore-error-box" role="alert">{formError}</p>}
 
         <div className="modal-actions">
           <button type="button" className="secondary-button" onClick={actions.closeTransactionModal}>Cancel</button>

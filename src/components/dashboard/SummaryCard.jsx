@@ -1,12 +1,10 @@
 import { formatMoney } from "../../utils/money.js";
 
-export default function SummaryCard({ label, value, change, tone = "neutral", detail = "", afterValue = null, onClick = null }) {
-  const percentageText = change === null || change === undefined
-    ? "No previous data"
-    : `${change >= 0 ? "+" : ""}${change.toFixed(0)}%`;
-  const changeText = change === null || change === undefined
-    ? percentageText
-    : `${percentageText} vs previous month`;
+export default function SummaryCard({ label, value, change, tone = "neutral", detail = "", afterValue = null, onClick = null, higherIsBetter = true }) {
+  const hasComparison = change !== null && change !== undefined && Number.isFinite(change);
+  const percentageText = hasComparison ? `${change >= 0 ? "+" : ""}${change.toFixed(0)}%` : "";
+  // For spending, going down is the good direction.
+  const isImprovement = hasComparison && (higherIsBetter ? change >= 0 : change <= 0);
 
   return (
     <section
@@ -29,11 +27,13 @@ export default function SummaryCard({ label, value, change, tone = "neutral", de
       </div>
       {detail ? (
         <span className="muted-text">{detail}</span>
-      ) : (
-        <span className={change >= 0 ? "positive-text" : "negative-text"} title={changeText}>
+      ) : hasComparison ? (
+        <span className={isImprovement ? "positive-text" : "negative-text"} title={`${percentageText} vs previous month`}>
           <span className="summary-change-short">{percentageText}</span>
           <span className="summary-change-full"> vs previous month</span>
         </span>
+      ) : (
+        <span className="muted-text">No data for the previous month</span>
       )}
     </section>
   );

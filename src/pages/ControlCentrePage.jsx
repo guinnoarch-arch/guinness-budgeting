@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import AsyncButton from "../components/common/AsyncButton.jsx";
 import {
   APP_VERSION,
   DATA_SCHEMA_VERSION,
@@ -497,7 +498,7 @@ export default function ControlCentrePage({ appData, actions }) {
               </button>
             ))}
           </div>
-          <button type="button" className="secondary-button small" onClick={refreshUsers}>Refresh</button>
+          <AsyncButton busyLabel="Refreshing…" type="button" className="secondary-button small" onClick={refreshUsers}>Refresh</AsyncButton>
         </div>
 
         {userStatus && (
@@ -546,31 +547,31 @@ export default function ControlCentrePage({ appData, actions }) {
                     <td data-label="Actions">
                       <div className="admin-user-actions">
                         {!user.is_admin ? (
-                          <button type="button" className="secondary-button small" onClick={() => promoteUser(user)}>
+                          <AsyncButton busyLabel="Saving…" type="button" className="secondary-button small" onClick={() => promoteUser(user)}>
                             Promote to admin
-                          </button>
+                          </AsyncButton>
                         ) : (
-                          <button type="button" className="secondary-button small" onClick={() => demoteUser(user)} disabled={isOnlyAdmin}>
+                          <AsyncButton busyLabel="Saving…" type="button" className="secondary-button small" onClick={() => demoteUser(user)} disabled={isOnlyAdmin}>
                             Demote to user
-                          </button>
+                          </AsyncButton>
                         )}
                         {user.blocked ? (
-                          <button type="button" className="secondary-button small" onClick={() => unblockUser(user)}>
+                          <AsyncButton busyLabel="Saving…" type="button" className="secondary-button small" onClick={() => unblockUser(user)}>
                             Unblock
-                          </button>
+                          </AsyncButton>
                         ) : (
-                          <button type="button" className="danger-button small" onClick={() => blockUser(user)} disabled={isOnlyAdmin || (isSelf && isOnlyAdmin)}>
+                          <AsyncButton busyLabel="Saving…" type="button" className="danger-button small" onClick={() => blockUser(user)} disabled={isOnlyAdmin || (isSelf && isOnlyAdmin)}>
                             Block
-                          </button>
+                          </AsyncButton>
                         )}
                         {user.paused ? (
-                          <button type="button" className="secondary-button small" onClick={() => resumeUser(user)}>
+                          <AsyncButton busyLabel="Saving…" type="button" className="secondary-button small" onClick={() => resumeUser(user)}>
                             Resume
-                          </button>
+                          </AsyncButton>
                         ) : (
-                          <button type="button" className="secondary-button small" onClick={() => pauseUser(user)} disabled={isOnlyAdmin || (isSelf && isOnlyAdmin)}>
+                          <AsyncButton busyLabel="Saving…" type="button" className="secondary-button small" onClick={() => pauseUser(user)} disabled={isOnlyAdmin || (isSelf && isOnlyAdmin)}>
                             Pause
-                          </button>
+                          </AsyncButton>
                         )}
                       </div>
                     </td>
@@ -590,7 +591,7 @@ export default function ControlCentrePage({ appData, actions }) {
             <h3>Feature suggestions</h3>
             <p>Safe user-submitted app ideas. No financial records are shown here.</p>
           </div>
-          <button type="button" className="secondary-button small" onClick={() => refreshSuggestions()}>Refresh</button>
+          <AsyncButton busyLabel="Refreshing…" type="button" className="secondary-button small" onClick={() => refreshSuggestions()}>Refresh</AsyncButton>
         </div>
 
         <div className="admin-user-tools">
@@ -701,13 +702,13 @@ export default function ControlCentrePage({ appData, actions }) {
           </label>
           <div className="row-actions">
             {appNotices.maintenanceMode ? (
-              <button type="button" className="danger-button" onClick={() => saveMaintenanceStatus(false)}>
+              <AsyncButton busyLabel="Saving…" type="button" className="danger-button" onClick={() => saveMaintenanceStatus(false)}>
                 Turn maintenance mode OFF
-              </button>
+              </AsyncButton>
             ) : (
-              <button type="button" className="secondary-button" onClick={() => saveMaintenanceStatus(true)}>
+              <AsyncButton busyLabel="Saving…" type="button" className="secondary-button" onClick={() => saveMaintenanceStatus(true)}>
                 Turn maintenance mode ON
-              </button>
+              </AsyncButton>
             )}
           </div>
           {maintenanceStatus && <p className="cloud-status-message compact-status">{maintenanceStatus}</p>}
@@ -744,7 +745,7 @@ export default function ControlCentrePage({ appData, actions }) {
           </form>
           {appNotices.broadcast && (
             <div className="row-actions">
-              <button type="button" className="secondary-button small" onClick={clearBroadcastMessage}>Clear active message</button>
+              <AsyncButton busyLabel="Clearing…" type="button" className="secondary-button small" onClick={clearBroadcastMessage}>Clear active message</AsyncButton>
             </div>
           )}
           {broadcastStatus && <p className="cloud-status-message compact-status">{broadcastStatus}</p>}
@@ -823,9 +824,9 @@ export default function ControlCentrePage({ appData, actions }) {
             Only enable this when you are intentionally allowing another trusted user to become admin.
           </div>
           <div className="row-actions">
-            <button type="button" className={adminStatus.adminClaimEnabled ? "danger-button" : "secondary-button"} onClick={toggleAdminClaimMode}>
+            <AsyncButton busyLabel="Saving…" type="button" className={adminStatus.adminClaimEnabled ? "danger-button" : "secondary-button"} onClick={toggleAdminClaimMode}>
               {adminStatus.adminClaimEnabled ? "Turn admin-claim mode OFF" : "Allow another user to become admin"}
-            </button>
+            </AsyncButton>
           </div>
           <p className="muted-text">
             The first user can become admin only while no admin exists. After any successful claim, admin-claim mode is automatically turned off by Supabase.

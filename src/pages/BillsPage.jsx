@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { addDaysToIsoDate, getMonthKey, isInMonth, todayIsoDate } from "../utils/dates.js";
 import { formatMoney } from "../utils/money.js";
+import { createId } from "../utils/ids.js";
 
 const emptyRecurringForm = {
   id: null,
@@ -16,8 +17,11 @@ const emptyRecurringForm = {
 };
 
 export default function BillsPage({ appData, actions }) {
+  // null = closed, "new" = adding a bill, otherwise the bill being edited.
   const [editingItem, setEditingItem] = useState(null);
   const [form, setForm] = useState(emptyRecurringForm);
+  const [formError, setFormError] = useState("");
+  const isAddingBill = editingItem === "new";
 
   const today = todayIsoDate();
   const weekEnd = addDaysToIsoDate(today, 7);
@@ -32,8 +36,28 @@ export default function BillsPage({ appData, actions }) {
   const expenseCategories = (appData.categories || []).filter(category => category.type === "expense" && category.isActive !== false);
   const activeAccounts = (appData.accounts || []).filter(account => account.isActive !== false);
 
+  useEffect(() => {
+    if (actions.pageIntent?.page !== "bills" || actions.pageIntent.intent !== "add-bill") return;
+    openAddRecurring();
+    actions.clearPageIntent();
+    // Only react to a new intent, not to every data change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actions.pageIntent]);
+
+  function openAddRecurring() {
+    setEditingItem("new");
+    setFormError("");
+    setForm({
+      ...emptyRecurringForm,
+      categoryId: expenseCategories.find(category => category.id === emptyRecurringForm.categoryId)?.id || expenseCategories[0]?.id || "",
+      accountId: activeAccounts[0]?.id || "",
+      nextDueDate: todayIsoDate()
+    });
+  }
+
   function openEditRecurring(item) {
     setEditingItem(item);
+    setFormError("");
     setForm({
       id: item.id,
       name: item.name || "",
@@ -51,6 +75,7 @@ export default function BillsPage({ appData, actions }) {
   function closeEditRecurring() {
     setEditingItem(null);
     setForm(emptyRecurringForm);
+    setFormError("");
   }
 
   function updateForm(field, value) {
@@ -59,7 +84,38 @@ export default function BillsPage({ appData, actions }) {
 
   function saveRecurring(e) {
     e.preventDefault();
-    if (!editingItem || !form.name.trim()) return;
+    if (!editingItem) return;
+    if (!form.name.trim()) return setFormError("Enter a name for this bill, for example Netflix or Council tax.");
+    if (!(Number(form.amount) > 0)) return setFormError("Enter an amount above £0.00.");
+    if (!form.nextDueDate) return setFormError("Choose when the next payment is due.");
+    if (!form.accountId) return setFormError("Choose the account this bill is paid from.");
+
+    if (isAddingBill) {
+      const now = new Date().toISOString();
+      const newItem = {
+        id: createId("rec"),
+        name: form.name.trim(),
+        type: "expense",
+        amount: Number(form.amount),
+        amountType: form.amountType,
+        categoryId: form.categoryId,
+        accountId: form.accountId,
+        frequency: form.frequency,
+        nextDueDate: form.nextDueDate,
+        autoAdd: Boolean(form.autoAdd),
+        reminderEnabled: Boolean(form.reminderEnabled),
+        isActive: true,
+        isExample: false,
+        createdAt: now,
+        updatedAt: now
+      };
+      actions.updateAppData({
+        ...appData,
+        recurringItems: [newItem, ...(appData.recurringItems || [])]
+      }, { reason: "Bill added" });
+      closeEditRecurring();
+      return;
+    }
 
     const previousAmount = Number(editingItem.amount || 0);
     const nextAmount = Number(form.amount || 0);
@@ -90,7 +146,7 @@ export default function BillsPage({ appData, actions }) {
       recurringItems: appData.recurringItems.map(item =>
         item.id === editingItem.id ? updatedItem : item
       )
-    });
+    }, { reason: "Bill edited" });
     closeEditRecurring();
   }
 
@@ -107,7 +163,7 @@ export default function BillsPage({ appData, actions }) {
           ? { ...existing, isActive: false, archivedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
           : existing
       )
-    });
+    }, { reason: "Bill archived" });
     return true;
   }
 
@@ -119,14 +175,29 @@ export default function BillsPage({ appData, actions }) {
           ? { ...existing, isActive: true, archivedAt: null, updatedAt: new Date().toISOString() }
           : existing
       )
-    });
+    }, { reason: "Bill restored" });
+  }
+
+  function deleteRecurringPermanently(item) {
+    const paidCount = (appData.transactions || []).filter(txn => txn.recurringItemId === item.id).length;
+    const historyNote = paidCount > 0
+      ? ` The ${paidCount} payment${paidCount === 1 ? "" : "s"} already recorded will stay in Transactions.`
+      : "";
+    if (!window.confirm(`Permanently delete ${item.name}? This can't be undone.${historyNote}`)) return;
+    actions.updateAppData({
+      ...appData,
+      recurringItems: appData.recurringItems.filter(existing => existing.id !== item.id)
+    }, { reason: "Archived bill permanently deleted" });
   }
 
   return (
     <div className="page-grid">
-      <div>
-        <p className="eyebrow">Bills</p>
-        <h2>Recurring payments and reminders</h2>
+      <div className="page-title-row">
+        <div>
+          <p className="eyebrow">Bills</p>
+          <h2>Recurring payments and reminders</h2>
+        </div>
+        <button type="button" className="primary-button" onClick={openAddRecurring}>+ Add bill</button>
       </div>
 
       <div className="two-column">
@@ -157,7 +228,10 @@ export default function BillsPage({ appData, actions }) {
         </div>
 
         {activeBills.length === 0 ? (
-          <p className="muted">No active recurring payments.</p>
+          <div className="empty-state-card">
+            <p className="muted">No bills yet. Add rent, subscriptions or anything else you pay regularly, and they'll show here with reminders before they're due.</p>
+            <button type="button" className="secondary-button" onClick={openAddRecurring}>Add your first bill</button>
+          </div>
         ) : (
           <div className="recurring-card-grid">
             {activeBills.map(item => (
@@ -186,6 +260,7 @@ export default function BillsPage({ appData, actions }) {
                 onEdit={openEditRecurring}
                 onArchive={archiveRecurring}
                 onRestore={restoreRecurring}
+                onDelete={deleteRecurringPermanently}
               />
             ))}
           </div>
@@ -208,7 +283,7 @@ export default function BillsPage({ appData, actions }) {
             <div className="section-header">
               <div>
                 <p className="eyebrow">Recurring payment</p>
-                <h2>Edit {editingItem.name}</h2>
+                <h2>{isAddingBill ? "Add bill" : `Edit ${editingItem.name}`}</h2>
               </div>
               <button type="button" className="icon-button" onClick={closeEditRecurring}>×</button>
             </div>
@@ -301,15 +376,21 @@ export default function BillsPage({ appData, actions }) {
               </label>
             </div>
 
+            {formError && <p className="restore-error-box" role="alert">{formError}</p>}
+
             <div className="modal-actions split-actions">
-              <button type="button" className="danger-button" onClick={() => {
-                if (archiveRecurring(editingItem)) closeEditRecurring();
-              }}>
-                Archive / cancel
-              </button>
+              <div>
+                {!isAddingBill && (
+                  <button type="button" className="danger-button" onClick={() => {
+                    if (archiveRecurring(editingItem)) closeEditRecurring();
+                  }}>
+                    Archive bill
+                  </button>
+                )}
+              </div>
               <div className="row-actions">
                 <button type="button" className="secondary-button" onClick={closeEditRecurring}>Cancel</button>
-                <button className="primary-button">Save changes</button>
+                <button className="primary-button">{isAddingBill ? "Add bill" : "Save changes"}</button>
               </div>
             </div>
           </form>
@@ -319,7 +400,7 @@ export default function BillsPage({ appData, actions }) {
   );
 }
 
-function RecurringPaymentCard({ item, archived = false, onEdit, onArchive, onRestore }) {
+function RecurringPaymentCard({ item, archived = false, onEdit, onArchive, onRestore, onDelete }) {
   return (
     <div className={`sub-card recurring-payment-card ${archived ? "archived-card" : ""}`}>
       <div className="recurring-card-main">
@@ -332,7 +413,10 @@ function RecurringPaymentCard({ item, archived = false, onEdit, onArchive, onRes
       <div className="recurring-card-actions">
         <span className="pill">{item.autoAdd ? "Auto-add" : "Confirm"}</span>
         {archived ? (
-          <button className="secondary-button" type="button" onClick={() => onRestore(item)}>Restore</button>
+          <>
+            <button className="secondary-button" type="button" onClick={() => onRestore(item)}>Restore</button>
+            <button className="danger-button" type="button" onClick={() => onDelete(item)}>Delete permanently</button>
+          </>
         ) : (
           <>
             <button className="secondary-button" type="button" onClick={() => onEdit(item)}>Edit</button>

@@ -1,14 +1,20 @@
 import { useMemo, useState } from "react";
 import TransactionTable from "../components/transactions/TransactionTable.jsx";
+import { formatMonthLabel } from "../utils/dates.js";
 
 export default function TransactionsPage({ appData, actions }) {
-  const [filters, setFilters] = useState({
+  const defaultFilters = {
     month: actions.selectedMonth,
     categoryId: "all",
     type: "all",
     accountId: "all",
     search: ""
-  });
+  };
+  const [filters, setFilters] = useState(defaultFilters);
+  const hasNarrowingFilters = filters.categoryId !== "all"
+    || filters.type !== "all"
+    || filters.accountId !== "all"
+    || filters.search.trim() !== "";
 
   const filteredTransactions = useMemo(() => {
     return appData.transactions
@@ -83,7 +89,30 @@ export default function TransactionsPage({ appData, actions }) {
         </section>
       </details>
 
-      <TransactionTable appData={appData} actions={actions} transactions={filteredTransactions} />
+      {filteredTransactions.length === 0 ? (
+        <section className="card empty-state-card">
+          {hasNarrowingFilters ? (
+            <>
+              <h3>No transactions match these filters</h3>
+              <p className="muted">Try a different category, type, account or search, or clear the filters.</p>
+              <div className="row-actions">
+                <button type="button" className="secondary-button" onClick={() => setFilters(defaultFilters)}>Clear filters</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h3>No transactions{filters.month ? ` in ${formatMonthLabel(filters.month)}` : " yet"}</h3>
+              <p className="muted">Add one by hand, or import a bank statement CSV to bring in a month at once.</p>
+              <div className="row-actions">
+                <button type="button" className="primary-button" onClick={actions.openAddTransaction}>Add transaction</button>
+                <button type="button" className="secondary-button" onClick={() => actions.setActivePage("import")}>Import a CSV</button>
+              </div>
+            </>
+          )}
+        </section>
+      ) : (
+        <TransactionTable appData={appData} actions={actions} transactions={filteredTransactions} />
+      )}
     </div>
   );
 }
