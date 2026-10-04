@@ -6173,3 +6173,18 @@ h1.page-title {
   flex-shrink: 0;
   pointer-events: none;
 }
+
+/* Phone: the header icons sit in a sideways-scrolling row, which clipped
+   the notifications drop-down to almost nothing. Show it as a card over
+   the page instead, the same way search and quick actions open. */
+.app-shell.phone-mode .notification-panel {
+  position: fixed;
+  top: 76px;
+  left: 12px;
+  right: 12px;
+  width: auto;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  transform: none;
+  z-index: 130;
+}
