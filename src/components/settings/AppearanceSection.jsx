@@ -90,7 +90,7 @@ export default function AppearanceSection({ appData, actions, settings, accordio
             checked={settings.backupButtonFlashEnabled !== false}
             onChange={event => updateAppearanceSetting("backupButtonFlashEnabled", event.target.checked)}
           />
-          Allow Backup Now button to slowly flash when backup is urgent
+          Allow the "Back up now" button to flash slowly when backup is urgent
         </label>
 
         <label className="checkbox-label appearance-checkbox-label">
@@ -99,7 +99,7 @@ export default function AppearanceSection({ appData, actions, settings, accordio
             checked={settings.backupWarningsEnabled !== false}
             onChange={event => updateAppearanceSetting("backupWarningsEnabled", event.target.checked)}
           />
-          Allow backup warnings (the "changes since last backup" banner and the urgent Backup Now header button)
+          Allow backup warnings (the "changes since last backup" banner and the urgent "Back up now" header button)
         </label>
 
         <div className="appearance-preview-card full-width">

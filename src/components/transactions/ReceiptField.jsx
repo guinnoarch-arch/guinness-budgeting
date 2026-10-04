@@ -7,7 +7,7 @@ export function ReceiptField({ form, handleReceiptFile, hasExistingReceipt, rece
       <div className="section-header compact-header">
         <div>
           <h4>Receipt attachment</h4>
-          <p className="muted-text">Stored locally in IndexedDB. Use images or PDF files under 10 MB.</p>
+          <p className="muted-text">Saved on this device. Images or PDFs up to 10 MB.</p>
         </div>
       </div>
 

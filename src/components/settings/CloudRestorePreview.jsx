@@ -10,7 +10,7 @@ export function CloudRestorePreview({ appData, cloudRestorePhrase, cloudRestoreP
       <div className="section-header">
         <div>
           <h4>Cloud restore preview</h4>
-          <p className="muted-text">This will replace the current local IndexedDB data. Check counts first.</p>
+          <p className="muted-text">This replaces the budget saved on this device. Check the counts first.</p>
         </div>
         <button className="icon-button" onClick={() => { setCloudRestorePreview(null); setCloudRestorePhrase(""); }} aria-label="Close"><X size={18} aria-hidden="true" /></button>
       </div>

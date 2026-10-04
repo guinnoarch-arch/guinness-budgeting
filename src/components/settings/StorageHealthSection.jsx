@@ -101,7 +101,7 @@ export default function StorageHealthSection({ appData, actions, backupReminder,
           Request persistent browser storage
         </AsyncButton>
       </div>
-      <p className="muted-text">Persistent storage asks the browser not to automatically clear this app's IndexedDB data. JSON backups are still required.</p>
+      <p className="muted-text">Asks the browser not to clear this app's saved data on its own. Keep exporting backups as well.</p>
 
       <div className={backupReminderClass(backupReminder.level)}>
         <strong>{backupReminder.title}</strong>

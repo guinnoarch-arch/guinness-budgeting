@@ -3,7 +3,7 @@
   "version": "2.6.27",
   "private": true,
   "type": "module",
-  "description": "Local React budgeting app for personal/student/household budgeting with CSV import.",
+  "description": "Guinness & Holley Budgeting: a local-first React budgeting app with bank CSV import and optional cloud backup.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

@@ -298,7 +298,7 @@ export default function CloudBackupSection({ appData, actions, cloudConfigured, 
           <div className="backup-warning-box cloud-warning-box">
             <strong>Auth cloud backup mode, not automatic live sync.</strong>
             <ul>
-              <li>Data still saves locally in IndexedDB first.</li>
+              <li>Your budget still saves on this device first.</li>
               <li>Cloud backup is an extra safety copy after sign-in.</li>
               <li>On a phone or new device, open the app, sign in, preview the latest backup, then restore it only if it is the data you expect.</li>
               <li>Receipt/image cloud backup is intentionally disabled for now to protect the free quota.</li>

@@ -4672,7 +4672,7 @@ button[disabled] {
 
 /* The small utility icons (theme, search, settings, etc.) scroll as one
    compact row instead of wrapping across two — that recovers real content
-   space above the fold. The "+ Add Transaction" button stays outside this
+   space above the fold. The "+ Add transaction" button stays outside this
    row so it keeps its own full-width, always-visible line below rather
    than getting swept into the icon scroller. */
 .app-shell.phone-mode .header-icon-row {
