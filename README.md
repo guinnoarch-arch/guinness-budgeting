@@ -10,8 +10,8 @@ Version 2.6.27 · React 19 · Vite 6
 
 - **Dashboard:** this month's money left, income, spending, savings, a
   six-month trend, a budget breakdown, upcoming bills and budget warnings.
-- **Transactions:** one line per transaction (name, date, amount); click one
-  for its details. Add, edit and delete income, spending and transfers, with
+- **Transactions:** a full table on a computer; on a phone, one line per
+  transaction (name, date, amount) that opens its details. Add, edit and delete income, spending and transfers, with
   receipts, notes, repeat settings and links to loans or a house. Deleting
   offers an Undo.
 - **Budgets:** a monthly limit per category, shown as *On track*,

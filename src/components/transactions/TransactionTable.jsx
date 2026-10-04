@@ -8,8 +8,9 @@ import { formatFileSize } from "../../utils/files.js";
 import { X } from "lucide-react";
 import { formatDisplayDate } from "../../utils/dates.js";
 
-// The list shows one line per transaction (name, date, amount). Everything
-// else, and Edit/Delete, is in the details pop-up that opens on click.
+// On a computer every field is a column in the table. In phone mode each
+// transaction is one line (name, date, amount) and the rest, with Edit and
+// Delete, opens in a details pop-up.
 export default function TransactionTable({ appData, actions, transactions }) {
   const [detailsId, setDetailsId] = useState(null);
   const [receiptViewer, setReceiptViewer] = useState(null);
@@ -76,27 +77,121 @@ export default function TransactionTable({ appData, actions, transactions }) {
 
   return (
     <>
-      <div className="table-card">
-        <ul className="transaction-list" aria-label="Transactions">
-          {transactions.map(txn => (
-            <li key={txn.id}>
-              <button
-                type="button"
-                className="transaction-row"
-                aria-haspopup="dialog"
-                onClick={() => {
-                  setReceiptError("");
-                  setDetailsId(txn.id);
-                }}
-              >
-                <span className="transaction-row-title">{txn.title}</span>
-                <span className="transaction-row-date">{formatDisplayDate(txn.date)}</span>
-                <span className={`transaction-row-amount amount ${txn.type}`}>{signedMoney(txn.amount, txn.type)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {actions.phoneMode ? (
+        <div className="table-card">
+          <ul className="transaction-list" aria-label="Transactions">
+            {transactions.map(txn => (
+              <li key={txn.id}>
+                <button
+                  type="button"
+                  className="transaction-row"
+                  aria-haspopup="dialog"
+                  onClick={() => {
+                    setReceiptError("");
+                    setDetailsId(txn.id);
+                  }}
+                >
+                  <span className="transaction-row-title">{txn.title}</span>
+                  <span className="transaction-row-date">{formatDisplayDate(txn.date)}</span>
+                  <span className={`transaction-row-amount amount ${txn.type}`}>{signedMoney(txn.amount, txn.type)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <div className="table-card">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Title</th>
+                <th>Category</th>
+                <th>Account</th>
+                <th className="numeric">Amount</th>
+                <th>Recurring?</th>
+                <th>Receipt</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.map(txn => {
+                const category = appData.categories.find(cat => cat.id === txn.categoryId);
+                const account = appData.accounts.find(acc => acc.id === txn.accountId);
+                const transferPartner = txn.transferLinkId
+                  ? appData.transactions.find(item => item.id === txn.transferLinkId)
+                  : null;
+                const transferPartnerAccount = transferPartner
+                  ? appData.accounts.find(acc => acc.id === transferPartner.accountId)
+                  : null;
+                const linkedLoan = getLoanById(appData, getLinkedLoanId(txn));
+                const loanSplit = linkedLoan ? getTransactionLoanSplit(txn, linkedLoan) : null;
+                const matchingRules = getMatchingExclusionRules(txn, appData.exclusionRules);
+
+                return (
+                  <tr key={txn.id}>
+                    <td data-label="Date">{formatDisplayDate(txn.date)}</td>
+                    <td data-label="Type"><span className={`pill ${txn.transferLinkId ? "transfer" : txn.type}`}>{txn.transferLinkId ? "transfer" : txn.type}</span></td>
+                    <td data-label="Title">
+                      <strong
+                        className={matchingRules.length ? "rule-matched-title" : undefined}
+                        title={matchingRules.length ? `Matches payment rule: ${matchingRules.map(rule => rule.matchText).join(", ")}${txn.ruleExempt ? " (exempted on this transaction)" : ""}` : undefined}
+                      >
+                        {txn.title}
+                      </strong>
+                      {matchingRules.length > 0 && (
+                        <span
+                          className={`pill rule-match-pill ${txn.ruleExempt ? "exempt" : ""}`}
+                          title={matchingRules.length > 1 ? `Matches: ${matchingRules.map(rule => rule.matchText).join(", ")}` : undefined}
+                        >
+                          {txn.ruleExempt
+                            ? "Rule exempt"
+                            : matchingRules.length === 1
+                              ? `Rule: ${matchingRules[0].matchText}`
+                              : `${matchingRules.length} rules matched`}
+                        </span>
+                      )}
+                      {txn.note && <small>{txn.note}</small>}
+                      {linkedLoan && (
+                        <div className="transaction-loan-badges">
+                          <span className="pill transfer">Loan: {linkedLoan.name}</span>
+                          {txn.isLoanOverpayment && <span className="pill warning">Overpayment</span>}
+                          {loanSplit && <small>Capital {signedMoney(loanSplit.principalAmount, "income")} · interest {signedMoney(loanSplit.interestAmount, "expense")}</small>}
+                        </div>
+                      )}
+                    </td>
+                    <td data-label="Category">{txn.type === "expense" && txn.excludeFromBudget ? <span className="pill excluded">Excluded</span> : category?.name || "-"}</td>
+                    <td data-label="Account">
+                      {account?.name}
+                      {transferPartner && (
+                        <div>
+                          <small>{txn.type === "expense" ? "→" : "←"} transfer with {transferPartnerAccount?.name || "another account"}</small>
+                        </div>
+                      )}
+                    </td>
+                    <td className={`amount ${txn.type}`} data-label="Amount">{signedMoney(txn.amount, txn.type)}</td>
+                    <td data-label="Recurring?">{txn.isRecurring ? "Yes" : "No"}</td>
+                    <td data-label="Receipt">
+                      {txn.receiptId ? (
+                        <button className="text-button" onClick={() => openReceipt(txn)}>View receipt</button>
+                      ) : (
+                        <span className="muted">None</span>
+                      )}
+                    </td>
+                    <td data-label="Actions">
+                      <div className="row-actions">
+                        <button className="text-button" onClick={() => actions.openEditTransaction(txn)}>Edit</button>
+                        <button className="text-button danger-text" onClick={() => handleDelete(txn)}>Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {receiptError && (
         <div className="restore-error-box">

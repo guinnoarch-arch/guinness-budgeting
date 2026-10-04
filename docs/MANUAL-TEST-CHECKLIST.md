@@ -18,12 +18,11 @@ Expected results are in *italics*.
 
 ## 2. Transactions
 
-- [ ] Add an expense, an income and a transfer. *Each appears as one line: name, date as e.g. "3 Oct 2026", and the amount right-aligned.*
-- [ ] Click (or tab to and press Enter on) a transaction. *A pop-up shows all its details with Edit and Delete. Escape closes it.*
+- [ ] Add an expense, an income and a transfer. *Each appears with the date as e.g. "3 Oct 2026" and the amount right-aligned.*
 - [ ] Try to save with no amount, or with 12.345. *A clear message under the amount. What you typed is kept.*
 - [ ] Try a transfer from an account to itself. *An error by the "To" account.*
-- [ ] Open a transaction, press **Edit**, change it and save. *The change shows straight away.*
-- [ ] Open a transaction, press **Delete**, then press **Undo** within 10 seconds. *It comes back exactly as it was.*
+- [ ] Edit a transaction and save. *The change shows straight away.*
+- [ ] Delete a transaction, then press **Undo** within 10 seconds. *It comes back exactly as it was.*
 - [ ] Attach a receipt, view it, then remove it.
 
 ## 3. Budgets
@@ -70,7 +69,8 @@ Expected results are in *italics*.
 
 - [ ] Open the app on a phone (or a window under 720px wide). *The compact layout switches on by itself; nothing scrolls sideways.*
 - [ ] Every button is comfortable to tap.
-- [ ] Transactions show one per line with the amount on the right; tapping one opens its details.
+- [ ] Transactions show one per line: name, date and amount on the right.
+- [ ] Tap a transaction. *A pop-up shows all its details with Edit and Delete. Edit, Delete and Undo work from there.*
 - [ ] Dashboard: summary cards two per row; the pie chart has a list under it.
 - [ ] Install the app (Settings → Install app) and open it from the home screen.
 
