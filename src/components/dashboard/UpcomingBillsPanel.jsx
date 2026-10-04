@@ -1,5 +1,6 @@
 import { normaliseAccountFilter } from "../../utils/calculations.js";
 import { formatMoney } from "../../utils/money.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 export default function UpcomingBillsPanel({ appData, accountId = null }) {
   const selectedAccountId = normaliseAccountFilter(accountId);
@@ -27,7 +28,7 @@ export default function UpcomingBillsPanel({ appData, accountId = null }) {
             <div key={item.id} className="bill-row">
               <span>
                 <strong>{item.name}</strong>
-                <small>{item.nextDueDate} · {item.amountType}</small>
+                <small>{formatDisplayDate(item.nextDueDate)} · {item.amountType}</small>
               </span>
               <strong>{formatMoney(item.amount)}</strong>
             </div>

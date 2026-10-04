@@ -251,7 +251,7 @@ export default function AccountsPage({ appData, actions }) {
       <div className="page-title-row">
         <div>
           <p className="eyebrow">Accounts</p>
-          <h2>Balances and activity</h2>
+          <h1 className="page-title">Balances and activity</h1>
         </div>
         <button className="primary-button" onClick={openAddAccount}>+ Add account</button>
       </div>

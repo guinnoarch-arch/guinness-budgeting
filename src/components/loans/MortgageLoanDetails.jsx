@@ -6,7 +6,7 @@ import { LoanEventList } from "./LoanEventList.jsx";
 import { getRecentEvents, getTrackedInterest } from "./loanDisplay.js";
 import { buildMortgageChartData, getFinalProjectedTotalPaid, getMortgageProgressSnapshot, roundAxisValue } from "../../utils/mortgageChart.js";
 import ExpandableChart from "../common/ExpandableChart.jsx";
-import { AXIS_TICK } from "../../utils/chartTheme.js";
+import { AXIS_TICK, CHART_ANIMATION } from "../../utils/chartTheme.js";
 
 export function MortgageLoanDetails({ loan, events, transactions, appData }) {
   const details = loan.mortgageDetails || {};
@@ -86,11 +86,11 @@ export function MortgageLoanDetails({ loan, events, transactions, appData }) {
               <YAxis tick={AXIS_TICK} tickFormatter={value => `£${Math.round(value / 1000)}k`} />
               <Tooltip content={<MortgageChartTooltip />} />
               <Legend />
-              <Line type="monotone" dataKey="balance" name="Amount owed" stroke="var(--primary)" strokeWidth={3} dot={false} />
-              <Line type="monotone" dataKey="totalPaidActual" name="Total paid to date" stroke="var(--green)" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} connectNulls={false} />
-              <Line type="monotone" dataKey="totalPaidProjected" name="Projected total paid" stroke="var(--green)" strokeWidth={3} strokeDasharray="7 7" strokeOpacity={0.45} dot={false} connectNulls={false} />
+              <Line isAnimationActive={CHART_ANIMATION} type="monotone" dataKey="balance" name="Amount owed" stroke="var(--primary)" strokeWidth={3} dot={false} />
+              <Line isAnimationActive={CHART_ANIMATION} type="monotone" dataKey="totalPaidActual" name="Total paid to date" stroke="var(--green)" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} connectNulls={false} />
+              <Line isAnimationActive={CHART_ANIMATION} type="monotone" dataKey="totalPaidProjected" name="Projected total paid" stroke="var(--green)" strokeWidth={3} strokeDasharray="7 7" strokeOpacity={0.45} dot={false} connectNulls={false} />
               {chartData.some(point => Number.isFinite(point.linkedPaymentBalance)) && (
-                <Line type="linear" dataKey="linkedPaymentBalance" name="Linked payment" stroke="var(--orange)" strokeWidth={0} dot={{ r: 5 }} activeDot={{ r: 7 }} connectNulls={false} />
+                <Line isAnimationActive={CHART_ANIMATION} type="linear" dataKey="linkedPaymentBalance" name="Linked payment" stroke="var(--orange)" strokeWidth={0} dot={{ r: 5 }} activeDot={{ r: 7 }} connectNulls={false} />
               )}
             </LineChart>
           </ExpandableChart>

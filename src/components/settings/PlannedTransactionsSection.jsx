@@ -4,6 +4,7 @@ import { checkMoneyAmount, checkRequiredDate, checkRequiredText, collectErrors }
 import useFormErrors from "../../hooks/useFormErrors.js";
 import { FieldError, RequiredMark } from "../common/FormFeedback.jsx";
 import { formatMoney } from "../../utils/money.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 const EMPTY_PLANNED_DRAFT = { title: "", amount: "", date: "", type: "expense" };
 
@@ -125,7 +126,7 @@ export default function PlannedTransactionsSection({ appData, actions, accordion
           <div className="suggestion-list">
             {(appData.plannedTransactions || []).length === 0 ? <p className="muted-text">No planned transactions yet. Add money you expect to come in or go out, so you can see it coming.</p> : (appData.plannedTransactions || []).slice(0, 20).map(item => (
               <div className={`suggestion-row ${editingPlannedId === item.id ? "is-editing" : ""}`} key={item.id}>
-                <div><strong>{item.title}</strong><small>{item.status} - {item.expectedDate} - {formatMoney(item.expectedAmount)}</small></div>
+                <div><strong>{item.title}</strong><small>{item.status} - {formatDisplayDate(item.expectedDate)} - {formatMoney(item.expectedAmount)}</small></div>
                 <div className="row-actions">
                   <button type="button" className="secondary-button small" onClick={() => startPlannedEdit(item)}>Edit</button>
                   <button type="button" className="danger-button small" onClick={() => deletePlannedTransaction(item)}>Delete</button>

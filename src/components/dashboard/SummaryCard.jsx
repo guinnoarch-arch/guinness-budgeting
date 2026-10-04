@@ -7,20 +7,28 @@ export default function SummaryCard({ label, value, change, tone = "neutral", de
   const isImprovement = hasComparison && (higherIsBetter ? change >= 0 : change <= 0);
 
   return (
+    // The whole card is clickable with a mouse; for keyboard and screen
+    // readers the label is the button, so controls inside the card (like the
+    // "Include in charts" tick box) aren't nested inside another control.
     <section
       className={`card summary-card ${tone} ${onClick ? "clickable-card" : ""}`}
-      onClick={onClick}
-      role={onClick ? "button" : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onKeyDown={event => {
-        if (!onClick) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onClick();
-        }
-      }}
+      onClick={onClick || undefined}
     >
-      <p className="eyebrow">{label}</p>
+      <p className="eyebrow">
+        {onClick ? (
+          <button
+            type="button"
+            className="card-label-button"
+            aria-label={`${label}: show details`}
+            onClick={event => {
+              event.stopPropagation();
+              onClick();
+            }}
+          >
+            {label}
+          </button>
+        ) : label}
+      </p>
       <div className="summary-card-value-row">
         <h3>{formatMoney(value, false)}</h3>
         {afterValue}

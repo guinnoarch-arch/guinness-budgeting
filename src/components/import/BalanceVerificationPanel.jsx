@@ -4,6 +4,7 @@ import { formatMoney, formatSignedAmount } from "../../utils/money.js";
 import { DiagnosisDetails } from "./DiagnosisDetails.jsx";
 import { buildDiagnosisRows, getAccountTimelines } from "../../services/importReviewService.js";
 import { AlertTriangle, ArrowLeftRight, Check } from "lucide-react";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 // Shared by the pre-import "Preview projected balances" check (mode
 // "preview", runs the import against a throwaway copy of the data — nothing
@@ -59,11 +60,11 @@ export function BalanceVerificationPanel({ verification, mode, analysis, rowEdit
             </span>
             <span>
               {formatMoney(item.calculatedBalance)} {mode === "preview" ? "projected" : "calculated"}
-              {item.matches ? "" : ` vs ${formatMoney(item.csvBalance)} on the CSV (as of ${item.asOfDate})`}
+              {item.matches ? "" : ` vs ${formatMoney(item.csvBalance)} on the CSV (as of ${formatDisplayDate(item.asOfDate)})`}
             </span>
             {mode === "result" && item.trustAdjustments?.length > 0 && (
               <small>
-                CSV trusted: {item.trustAdjustments.length} adjustment{item.trustAdjustments.length === 1 ? "" : "s"} added ({item.trustAdjustments.map(adjustment => `${formatSignedAmount(adjustment.amount)} on ${adjustment.date}`).join(", ")}) so the account matches the bank.
+                CSV trusted: {item.trustAdjustments.length} adjustment{item.trustAdjustments.length === 1 ? "" : "s"} added ({item.trustAdjustments.map(adjustment => `${formatSignedAmount(adjustment.amount)} on ${formatDisplayDate(adjustment.date)}`).join(", ")}) so the account matches the bank.
               </small>
             )}
             {trusted && (

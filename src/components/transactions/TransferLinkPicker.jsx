@@ -1,4 +1,5 @@
 import { signedMoney } from "../../utils/money.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 // Turning an existing income or expense into one side of a transfer.
 export function TransferLinkPicker({ appData, editingTransaction, form, linkCandidates, linkSearch, linkToExistingTransaction, setLinkSearch, setShowLinkPicker, showLinkPicker }) {
@@ -29,7 +30,7 @@ export function TransferLinkPicker({ appData, editingTransaction, form, linkCand
                 <div key={candidate.id} className="rule-edit-row link-candidate-row">
                   <div className="rule-readable-summary">
                     <strong>{candidate.title}</strong>
-                    <span>{candidate.date} · {signedMoney(candidate.amount, candidate.type)} · {candidateAccount?.name || "Unknown account"}</span>
+                    <span>{formatDisplayDate(candidate.date)} · {signedMoney(candidate.amount, candidate.type)} · {candidateAccount?.name || "Unknown account"}</span>
                   </div>
                   <button type="button" className="primary-button small" onClick={() => linkToExistingTransaction(candidate.id)}>Link this pair</button>
                 </div>

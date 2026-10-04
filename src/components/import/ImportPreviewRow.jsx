@@ -127,7 +127,7 @@ export function ImportPreviewRow({
         <strong>{row.actionLabel}</strong>
         {row.matchedTitle && <small>Matched to: {row.matchedTitle}</small>}
         {row.plannedDate && row.plannedAmount !== null && (
-          <small>Planned {formatMoney(row.plannedAmount)} on {row.plannedDate} → actual {formatMoney(row.actualAmount)} on {row.actualDate}</small>
+          <small>Planned {formatMoney(row.plannedAmount)} on {formatDisplayDate(row.plannedDate)} → actual {formatMoney(row.actualAmount)} on {formatDisplayDate(row.actualDate)}</small>
         )}
         {row.warning && <small className="danger-text">{row.warning}</small>}
         {row.infoNote && <small className="import-info-note">{row.infoNote}</small>}
@@ -138,7 +138,7 @@ export function ImportPreviewRow({
         {matchedTransaction && (
           <div className="import-matched-transaction-box" style={pairColor ? { borderColor: pairColor } : undefined}>
             <strong>Matched transaction</strong>
-            <span>{matchedTransaction.date} · {matchedTransaction.description}</span>
+            <span>{formatDisplayDate(matchedTransaction.date)} · {matchedTransaction.description}</span>
             <span>{matchedTransaction.signedAmount >= 0 ? "+" : "-"}{formatMoney(Math.abs(matchedTransaction.signedAmount))} · {matchedTransaction.accountName}</span>
             {matchedTransaction.originalType && matchedTransaction.originalType !== "transfer" && (
               <label className="import-matched-transaction-edit">

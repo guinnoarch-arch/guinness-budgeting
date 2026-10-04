@@ -10,7 +10,7 @@ import { smallMonthXAxisProps } from "../utils/chartLabels.js";
 import MonthSelector from "../components/dashboard/MonthSelector.jsx";
 import ExpandableChart from "../components/common/ExpandableChart.jsx";
 import { EmptyReportBlock, MoneyTooltip, ReportCard } from "../components/reports/ReportParts.jsx";
-import { AXIS_TICK, CHART_MEANING, GRID_PROPS } from "../utils/chartTheme.js";
+import { AXIS_TICK, CHART_ANIMATION, CHART_MEANING, GRID_PROPS } from "../utils/chartTheme.js";
 import { formatDisplayDate } from "../utils/dates.js";
 
 export default function ReportsPage({ appData, actions }) {
@@ -44,7 +44,7 @@ export default function ReportsPage({ appData, actions }) {
       <div className="page-title-row">
         <div>
           <p className="eyebrow">Reports</p>
-          <h2>Monthly report</h2>
+          <h1 className="page-title">Monthly report</h1>
         </div>
         <MonthSelector selectedMonth={actions.selectedMonth} setSelectedMonth={actions.setSelectedMonth} />
       </div>
@@ -90,9 +90,9 @@ export default function ReportsPage({ appData, actions }) {
               <YAxis tick={AXIS_TICK} tickFormatter={(value) => formatMoney(value, false)} />
               <Tooltip content={<MoneyTooltip />} />
               <Legend />
-              <Bar dataKey="income" name="Income" fill={CHART_MEANING.income} radius={[3, 3, 0, 0]} />
-              <Bar dataKey="expenses" name="Expenses" fill={CHART_MEANING.expenses} radius={[3, 3, 0, 0]} />
-              <Bar dataKey="savings" name="Savings" fill={CHART_MEANING.savings} radius={[3, 3, 0, 0]} />
+              <Bar isAnimationActive={CHART_ANIMATION} dataKey="income" name="Income" fill={CHART_MEANING.income} radius={[3, 3, 0, 0]} />
+              <Bar isAnimationActive={CHART_ANIMATION} dataKey="expenses" name="Expenses" fill={CHART_MEANING.expenses} radius={[3, 3, 0, 0]} />
+              <Bar isAnimationActive={CHART_ANIMATION} dataKey="savings" name="Savings" fill={CHART_MEANING.savings} radius={[3, 3, 0, 0]} />
             </BarChart>
           </ExpandableChart>
         </section>
@@ -110,9 +110,9 @@ export default function ReportsPage({ appData, actions }) {
               <YAxis tick={AXIS_TICK} tickFormatter={(value) => formatMoney(value, false)} />
               <Tooltip content={<MoneyTooltip />} />
               <Legend />
-              <Area type="monotone" dataKey="total" name="Total balance" stroke={CHART_MEANING.balance} fill={CHART_MEANING.balance} fillOpacity={0.12} strokeWidth={2} />
-              <Area type="monotone" dataKey="spendable" name="Spendable" stroke={CHART_MEANING.income} fill={CHART_MEANING.income} fillOpacity={0.1} strokeWidth={2} />
-              <Area type="monotone" dataKey="savings" name="Savings" stroke={CHART_MEANING.savings} fill={CHART_MEANING.savings} fillOpacity={0.12} strokeWidth={2} />
+              <Area isAnimationActive={CHART_ANIMATION} type="monotone" dataKey="total" name="Total balance" stroke={CHART_MEANING.balance} fill={CHART_MEANING.balance} fillOpacity={0.12} strokeWidth={2} />
+              <Area isAnimationActive={CHART_ANIMATION} type="monotone" dataKey="spendable" name="Spendable" stroke={CHART_MEANING.income} fill={CHART_MEANING.income} fillOpacity={0.1} strokeWidth={2} />
+              <Area isAnimationActive={CHART_ANIMATION} type="monotone" dataKey="savings" name="Savings" stroke={CHART_MEANING.savings} fill={CHART_MEANING.savings} fillOpacity={0.12} strokeWidth={2} />
             </AreaChart>
           </ExpandableChart>
         </section>
@@ -127,7 +127,7 @@ export default function ReportsPage({ appData, actions }) {
         {categoryRows.length === 0 ? (
           <EmptyReportBlock>No category spend or budgets this month.</EmptyReportBlock>
         ) : (
-          <div className="table-scroll">
+          <div className="table-scroll" tabIndex={0} role="region" aria-label="Category spending and budgets table">
             <table className="report-table">
               <thead>
                 <tr>
@@ -205,7 +205,7 @@ export default function ReportsPage({ appData, actions }) {
         {plannedVsActual.rows.length === 0 ? (
           <EmptyReportBlock>No planned-vs-actual matches this month yet. This will fill when planned rows are matched against CSV imports.</EmptyReportBlock>
         ) : (
-          <div className="table-scroll">
+          <div className="table-scroll" tabIndex={0} role="region" aria-label="Planned vs actual table">
             <table className="report-table">
               <thead>
                 <tr>
@@ -283,7 +283,7 @@ export default function ReportsPage({ appData, actions }) {
         {loanSummary.loans.length === 0 ? (
           <EmptyReportBlock>No loans are being tracked yet.</EmptyReportBlock>
         ) : (
-          <div className="table-scroll">
+          <div className="table-scroll" tabIndex={0} role="region" aria-label="Loans summary table">
             <table className="report-table">
               <thead>
                 <tr>

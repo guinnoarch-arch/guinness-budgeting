@@ -1,9 +1,10 @@
 import { formatMoney } from "../../utils/money.js";
+import { formatDisplayDate } from "../../utils/dates.js";
 
 export function ImportAnalysisSummary({ analysis }) {
   const totals = analysis.totals;
   const balanceText = analysis.reconciliation?.available
-    ? `${formatMoney(analysis.reconciliation.csvClosingBalance)} on ${analysis.reconciliation.latestCsvDate}`
+    ? `${formatMoney(analysis.reconciliation.csvClosingBalance)} on ${formatDisplayDate(analysis.reconciliation.latestCsvDate)}`
     : "No CSV balance";
 
   return (

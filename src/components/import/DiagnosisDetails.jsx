@@ -13,14 +13,14 @@ export function DiagnosisDetails({ diagnosis, overlap, accountId, onFixOpeningBa
   return (
     <div className="import-diagnosis-box">
       <span>
-        Out on <strong>{diagnosis.daysOut}</strong> of {diagnosis.totalDays} statement day{diagnosis.totalDays === 1 ? "" : "s"} ({diagnosis.firstDate} to {diagnosis.lastDate}), compared end of day against the bank's own balance.
+        Out on <strong>{diagnosis.daysOut}</strong> of {diagnosis.totalDays} statement day{diagnosis.totalDays === 1 ? "" : "s"} ({formatDisplayDate(diagnosis.firstDate)} to {formatDisplayDate(diagnosis.lastDate)}), compared end of day against the bank's own balance.
       </span>
 
       {startIsOut && (
         <div className="import-diagnosis-section">
           <strong>Already out before the statement starts</strong>
           <span>
-            Just before {diagnosis.firstDate} the app has {formatMoney(diagnosis.ghBefore)}, but the bank's balance implies {formatMoney(diagnosis.csvBefore)} (the app is {formatMoney(Math.abs(diagnosis.ghBefore - diagnosis.csvBefore))} {diagnosis.ghBefore > diagnosis.csvBefore ? "higher" : "lower"}). That comes from the account's opening balance or something dated before this statement, not from these rows.
+            Just before {formatDisplayDate(diagnosis.firstDate)} the app has {formatMoney(diagnosis.ghBefore)}, but the bank's balance implies {formatMoney(diagnosis.csvBefore)} (the app is {formatMoney(Math.abs(diagnosis.ghBefore - diagnosis.csvBefore))} {diagnosis.ghBefore > diagnosis.csvBefore ? "higher" : "lower"}). That comes from the account's opening balance or something dated before this statement, not from these rows.
           </span>
           {diagnosis.canFixOpeningBalance && onFixOpeningBalance && (
             <span className="import-diagnosis-fix-row">
@@ -73,7 +73,7 @@ export function DiagnosisDetails({ diagnosis, overlap, accountId, onFixOpeningBa
         <div className="import-diagnosis-section">
           <strong>Overlap with what's already in the app</strong>
           <span>
-            The app is up to date to <strong>{overlap.appLatestDate}</strong> and this CSV starts on <strong>{overlap.startDate}</strong>, so {overlap.startDate} to {overlap.endDate} is in both.
+            The app is up to date to <strong>{formatDisplayDate(overlap.appLatestDate)}</strong> and this CSV starts on <strong>{formatDisplayDate(overlap.startDate)}</strong>, so {formatDisplayDate(overlap.startDate)} to {formatDisplayDate(overlap.endDate)} is in both.
             {" "}{overlap.problemDays === 0 ? "Every shared day lines up." : `${overlap.problemDays} shared day(s) don't line up.`}
           </span>
           <span className="import-diagnosis-fix-row">

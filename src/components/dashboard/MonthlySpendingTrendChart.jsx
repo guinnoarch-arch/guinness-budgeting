@@ -2,7 +2,7 @@ import { CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "r
 import useIsSmallScreen from "../../hooks/useIsSmallScreen.js";
 import { formatMoney } from "../../utils/money.js";
 import ExpandableChart from "../common/ExpandableChart.jsx";
-import { AXIS_TICK, CHART_SERIES, GRID_PROPS } from "../../utils/chartTheme.js";
+import { AXIS_TICK, CHART_ANIMATION, CHART_SERIES, GRID_PROPS } from "../../utils/chartTheme.js";
 
 const MONTH_LINE_COLOURS = {
   twoMonthsAgo: CHART_SERIES[2],
@@ -47,7 +47,7 @@ export default function MonthlySpendingTrendChart({ comparison }) {
             formatter={(value, name) => [formatMoney(value), name]}
           />
           <Legend wrapperStyle={{ paddingTop: isSmallScreen ? 0 : 12 }} />
-          <Line
+          <Line isAnimationActive={CHART_ANIMATION}
             type="monotone"
             dataKey="twoMonthsAgo"
             name={labels.twoMonthsAgo}
@@ -56,7 +56,7 @@ export default function MonthlySpendingTrendChart({ comparison }) {
             dot={false}
             connectNulls={false}
           />
-          <Line
+          <Line isAnimationActive={CHART_ANIMATION}
             type="monotone"
             dataKey="previous"
             name={labels.previous}
@@ -65,7 +65,7 @@ export default function MonthlySpendingTrendChart({ comparison }) {
             dot={false}
             connectNulls={false}
           />
-          <Line
+          <Line isAnimationActive={CHART_ANIMATION}
             type="monotone"
             dataKey="current"
             name={labels.current}

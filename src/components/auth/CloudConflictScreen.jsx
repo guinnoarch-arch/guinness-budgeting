@@ -104,7 +104,7 @@ export default function CloudConflictScreen({
             </div>
 
             {mergeReview.possibleDuplicateTransactions.length > 0 && (
-              <div className="storage-log-list">
+              <div className="storage-log-list" tabIndex={0} role="region" aria-label="Storage log">
                 {mergeReview.possibleDuplicateTransactions.slice(0, 8).map(item => (
                   <div className="storage-log-row warning" key={item.id}>
                     <strong>Possible duplicate transaction</strong>

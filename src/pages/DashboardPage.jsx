@@ -94,7 +94,7 @@ export default function DashboardPage({ appData, actions }) {
       <div className="page-title-row dashboard-title-row">
         <div>
           <div className="overview-title-wrap">
-            <h2>Monthly overview for {selectedAccount?.name || "All accounts"}</h2>
+            <h1 className="page-title">Monthly overview for {selectedAccount?.name || "All accounts"}</h1>
           </div>
         </div>
         <div className="dashboard-display-controls">

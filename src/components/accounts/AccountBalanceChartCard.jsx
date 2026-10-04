@@ -1,4 +1,4 @@
-import { AXIS_TICK, GRID_PROPS } from "../../utils/chartTheme.js";
+import { AXIS_TICK, CHART_ANIMATION, GRID_PROPS } from "../../utils/chartTheme.js";
 import { ACCOUNT_LINE_COLOURS, BALANCE_RANGE_OPTIONS } from "./accountDisplay.js";
 import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { formatMoney } from "../../utils/money.js";
@@ -84,7 +84,7 @@ export function AccountBalanceChartCard({ accountPickerOpen, accounts, balanceCh
             <YAxis tick={AXIS_TICK} tickFormatter={(value) => formatMoney(value, false)} />
             <Tooltip content={<BalanceChartTooltip />} />
             {selectedChartAccounts.map((account, index) => (
-              <Line
+              <Line isAnimationActive={CHART_ANIMATION}
                 key={account.id}
                 type="monotone"
                 dataKey={account.id}
