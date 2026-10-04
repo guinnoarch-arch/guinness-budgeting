@@ -1,7 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import SavingsGoalCard from "../components/savings/SavingsGoalCard.jsx";
 import { generateId } from "../utils/ids.js";
 import { formatMoney } from "../utils/money.js";
+import { checkMoneyAmount, checkRequiredText, collectErrors } from "../utils/validation.js";
+import useFormErrors from "../hooks/useFormErrors.js";
+import { ErrorSummary, FieldError, RequiredMark } from "../components/common/FormFeedback.jsx";
 
 const blankGoalForm = {
   name: "",
@@ -11,6 +14,14 @@ const blankGoalForm = {
   targetDate: ""
 };
 
+function validateGoalForm(values) {
+  return collectErrors({
+    name: checkRequiredText(values.name, "a name for the goal, for example Holiday"),
+    targetAmount: checkMoneyAmount(values.targetAmount, { example: "800" }),
+    currentManualAmount: checkMoneyAmount(values.currentManualAmount, { required: false, allowZero: true, example: "150" })
+  });
+}
+
 function isGoalArchived(goal) {
   return goal.isActive === false || goal.isArchived || goal.archivedAt;
 }
@@ -19,6 +30,13 @@ export default function SavingsPage({ appData, actions }) {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [editingGoalId, setEditingGoalId] = useState(null);
   const [goalForm, setGoalForm] = useState(blankGoalForm);
+  const { errors, getFieldId, validateAll, validateFieldOnBlur, clearFixedErrors, resetErrors, fieldProps } = useFormErrors("goal", validateGoalForm);
+
+  useEffect(() => {
+    clearFixedErrors(goalForm);
+    // Only re-check when the form values change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goalForm]);
 
   const goals = appData.savingsGoals.filter(goal => !isGoalArchived(goal));
   const archivedGoals = appData.savingsGoals
@@ -58,6 +76,7 @@ export default function SavingsPage({ appData, actions }) {
     setShowGoalModal(false);
     setEditingGoalId(null);
     setGoalForm(blankGoalForm);
+    resetErrors();
   }
 
   function submitGoal(event) {
@@ -67,9 +86,7 @@ export default function SavingsPage({ appData, actions }) {
     const targetAmount = Number(goalForm.targetAmount);
     const currentManualAmount = Number(goalForm.currentManualAmount || 0);
 
-    if (!name) return alert("Enter a savings goal name.");
-    if (!Number.isFinite(targetAmount) || targetAmount <= 0) return alert("Enter a target amount above zero.");
-    if (!Number.isFinite(currentManualAmount) || currentManualAmount < 0) return alert("Starting saved amount cannot be negative.");
+    if (!validateAll(goalForm)) return;
 
     const now = new Date().toISOString();
 
@@ -220,44 +237,58 @@ export default function SavingsPage({ appData, actions }) {
 
       {showGoalModal && (
         <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={submitGoal}>
+          <form className="modal-card" onSubmit={submitGoal} noValidate>
             <div className="section-header">
               <h2>{editingGoalId ? "Edit savings goal" : "Add savings goal"}</h2>
-              <button type="button" className="icon-button" onClick={closeGoalModal}>×</button>
+              <button type="button" className="icon-button" onClick={closeGoalModal} aria-label="Close">×</button>
             </div>
+
+            <ErrorSummary errors={errors} getFieldId={getFieldId} />
 
             <div className="form-grid">
               <label>
-                Goal name
+                <span>Goal name<RequiredMark /></span>
                 <input
+                  {...fieldProps("name")}
+                  aria-required="true"
                   placeholder="Holiday"
                   value={goalForm.name}
                   onChange={event => updateGoalForm("name", event.target.value)}
                 />
+                <FieldError fieldId={getFieldId("name")} message={errors.name} />
               </label>
 
               <label>
-                Target amount
+                <span>Target amount<RequiredMark /></span>
                 <input
+                  {...fieldProps("targetAmount")}
+                  aria-required="true"
                   type="number"
+                  inputMode="decimal"
                   min="0"
                   step="0.01"
                   placeholder="800.00"
                   value={goalForm.targetAmount}
                   onChange={event => updateGoalForm("targetAmount", event.target.value)}
+                  onBlur={() => validateFieldOnBlur("targetAmount", goalForm)}
                 />
+                <FieldError fieldId={getFieldId("targetAmount")} message={errors.targetAmount} />
               </label>
 
               <label>
                 Already saved
                 <input
+                  {...fieldProps("currentManualAmount")}
                   type="number"
+                  inputMode="decimal"
                   min="0"
                   step="0.01"
                   placeholder="0.00"
                   value={goalForm.currentManualAmount}
                   onChange={event => updateGoalForm("currentManualAmount", event.target.value)}
+                  onBlur={() => validateFieldOnBlur("currentManualAmount", goalForm)}
                 />
+                <FieldError fieldId={getFieldId("currentManualAmount")} message={errors.currentManualAmount} />
               </label>
 
               <label>

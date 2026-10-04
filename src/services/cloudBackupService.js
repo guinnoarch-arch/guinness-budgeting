@@ -1,4 +1,5 @@
 import { APP_VERSION, BACKUP_FORMAT_VERSION, DATA_SCHEMA_VERSION, createBackupPayload, getBackupCounts } from "./storageService.js";
+import { OFFLINE_MESSAGE, TIMEOUT_MESSAGE, UserFacingError, isOffline } from "../utils/errors.js";
 import {
   getDefaultSupabaseConfigFromEnv,
   getSupabaseKeySafetyIssue as getSupabaseKeySafetyIssueFromClient,
@@ -86,10 +87,10 @@ export function isCloudSessionAllowed(settings = {}, summary = getStoredCloudSes
 function getCloudConfigOrThrow(settings = {}) {
   const config = getCloudConfig(settings);
   if (!config.url || !config.anonKey) {
-    throw new Error("Cloud login is not configured for this build.");
+    throw new Error("Cloud sign-in isn't available in this version of the app.");
   }
   if (!isValidSupabaseProjectUrl(config.url)) {
-    throw new Error("Cloud login configuration is invalid for this build.");
+    throw new Error("Cloud sign-in isn't set up correctly in this version of the app. Ask the app owner to check the cloud settings.");
   }
   const keySafetyIssue = getSupabaseKeySafetyIssue(config.anonKey);
   if (keySafetyIssue) {
@@ -117,15 +118,34 @@ function getAuthHeaders(config, session = null) {
   return headers;
 }
 
+const CLOUD_REQUEST_TIMEOUT_MS = 30000;
+// Large backup uploads can legitimately take a while on a slow connection.
+const LARGE_UPLOAD_BYTES = 500000;
+const LARGE_UPLOAD_TIMEOUT_MS = 180000;
+
 async function fetchSupabaseEndpoint(url, options = {}, context = "Supabase request") {
+  if (isOffline()) throw new UserFacingError(OFFLINE_MESSAGE, { kind: "offline" });
+
+  // Without a timeout a stalled connection leaves buttons spinning forever.
+  const controller = new AbortController();
+  const isLargeUpload = typeof options.body === "string" && options.body.length > LARGE_UPLOAD_BYTES;
+  const timer = setTimeout(() => controller.abort(), isLargeUpload ? LARGE_UPLOAD_TIMEOUT_MS : CLOUD_REQUEST_TIMEOUT_MS);
   try {
-    return await fetch(url, options);
+    return await fetch(url, { ...options, signal: controller.signal });
   } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new UserFacingError(TIMEOUT_MESSAGE, { kind: "timeout", cause: error });
+    }
     const message = error?.message || "Failed to fetch";
     if (/failed to fetch|networkerror|load failed/i.test(message)) {
-      throw new Error(`${context} could not reach Supabase. Check your internet connection and make sure the app is using the correct Supabase project URL.`);
+      throw new UserFacingError(
+        `${context} couldn't reach the cloud service. Check your internet connection and try again.`,
+        { kind: "offline", cause: error }
+      );
     }
     throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -185,7 +205,7 @@ export function clearStoredCloudSession() {
 function normaliseAuthSession(responseBody) {
   const user = responseBody.user || responseBody?.data?.user || null;
   if (!responseBody.access_token || !user?.id) {
-    throw new Error("Supabase did not return a usable session. Check email confirmation/login settings.");
+    throw new Error("You couldn't be signed in. If you've just created your account, open the link in the confirmation email first, then sign in.");
   }
   return {
     access_token: responseBody.access_token,
@@ -239,7 +259,7 @@ export async function refreshSupabaseCloudSession(settings) {
   const config = getCloudConfigOrThrow(settings);
   const existing = loadStoredCloudSession();
   if (!existing?.refresh_token) {
-    throw new Error("No refresh token is saved. Sign in again.");
+    throw new Error("Your sign-in has expired. Sign in again to continue.");
   }
 
   const response = await fetchSupabaseEndpoint(`${config.url}/auth/v1/token?grant_type=refresh_token`, {
@@ -282,7 +302,7 @@ export async function upsertSupabaseProfile(settings, { id, email, username }) {
   const profileUsername = String(username || session.user?.user_metadata?.username || profileEmail.split("@")[0] || "").trim();
   const usernameNormalised = profileUsername.toLowerCase();
   if (!userId || !profileEmail || !profileUsername) {
-    throw new Error("Cannot create profile without user id, email and username.");
+    throw new Error("Your profile couldn't be set up because your account details are incomplete. Sign out, sign in again, and add a username if asked.");
   }
 
   const rows = await supabaseRestFetch(settings, "profiles?on_conflict=id", {
@@ -306,7 +326,7 @@ export async function upsertSupabaseProfile(settings, { id, email, username }) {
 
 async function getValidCloudSession(settings) {
   const summary = getStoredCloudSessionSummary(settings);
-  if (!summary.signedIn) throw new Error("Sign in to Supabase cloud backup first.");
+  if (!summary.signedIn) throw new Error("Sign in first to use cloud backup.");
   if (summary.appExpired) throw new Error("The app session expired. Sign in again to unlock your budget.");
   if (summary.tokenExpired) return refreshSupabaseCloudSession(settings);
   return loadStoredCloudSession();
@@ -412,7 +432,7 @@ export async function fetchLatestSupabaseCloudBackupMeta(settings) {
 export async function fetchSupabaseCloudBackup(settings, backupId) {
   const config = getCloudConfigOrThrow(settings);
   const safeId = encodeURIComponent(String(backupId || ""));
-  if (!safeId) throw new Error("No cloud backup selected.");
+  if (!safeId) throw new Error("Choose a cloud backup from the list first.");
 
   const rows = await supabaseRestFetch(
     settings,
@@ -421,7 +441,7 @@ export async function fetchSupabaseCloudBackup(settings, backupId) {
   );
 
   if (!Array.isArray(rows) || rows.length === 0) {
-    throw new Error("Cloud backup not found, or this user is not allowed to read it.");
+    throw new Error("That cloud backup couldn't be found. It may have been deleted, or it belongs to a different account. Refresh the list and try again.");
   }
 
   return rows[0];
@@ -430,7 +450,7 @@ export async function fetchSupabaseCloudBackup(settings, backupId) {
 export async function deleteSupabaseCloudBackup(settings, backupId) {
   const config = getCloudConfigOrThrow(settings);
   const safeId = encodeURIComponent(String(backupId || ""));
-  if (!safeId) throw new Error("No cloud backup selected.");
+  if (!safeId) throw new Error("Choose a cloud backup from the list first.");
 
   await supabaseRestFetch(settings, `${config.tableName}?id=eq.${safeId}`, {
     method: "DELETE",
@@ -442,7 +462,7 @@ export async function deleteSupabaseCloudBackup(settings, backupId) {
 export async function downloadCloudBackupJson(row) {
   if (!isBrowser()) return { ok: false, reason: "Not running in a browser." };
   const backupJson = row?.backup_json;
-  if (!backupJson) throw new Error("Selected cloud backup has no backup JSON payload.");
+  if (!backupJson) throw new Error("That cloud backup is empty or damaged, so it can't be restored. Choose a different backup.");
   const createdAt = row.client_generated_at || row.created_at || new Date().toISOString();
   const safeDate = String(createdAt).slice(0, 10) || "backup";
   const filename = `Guinness-Holley-Cloud-Backup-${safeDate}.json`;

@@ -516,7 +516,7 @@ export async function parseBackupFile(file) {
   try {
     parsed = JSON.parse(rawText);
   } catch (error) {
-    throw new Error("This is not a valid JSON file. Choose a Guinness & Holley Budgeting backup file.");
+    throw new Error("That file isn't a backup from this app. Choose the .json backup file you exported from Guinness & Holley Budgeting.");
   }
 
   return parseBackupObject(parsed, file.name);

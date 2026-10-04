@@ -1,3 +1,4 @@
+import { describeHttpStatus } from "../utils/errors.js";
 import { GH_SUPABASE_ANON_KEY, GH_SUPABASE_PROJECT_URL } from "../config/supabaseProjectConfig.js";
 
 // Previous patch/config typos that should never be used again.
@@ -114,7 +115,7 @@ export function getSupabaseKeySafetyIssue(value) {
   if (!key) return null;
 
   if (isPlaceholderValue(key)) {
-    return "Cloud login is not configured for this build.";
+    return "Cloud sign-in isn't available in this version of the app.";
   }
 
   const lowerKey = key.toLowerCase();
@@ -157,6 +158,12 @@ export async function readSupabaseResponse(response) {
   const parsed = parseSupabaseJson(text);
 
   if (!response.ok) {
+    // Network-level failures get a plain-English message here. Other errors
+    // keep the server's wording, because some screens check it (e.g. "admin
+    // SQL setup not run"); it's translated for display by getErrorMessage.
+    if (response.status === 401 || response.status === 429 || response.status === 408 || response.status >= 500) {
+      throw describeHttpStatus(response.status);
+    }
     const rawMessage = parsed?.msg || parsed?.message || parsed?.error_description || parsed?.hint || parsed?.details || text || `Supabase request failed with status ${response.status}.`;
     const message = /invalid api key/i.test(String(rawMessage))
       ? "Supabase rejected the app publishable key. This usually means the app is using an old/incorrect key. Check src/config/supabaseProjectConfig.js and redeploy."

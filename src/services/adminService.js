@@ -324,7 +324,7 @@ export async function submitFeatureSuggestion(settings = {}, message) {
   const text = String(message || "").trim();
   if (!text) throw new Error("Enter a suggestion first.");
   if (!getStoredCloudSessionSummary(settings)?.signedIn || !isCloudBackupConfigured(settings)) {
-    throw new Error("Suggestion saved locally because cloud suggestion sync is not available.");
+    throw new Error("Suggestion saved on this device. It couldn't be shared because cloud suggestions aren't set up.");
   }
   const row = normaliseRpcRow(await supabaseRestFetch(settings, "rpc/gh_submit_feature_suggestion", {
     method: "POST",

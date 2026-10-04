@@ -24,7 +24,7 @@ export function getDisplayUsernameFromSession(sessionOrSummary) {
 export function validateEmail(email) {
   const normalised = normaliseEmail(email);
   if (!normalised) return "Enter your email address.";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalised)) return "Enter a valid email address.";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalised)) return "Enter your email address in the format name@example.com.";
   return "";
 }
 
@@ -35,22 +35,22 @@ export function normaliseLoginIdentifier(value) {
 export function validateUsername(username) {
   const normalised = normaliseUsername(username);
   if (!normalised) return "Enter a username.";
-  if (normalised.length < 3) return "Username must be at least 3 characters.";
-  if (normalised.length > 30) return "Username must be 30 characters or fewer.";
+  if (normalised.length < 3) return "Use at least 3 characters for your username.";
+  if (normalised.length > 30) return "Use 30 characters or fewer for your username.";
   if (!/^[a-z0-9._-]+$/.test(normalised)) {
-    return "Use letters, numbers, dots, hyphens or underscores only.";
+    return "Use only letters, numbers, dots, hyphens or underscores in your username — no spaces.";
   }
   return "";
 }
 
 export function validatePassword(password, confirmPassword = null) {
   const text = String(password || "");
-  if (text.length < 8) return "Password must be at least 8 characters.";
+  if (text.length < 8) return "Use at least 8 characters for your password.";
   if (!/[a-z]/i.test(text) || !/[0-9]/.test(text)) {
-    return "Password must include at least one letter and one number.";
+    return "Include at least one letter and one number in your password.";
   }
   if (confirmPassword !== null && text !== String(confirmPassword || "")) {
-    return "Passwords do not match.";
+    return "The two passwords don't match. Type the same password in both boxes.";
   }
   return "";
 }
@@ -85,7 +85,7 @@ export async function signInWithEmailOrUsername(settings, identifier, password) 
   try {
     resolvedEmail = await resolveSupabaseUsernameLogin(settings, username);
   } catch (error) {
-    throw new Error("Username lookup is not available. Try your email address instead.");
+    throw new Error("Signing in with a username isn't available right now. Use your email address instead.");
   }
   if (!resolvedEmail) {
     throw new Error("No account found with that username. Try your email address instead.");

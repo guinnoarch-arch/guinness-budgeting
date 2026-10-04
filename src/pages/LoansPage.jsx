@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { getErrorMessage } from "../utils/errors.js";
+import { checkMoneyAmount, checkRequiredText, collectErrors } from "../utils/validation.js";
+import useFormErrors from "../hooks/useFormErrors.js";
+import { ErrorSummary, FieldError, FormError, RequiredMark } from "../components/common/FormFeedback.jsx";
 import { Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { studentLoanPlanOptions, getStudentLoanPlan } from "../data/studentLoanPlans.js";
 import {
@@ -182,6 +186,49 @@ function mergeHouseDisplayData(appData, sharedData) {
   };
 }
 
+function validateHouseForm(values) {
+  return collectErrors({ name: checkRequiredText(values.name, "a name for the house, for example Home") });
+}
+
+function validateContributionForm(values) {
+  return collectErrors({
+    amount: checkMoneyAmount(values.amount, { example: "500" }),
+    linkedTransactionId: values.sourceType === "linkedTransaction" && !values.linkedTransactionId
+      ? "Choose the transaction this contribution links to, or change Source."
+      : ""
+  });
+}
+
+function validatePersonForm(values) {
+  return collectErrors({ name: checkRequiredText(values.name, "the person's name") });
+}
+
+function validateLoanForm(values) {
+  return collectErrors({
+    name: checkRequiredText(values.name, "a name for the loan, for example Plan 2 Student Loan"),
+    currentBalance: checkMoneyAmount(values.currentBalance, { required: false, allowZero: true, example: "52000" })
+  });
+}
+
+function validateBalanceUpdateForm(values) {
+  return collectErrors({ balance: checkMoneyAmount(values.balance, { allowZero: true, example: "48250.00" }) });
+}
+
+// Clears a form's errors when its modal closes, and removes errors the
+// person has fixed while the modal is open.
+function useModalFormErrors(formId, validate, isOpen, values) {
+  const validation = useFormErrors(formId, validate);
+  useEffect(() => {
+    if (!isOpen) validation.resetErrors();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+  useEffect(() => {
+    validation.clearFixedErrors(values);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values]);
+  return validation;
+}
+
 export default function LoansPage({ appData, actions }) {
   const [showLoanModal, setShowLoanModal] = useState(false);
   const [editingLoan, setEditingLoan] = useState(null);
@@ -201,6 +248,16 @@ export default function LoansPage({ appData, actions }) {
   const [sharedBundles, setSharedBundles] = useState([]);
   const [sharingStatus, setSharingStatus] = useState("");
   const [sharingBusy, setSharingBusy] = useState("");
+  const [contributionFormError, setContributionFormError] = useState("");
+  const houseValidation = useModalFormErrors("house", validateHouseForm, showHouseModal, houseForm);
+  const contributionValidation = useModalFormErrors("contribution", validateContributionForm, Boolean(contributionHouse), contributionForm);
+  const personValidation = useModalFormErrors("person", validatePersonForm, Boolean(personHouse), personForm);
+  const loanValidation = useModalFormErrors("loan", validateLoanForm, showLoanModal, loanForm);
+  const balanceValidation = useModalFormErrors("loan-balance", validateBalanceUpdateForm, Boolean(balanceUpdateLoan), balanceUpdate);
+
+  useEffect(() => {
+    if (!contributionHouse) setContributionFormError("");
+  }, [contributionHouse]);
 
   async function refreshSharedHouses(statusMessage = "") {
     try {
@@ -211,7 +268,7 @@ export default function LoansPage({ appData, actions }) {
       setSharedBundles([]);
       setSharingStatus(isHouseSharingSetupMissing(error?.message)
         ? "House sharing SQL setup has not been run yet."
-        : error?.message || "Could not load shared houses.");
+        : getErrorMessage(error, "Couldn't load shared houses. Try again in a moment."));
     }
   }
 
@@ -279,8 +336,8 @@ export default function LoansPage({ appData, actions }) {
 
   function submitHouse(event) {
     event.preventDefault();
+    if (!houseValidation.validateAll(houseForm)) return;
     const name = houseForm.name.trim();
-    if (!name) return alert("Enter a house name.");
     const now = new Date().toISOString();
     const housePayload = normaliseHouseRecord({
       ...(editingHouse || {}),
@@ -385,8 +442,9 @@ export default function LoansPage({ appData, actions }) {
   async function submitContribution(event) {
     event.preventDefault();
     if (!contributionHouse) return;
+    setContributionFormError("");
+    if (!contributionValidation.validateAll(contributionForm)) return;
     const amount = Number(contributionForm.amount || 0);
-    if (!Number.isFinite(amount) || amount <= 0) return alert("Enter a contribution amount above zero.");
     const now = new Date().toISOString();
     const person = (displayAppData.housePeople || []).find(item => item.id === contributionForm.personId);
     const contributionId = editingContribution?.id || createId("house_contribution");
@@ -408,8 +466,12 @@ export default function LoansPage({ appData, actions }) {
     };
 
     if (contributionHouse.isSharedHouse) {
-      if (editingContribution) return alert("Shared contribution editing is limited to newly added safe contributions.");
-      if (contributionHouse.sharedRole === "viewer") return alert("Viewers cannot add house contributions.");
+      if (editingContribution) {
+        return setContributionFormError("Contributions on a shared house can't be edited yet. Add a new contribution with the corrected amount instead.");
+      }
+      if (contributionHouse.sharedRole === "viewer") {
+        return setContributionFormError("You have view-only access to this shared house, so you can't add contributions. Ask the owner to make you an editor.");
+      }
       setSharingBusy("contribution");
       try {
         await addSharedHouseContribution(appData.settings || {}, contributionHouse.id, {
@@ -424,15 +486,11 @@ export default function LoansPage({ appData, actions }) {
       } catch (error) {
         setSharingStatus(isHouseSharingSetupMissing(error?.message)
           ? "House sharing SQL setup has not been run yet."
-          : error?.message || "Could not add shared contribution.");
+          : getErrorMessage(error, "Couldn't add shared contribution. Try again in a moment."));
       } finally {
         setSharingBusy("");
       }
       return;
-    }
-
-    if (contribution.sourceType === "linkedTransaction" && !contribution.linkedTransactionId) {
-      return alert("Choose the transaction this contribution links to.");
     }
 
     actions.updateAppData(prev => ({
@@ -518,8 +576,8 @@ export default function LoansPage({ appData, actions }) {
   function submitPerson(event) {
     event.preventDefault();
     if (!personHouse) return;
+    if (!personValidation.validateAll(personForm)) return;
     const name = personForm.name.trim();
-    if (!name) return alert("Enter a person name.");
     const now = new Date().toISOString();
     const personId = createId("house_person");
     const percentage = Number(personForm.ownershipPercentage || 0);
@@ -558,7 +616,7 @@ export default function LoansPage({ appData, actions }) {
     } catch (error) {
       setSharingStatus(isHouseSharingSetupMissing(error?.message)
         ? "House sharing SQL setup has not been run yet."
-        : error?.message || "Could not publish house for sharing.");
+        : getErrorMessage(error, "Couldn't publish house for sharing. Try again in a moment."));
     } finally {
       setSharingBusy("");
     }
@@ -578,7 +636,7 @@ export default function LoansPage({ appData, actions }) {
     } catch (error) {
       setSharingStatus(isHouseSharingSetupMissing(error?.message)
         ? "House sharing SQL setup has not been run yet."
-        : error?.message || "Could not send house invite.");
+        : getErrorMessage(error, "Couldn't send house invite. Try again in a moment."));
     } finally {
       setSharingBusy("");
     }
@@ -590,7 +648,7 @@ export default function LoansPage({ appData, actions }) {
       await acceptHouseInvite(appData.settings || {}, invite.id);
       await refreshSharedHouses("House invite accepted.");
     } catch (error) {
-      setSharingStatus(error?.message || "Could not accept house invite.");
+      setSharingStatus(getErrorMessage(error, "Couldn't accept house invite. Try again in a moment."));
     } finally {
       setSharingBusy("");
     }
@@ -602,7 +660,7 @@ export default function LoansPage({ appData, actions }) {
       await declineHouseInvite(appData.settings || {}, invite.id);
       await refreshSharedHouses("House invite declined.");
     } catch (error) {
-      setSharingStatus(error?.message || "Could not decline house invite.");
+      setSharingStatus(getErrorMessage(error, "Couldn't decline house invite. Try again in a moment."));
     } finally {
       setSharingBusy("");
     }
@@ -614,7 +672,7 @@ export default function LoansPage({ appData, actions }) {
       await cancelHouseInvite(appData.settings || {}, house.id, invite.id);
       await refreshSharedHouses("House invite cancelled.");
     } catch (error) {
-      setSharingStatus(error?.message || "Could not cancel house invite.");
+      setSharingStatus(getErrorMessage(error, "Couldn't cancel house invite. Try again in a moment."));
     } finally {
       setSharingBusy("");
     }
@@ -626,7 +684,7 @@ export default function LoansPage({ appData, actions }) {
       await updateHouseMemberRole(appData.settings || {}, house.id, member.userId, role);
       await refreshSharedHouses("House member role updated.");
     } catch (error) {
-      setSharingStatus(error?.message || "Could not update member role.");
+      setSharingStatus(getErrorMessage(error, "Couldn't update member role. Try again in a moment."));
     } finally {
       setSharingBusy("");
     }
@@ -639,7 +697,7 @@ export default function LoansPage({ appData, actions }) {
       await removeHouseMember(appData.settings || {}, house.id, member.userId);
       await refreshSharedHouses("House member removed.");
     } catch (error) {
-      setSharingStatus(error?.message || "Could not remove member.");
+      setSharingStatus(getErrorMessage(error, "Couldn't remove member. Try again in a moment."));
     } finally {
       setSharingBusy("");
     }
@@ -715,8 +773,7 @@ export default function LoansPage({ appData, actions }) {
     const originalAmount = Number(loanForm.originalAmount || 0);
     const now = new Date().toISOString();
 
-    if (!name) return alert("Enter a loan name.");
-    if (!Number.isFinite(currentBalance) || currentBalance < 0) return alert("Enter a valid current balance.");
+    if (!loanValidation.validateAll(loanForm)) return;
 
     const loanPayload = {
       id: editingLoan?.id || createId("loan"),
@@ -813,8 +870,8 @@ export default function LoansPage({ appData, actions }) {
     event.preventDefault();
     if (!balanceUpdateLoan) return;
 
+    if (!balanceValidation.validateAll(balanceUpdate)) return;
     const newBalance = Number(balanceUpdate.balance);
-    if (!Number.isFinite(newBalance) || newBalance < 0) return alert("Enter a valid balance.");
 
     const oldBalance = Number(balanceUpdateLoan.currentBalance || 0);
     const now = new Date().toISOString();
@@ -971,6 +1028,7 @@ export default function LoansPage({ appData, actions }) {
           updateLoanForm={updateLoanForm}
           closeLoanModal={closeLoanModal}
           submitLoan={submitLoan}
+          validation={loanValidation}
         />
       )}
 
@@ -982,6 +1040,7 @@ export default function LoansPage({ appData, actions }) {
           updateHouseForm={updateHouseForm}
           closeHouseModal={closeHouseModal}
           submitHouse={submitHouse}
+          validation={houseValidation}
         />
       )}
 
@@ -993,6 +1052,8 @@ export default function LoansPage({ appData, actions }) {
           updateContributionForm={updateContributionForm}
           submitContribution={submitContribution}
           isSaving={sharingBusy === "contribution"}
+          validation={contributionValidation}
+          formError={contributionFormError}
           editingContribution={editingContribution}
           closeContributionModal={() => { setContributionHouse(null); setEditingContribution(null); }}
         />
@@ -1005,27 +1066,33 @@ export default function LoansPage({ appData, actions }) {
           updatePersonForm={updatePersonForm}
           submitPerson={submitPerson}
           closePersonModal={() => setPersonHouse(null)}
+          validation={personValidation}
         />
       )}
 
       {balanceUpdateLoan && (
         <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={submitBalanceUpdate}>
+          <form className="modal-card" onSubmit={submitBalanceUpdate} noValidate>
             <div className="section-header">
               <h2>Update balance: {balanceUpdateLoan.name}</h2>
-              <button type="button" className="icon-button" onClick={() => setBalanceUpdateLoan(null)}>×</button>
+              <button type="button" className="icon-button" onClick={() => setBalanceUpdateLoan(null)} aria-label="Close">×</button>
             </div>
 
             <div className="form-grid">
               <label>
-                New balance
+                <span>New balance<RequiredMark /></span>
                 <input
+                  {...balanceValidation.fieldProps("balance")}
+                  aria-required="true"
                   type="number"
+                  inputMode="decimal"
                   min="0"
                   step="0.01"
                   value={balanceUpdate.balance}
                   onChange={event => setBalanceUpdate(prev => ({ ...prev, balance: event.target.value }))}
+                  onBlur={() => balanceValidation.validateFieldOnBlur("balance", balanceUpdate)}
                 />
+                <FieldError fieldId={balanceValidation.getFieldId("balance")} message={balanceValidation.errors.balance} />
               </label>
               <label>
                 Balance date
@@ -1821,18 +1888,22 @@ function HouseContributionTable({ contributions, people, onEditContribution, onD
   );
 }
 
-function HouseModal({ houseForm, editingHouse, accounts, updateHouseForm, closeHouseModal, submitHouse }) {
+function HouseModal({ houseForm, editingHouse, accounts, updateHouseForm, closeHouseModal, submitHouse, validation }) {
   return (
     <div className="modal-backdrop">
-      <form className="modal-card" onSubmit={submitHouse}>
+      <form className="modal-card" onSubmit={submitHouse} noValidate>
         <div className="section-header">
           <h2>{editingHouse ? "Edit house" : "Add house"}</h2>
-          <button type="button" className="icon-button" onClick={closeHouseModal}>×</button>
+          <button type="button" className="icon-button" onClick={closeHouseModal} aria-label="Close">×</button>
         </div>
         <div className="form-section-card">
           <h3>House details</h3>
           <div className="form-grid">
-            <label>House name<input value={houseForm.name} onChange={event => updateHouseForm("name", event.target.value)} /></label>
+            <label>
+              <span>House name<RequiredMark /></span>
+              <input {...validation.fieldProps("name")} aria-required="true" value={houseForm.name} onChange={event => updateHouseForm("name", event.target.value)} />
+              <FieldError fieldId={validation.getFieldId("name")} message={validation.errors.name} />
+            </label>
             <label>Address/name label<input value={houseForm.addressLabel} onChange={event => updateHouseForm("addressLabel", event.target.value)} /></label>
             <label>Purchase price<input type="number" min="0" step="0.01" value={houseForm.purchasePrice} onChange={event => updateHouseForm("purchasePrice", event.target.value)} /></label>
             <label>Purchase date<input type="date" value={houseForm.purchaseDate} onChange={event => updateHouseForm("purchaseDate", event.target.value)} /></label>
@@ -1889,7 +1960,7 @@ function HouseModal({ houseForm, editingHouse, accounts, updateHouseForm, closeH
   );
 }
 
-function HouseContributionModal({ house, appData, contributionForm, updateContributionForm, submitContribution, editingContribution, closeContributionModal, isSaving = false }) {
+function HouseContributionModal({ house, appData, contributionForm, updateContributionForm, submitContribution, editingContribution, closeContributionModal, isSaving = false, validation, formError }) {
   const people = (appData.housePeople || []).filter(person => person.houseId === house.id);
   const sourceOptions = house.isSharedHouse
     ? HOUSE_SOURCE_TYPES.filter(([key]) => key !== "linkedTransaction")
@@ -1899,18 +1970,33 @@ function HouseContributionModal({ house, appData, contributionForm, updateContri
     .slice(0, 80);
   return (
     <div className="modal-backdrop">
-      <form className="modal-card" onSubmit={submitContribution}>
+      <form className="modal-card" onSubmit={submitContribution} noValidate>
         <div className="section-header">
           <h2>{editingContribution ? "Edit contribution" : "Add contribution"}: {house.name}</h2>
-          <button type="button" className="icon-button" onClick={closeContributionModal}>×</button>
+          <button type="button" className="icon-button" onClick={closeContributionModal} aria-label="Close">×</button>
         </div>
+        <ErrorSummary errors={validation.errors} getFieldId={validation.getFieldId} />
         <div className="form-grid">
           <label>Person<select value={contributionForm.personId} onChange={event => updateContributionForm("personId", event.target.value)}>
             <option value="">Unassigned / type name below</option>
             {people.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
           </select></label>
           <label>Person name<input value={contributionForm.personName} onChange={event => updateContributionForm("personName", event.target.value)} /></label>
-          <label>Amount<input type="number" min="0" step="0.01" value={contributionForm.amount} onChange={event => updateContributionForm("amount", event.target.value)} /></label>
+          <label>
+            <span>Amount<RequiredMark /></span>
+            <input
+              {...validation.fieldProps("amount")}
+              aria-required="true"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              value={contributionForm.amount}
+              onChange={event => updateContributionForm("amount", event.target.value)}
+              onBlur={() => validation.validateFieldOnBlur("amount", contributionForm)}
+            />
+            <FieldError fieldId={validation.getFieldId("amount")} message={validation.errors.amount} />
+          </label>
           <label>Date<input type="date" value={contributionForm.date} onChange={event => updateContributionForm("date", event.target.value)} /></label>
           <label>Type<select value={contributionForm.type} onChange={event => updateContributionForm("type", event.target.value)}>
             {HOUSE_CONTRIBUTION_TYPES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
@@ -1919,17 +2005,22 @@ function HouseContributionModal({ house, appData, contributionForm, updateContri
             {sourceOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select></label>
           {contributionForm.sourceType === "linkedTransaction" && (
-            <label className="full-width">Linked transaction<select value={contributionForm.linkedTransactionId} onChange={event => updateContributionForm("linkedTransactionId", event.target.value)}>
-              <option value="">Choose transaction</option>
-              {linkedTransactions.map(transaction => (
-                <option key={transaction.id} value={transaction.id}>{transaction.date} · {transaction.title} · {formatMoney(transaction.amount, false)}</option>
-              ))}
-            </select></label>
+            <label className="full-width">
+              <span>Linked transaction<RequiredMark /></span>
+              <select {...validation.fieldProps("linkedTransactionId")} aria-required="true" value={contributionForm.linkedTransactionId} onChange={event => updateContributionForm("linkedTransactionId", event.target.value)}>
+                <option value="">Choose transaction</option>
+                {linkedTransactions.map(transaction => (
+                  <option key={transaction.id} value={transaction.id}>{transaction.date} · {transaction.title} · {formatMoney(transaction.amount, false)}</option>
+                ))}
+              </select>
+              <FieldError fieldId={validation.getFieldId("linkedTransactionId")} message={validation.errors.linkedTransactionId} />
+            </label>
           )}
           <label className="full-width">Notes<textarea value={contributionForm.notes} onChange={event => updateContributionForm("notes", event.target.value)} /></label>
         </div>
         {contributionForm.sourceType === "external" && <p className="backup-warning-box">External contributions are recorded for the house only. They do not change tracked account balances.</p>}
         {contributionForm.sourceType === "linkedTransaction" && <p className="backup-warning-box">Linked transactions already affect account balances. This records the house contribution view only.</p>}
+        <FormError message={formError} />
         <div className="modal-actions">
           <button type="button" className="secondary-button" onClick={closeContributionModal}>Cancel</button>
           <button className="primary-button" disabled={isSaving}>{isSaving ? "Saving…" : editingContribution ? "Save contribution" : "Add contribution"}</button>
@@ -1939,16 +2030,20 @@ function HouseContributionModal({ house, appData, contributionForm, updateContri
   );
 }
 
-function HousePersonModal({ house, personForm, updatePersonForm, submitPerson, closePersonModal }) {
+function HousePersonModal({ house, personForm, updatePersonForm, submitPerson, closePersonModal, validation }) {
   return (
     <div className="modal-backdrop">
-      <form className="modal-card" onSubmit={submitPerson}>
+      <form className="modal-card" onSubmit={submitPerson} noValidate>
         <div className="section-header">
           <h2>Add person: {house.name}</h2>
-          <button type="button" className="icon-button" onClick={closePersonModal}>×</button>
+          <button type="button" className="icon-button" onClick={closePersonModal} aria-label="Close">×</button>
         </div>
         <div className="form-grid">
-          <label>Name<input value={personForm.name} onChange={event => updatePersonForm("name", event.target.value)} /></label>
+          <label>
+            <span>Name<RequiredMark /></span>
+            <input {...validation.fieldProps("name")} aria-required="true" value={personForm.name} onChange={event => updatePersonForm("name", event.target.value)} />
+            <FieldError fieldId={validation.getFieldId("name")} message={validation.errors.name} />
+          </label>
           <label>Email / optional<input type="email" value={personForm.email} onChange={event => updatePersonForm("email", event.target.value)} /></label>
           <label>Label<input value={personForm.label} onChange={event => updatePersonForm("label", event.target.value)} placeholder="Partner, parent, solicitor" /></label>
           <label>Manual ownership %<input type="number" min="0" max="100" step="0.01" value={personForm.ownershipPercentage} onChange={event => updatePersonForm("ownershipPercentage", event.target.value)} /></label>
@@ -2715,16 +2810,17 @@ function getRecentEvents(events) {
     .slice(0, 3);
 }
 
-function LoanModal({ loanForm, editingLoan, updateLoanForm, closeLoanModal, submitLoan }) {
+function LoanModal({ loanForm, editingLoan, updateLoanForm, closeLoanModal, submitLoan, validation }) {
   const selectedPlan = getStudentLoanPlan(loanForm.planType);
 
   return (
     <div className="modal-backdrop">
-      <form className="modal-card" onSubmit={submitLoan}>
+      <form className="modal-card" onSubmit={submitLoan} noValidate>
         <div className="section-header">
           <h2>{editingLoan ? "Edit loan" : "Add loan"}</h2>
-          <button type="button" className="icon-button" onClick={closeLoanModal}>×</button>
+          <button type="button" className="icon-button" onClick={closeLoanModal} aria-label="Close">×</button>
         </div>
+        <ErrorSummary errors={validation.errors} getFieldId={validation.getFieldId} />
 
         <div className="form-grid">
           <label>
@@ -2736,8 +2832,9 @@ function LoanModal({ loanForm, editingLoan, updateLoanForm, closeLoanModal, subm
           </label>
 
           <label>
-            Loan name
-            <input value={loanForm.name} onChange={event => updateLoanForm("name", event.target.value)} placeholder="Plan 2 Student Loan" />
+            <span>Loan name<RequiredMark /></span>
+            <input {...validation.fieldProps("name")} aria-required="true" value={loanForm.name} onChange={event => updateLoanForm("name", event.target.value)} placeholder="Plan 2 Student Loan" />
+            <FieldError fieldId={validation.getFieldId("name")} message={validation.errors.name} />
           </label>
 
           <label>
@@ -2747,7 +2844,18 @@ function LoanModal({ loanForm, editingLoan, updateLoanForm, closeLoanModal, subm
 
           <label>
             Current balance
-            <input type="number" min="0" step="0.01" value={loanForm.currentBalance} onChange={event => updateLoanForm("currentBalance", event.target.value)} placeholder="52000" />
+            <input
+              {...validation.fieldProps("currentBalance")}
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              value={loanForm.currentBalance}
+              onChange={event => updateLoanForm("currentBalance", event.target.value)}
+              onBlur={() => validation.validateFieldOnBlur("currentBalance", loanForm)}
+              placeholder="52000"
+            />
+            <FieldError fieldId={validation.getFieldId("currentBalance")} message={validation.errors.currentBalance} />
           </label>
 
           <label>

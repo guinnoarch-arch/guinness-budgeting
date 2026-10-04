@@ -268,9 +268,9 @@ export default function AppShell({
     try {
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
       await navigator.clipboard.writeText(shareUrl);
-      setShareCopyStatus("Link copied");
+      setShareCopyStatus("Link copied.");
     } catch {
-      setShareCopyStatus("Could not copy link");
+      setShareCopyStatus("Couldn't copy the link. Select it in the box above and copy it by hand.");
     }
     window.setTimeout(() => setShareCopyStatus(""), 2500);
   }
@@ -543,8 +543,14 @@ export default function AppShell({
           </div>
         )}
         {actions.cloudBackupStatus && (
-          <div className="quick-backup-status" role="status" aria-live="polite">
-            {actions.cloudBackupStatus}
+          <div className={`quick-backup-status ${actions.cloudStatusRetry ? "has-actions" : ""}`.trim()} role="status" aria-live="polite">
+            <span>{actions.cloudBackupStatus}</span>
+            {actions.cloudStatusRetry && (
+              <span className="row-actions">
+                <button type="button" className="secondary-button small" onClick={actions.retryCloudAction}>Try again</button>
+                <button type="button" className="text-button" onClick={actions.dismissCloudStatus}>Dismiss</button>
+              </span>
+            )}
           </div>
         )}
 

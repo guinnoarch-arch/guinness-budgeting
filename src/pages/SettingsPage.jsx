@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getErrorMessage } from "../utils/errors.js";
 import AsyncButton from "../components/common/AsyncButton.jsx";
 import {
   APP_VERSION,
@@ -24,7 +25,10 @@ import PwaInstallCard from "../components/settings/PwaInstallCard.jsx";
 import { createId } from "../utils/ids.js";
 import { applyExclusionRules, getMatchingExclusionRules, undoExclusionRuleChanges } from "../services/transactionService.js";
 import { calculateMonthSummary, getBudgetAccountIds } from "../utils/calculations.js";
-import { getMonthKey } from "../utils/dates.js";
+import { formatMonthLabel, getMonthKey } from "../utils/dates.js";
+import { checkMoneyAmount, checkRequiredDate, checkRequiredText, collectErrors } from "../utils/validation.js";
+import useFormErrors from "../hooks/useFormErrors.js";
+import { FieldError, FormError, RequiredMark } from "../components/common/FormFeedback.jsx";
 import { formatMoney } from "../utils/money.js";
 import { getReceiptStorageStats, restoreReceiptBackupRecords } from "../services/receiptStorageService.js";
 import { repairSafeAppDataIssues, validateCurrentAppData } from "../services/dataValidationService.js";
@@ -233,7 +237,7 @@ async function createEmergencyRestoreSnapshot(data, reason) {
     await addStorageLog({
       level: "error",
       event: "pre_restore_snapshot_failed",
-      message: error.message || "Could not create emergency snapshot before restore.",
+      message: getErrorMessage(error, "A safety copy of your current data couldn't be made, so the restore was stopped. Export a backup from Settings first, then try again."),
       details: { reason }
     });
     return false;
@@ -261,6 +265,18 @@ const CHANGELOG_ITEMS = [
 ];
 
 const EMPTY_PLANNED_DRAFT = { title: "", amount: "", date: "", type: "expense" };
+
+function validatePlannedForm(values) {
+  return collectErrors({
+    title: checkRequiredText(values.title, "a title, for example Car MOT"),
+    amount: checkMoneyAmount(values.amount, { example: "55.00" }),
+    date: checkRequiredDate(values.date, "the date you expect it")
+  });
+}
+
+function validateTemplateForm(values) {
+  return collectErrors({ name: checkRequiredText(values.name, "a name for the template, for example Normal month") });
+}
 
 function riskLabelFromBackup(reminder, settings = {}) {
   const changes = Number(settings.changesSinceBackup || 0);
@@ -326,6 +342,9 @@ export default function SettingsPage({ appData, actions }) {
   const [monthCloseSavings, setMonthCloseSavings] = useState("");
   const [plannedDraft, setPlannedDraft] = useState(EMPTY_PLANNED_DRAFT);
   const [editingPlannedId, setEditingPlannedId] = useState(null);
+  const plannedValidation = useFormErrors("planned", validatePlannedForm);
+  const templateValidation = useFormErrors("template", validateTemplateForm);
+  const [templateError, setTemplateError] = useState("");
   const [templateName, setTemplateName] = useState("");
   const [serverSuggestions, setServerSuggestions] = useState([]);
   const [serverSuggestionStatus, setServerSuggestionStatus] = useState("");
@@ -424,7 +443,7 @@ export default function SettingsPage({ appData, actions }) {
         const logs = await listStorageLogs({ limit: 30 });
         if (!cancelled) setStorageLogs(logs);
       } catch (error) {
-        if (!cancelled) setStorageLogStatus(error.message || "Could not load storage logs.");
+        if (!cancelled) setStorageLogStatus(getErrorMessage(error, "Couldn't load storage logs. Try again in a moment."));
       }
     }
 
@@ -455,12 +474,12 @@ export default function SettingsPage({ appData, actions }) {
 
   async function becomeAdmin() {
     if (!cloudSession?.signedIn) {
-      setAdminProfileStatus("Sign in before becoming admin.");
+      setAdminProfileStatus("Sign in first, then try again.");
       return;
     }
 
     if (!adminStatus.canClaimAdmin) {
-      setAdminProfileStatus("Admin claim is not currently allowed.");
+      setAdminProfileStatus("Admin access can't be claimed right now. An existing admin needs to turn on admin claim mode in Control Centre.");
       return;
     }
 
@@ -470,7 +489,7 @@ export default function SettingsPage({ appData, actions }) {
       await actions.refreshAdminAccess?.();
       setAdminProfileStatus("This account is now admin. Admin claim mode has been turned off.");
     } catch (error) {
-      setAdminProfileStatus(error.message || "Could not claim admin access.");
+      setAdminProfileStatus(getErrorMessage(error, "Couldn't claim admin access. Try again in a moment."));
     }
   }
 
@@ -494,7 +513,7 @@ export default function SettingsPage({ appData, actions }) {
       const logs = await listStorageLogs({ limit: 30 });
       setStorageLogs(logs);
     } catch (error) {
-      setStorageLogStatus(error.message || "Could not load storage logs.");
+      setStorageLogStatus(getErrorMessage(error, "Couldn't load storage logs. Try again in a moment."));
     }
   }
 
@@ -505,7 +524,7 @@ export default function SettingsPage({ appData, actions }) {
       setStorageLogs([]);
       setStorageLogStatus("Storage logs cleared.");
     } catch (error) {
-      setStorageLogStatus(error.message || "Could not clear storage logs.");
+      setStorageLogStatus(getErrorMessage(error, "Couldn't clear storage logs. Try again in a moment."));
     }
   }
 
@@ -533,7 +552,7 @@ export default function SettingsPage({ appData, actions }) {
     const repairableCount = report.summary?.repairableCount || 0;
 
     if (!repairableCount) {
-      setValidationStatus("No safe automatic repairs are available.");
+      setValidationStatus("Nothing can be repaired automatically. Fix the remaining issues listed above by hand.");
       return;
     }
 
@@ -627,7 +646,7 @@ export default function SettingsPage({ appData, actions }) {
     });
     setCloudStatus(isCloudBackupConfigured({ ...settings, cloudBackup: nextCloud })
       ? "Cloud account details saved."
-      : "Cloud backup is not available for this build.");
+      : "Cloud backup isn't available in this version of the app.");
   }
 
   async function cloudSignIn() {
@@ -661,10 +680,10 @@ export default function SettingsPage({ appData, actions }) {
         cloudBackupNeeded: Boolean(!nextCloud.linkedLocalDataAt),
         lastCloudError: null
       });
-      setCloudStatus("Signed in to Supabase cloud backup.");
+      setCloudStatus("Signed in. Cloud backup is on.");
     } catch (error) {
-      setCloudStatus(error.message || "Cloud sign-in failed.");
-      saveCloudSettings({ lastCloudError: error.message || "Cloud sign-in failed." });
+      setCloudStatus(getErrorMessage(error, "Sign-in didn't work. Check your details and try again."));
+      saveCloudSettings({ lastCloudError: getErrorMessage(error, "Sign-in didn't work. Check your details and try again.") });
     }
   }
 
@@ -694,7 +713,7 @@ export default function SettingsPage({ appData, actions }) {
       setCloudPassword("");
       setCloudConfirmPassword("");
       if (result.pendingEmailConfirmation) {
-        setCloudStatus("Account created. Check your email if Supabase confirmation is enabled, then sign in.");
+        setCloudStatus("Account created. If you've been sent a confirmation email, open the link in it, then sign in.");
       } else {
         saveCloudSettings({
           ...nextCloud,
@@ -706,11 +725,11 @@ export default function SettingsPage({ appData, actions }) {
           cloudBackupNeeded: Boolean(!nextCloud.linkedLocalDataAt),
           lastCloudError: null
         });
-        setCloudStatus("Signed up and signed in to Supabase cloud backup.");
+        setCloudStatus("Account created and signed in. Cloud backup is on.");
       }
     } catch (error) {
-      setCloudStatus(error.message || "Cloud sign-up failed.");
-      saveCloudSettings({ lastCloudError: error.message || "Cloud sign-up failed." });
+      setCloudStatus(getErrorMessage(error, "The account couldn't be created. Check your details and try again."));
+      saveCloudSettings({ lastCloudError: getErrorMessage(error, "The account couldn't be created. Check your details and try again.") });
     }
   }
 
@@ -719,7 +738,7 @@ export default function SettingsPage({ appData, actions }) {
     setCloudSession(getStoredCloudSessionSummary(settings));
     actions.refreshCloudAuthState?.();
     setCloudBackups([]);
-    setCloudStatus("Signed out from cloud backup on this browser.");
+    setCloudStatus("Signed out on this device.");
   }
 
   async function refreshCloudBackupList() {
@@ -730,14 +749,14 @@ export default function SettingsPage({ appData, actions }) {
       saveCloudSettings({ lastCloudListAt: new Date().toISOString(), lastCloudError: null });
       setCloudStatus(rows.length ? `Loaded ${rows.length} cloud backup(s).` : "No cloud backups found yet.");
     } catch (error) {
-      setCloudStatus(error.message || "Could not list cloud backups.");
-      saveCloudSettings({ lastCloudError: error.message || "Could not list cloud backups." });
+      setCloudStatus(getErrorMessage(error, "Couldn't list cloud backups. Try again in a moment."));
+      saveCloudSettings({ lastCloudError: getErrorMessage(error, "Couldn't list cloud backups. Try again in a moment.") });
     }
   }
 
   async function uploadCloudBackupNow() {
     if (!cloudConfigured) {
-      setCloudStatus("Cloud backup is not available for this build.");
+      setCloudStatus("Cloud backup isn't available in this version of the app.");
       return;
     }
 
@@ -758,16 +777,16 @@ export default function SettingsPage({ appData, actions }) {
         lastCloudError: null
       });
       await refreshCloudBackupList();
-      setCloudStatus("Cloud backup uploaded.");
+      setCloudStatus("Backed up to the cloud.");
     } catch (error) {
-      setCloudStatus(error.message || "Cloud backup upload failed.");
-      saveCloudSettings({ lastCloudError: error.message || "Cloud backup upload failed." });
+      setCloudStatus(getErrorMessage(error, "Cloud backup upload failed. Try again in a moment."));
+      saveCloudSettings({ lastCloudError: getErrorMessage(error, "Cloud backup upload failed. Try again in a moment.") });
     }
   }
 
   async function linkLocalDataToCloud() {
     if (!cloudSession.signedIn) {
-      setCloudStatus("Sign in before linking local data to cloud backup.");
+      setCloudStatus("Sign in first, then link this device's data to your account.");
       return;
     }
     if (!confirm("Link this browser's existing local data to the signed-in account and upload the first cloud backup?")) return;
@@ -789,8 +808,8 @@ export default function SettingsPage({ appData, actions }) {
       setCloudStatus("Existing local data is linked to this account and backed up.");
       await refreshCloudBackupList();
     } catch (error) {
-      setCloudStatus(error.message || "Could not link local data to cloud backup.");
-      saveCloudSettings({ lastCloudError: error.message || "Could not link local data to cloud backup.", cloudBackupNeeded: true });
+      setCloudStatus(getErrorMessage(error, "Couldn't link local data to cloud backup. Try again in a moment."));
+      saveCloudSettings({ lastCloudError: getErrorMessage(error, "Couldn't link local data to cloud backup. Try again in a moment."), cloudBackupNeeded: true });
     }
   }
 
@@ -802,9 +821,9 @@ export default function SettingsPage({ appData, actions }) {
       const row = await fetchSupabaseCloudBackup(settings, backupId);
       const preview = parseBackupObject(row.backup_json, `cloud-backup-${String(row.id || "").slice(0, 8)}.json`);
       setCloudRestorePreview({ ...preview, row });
-      setCloudStatus("Cloud backup preview loaded. Check counts before restoring.");
+      setCloudStatus("Check the counts below before restoring.");
     } catch (error) {
-      setCloudStatus(error.message || "Could not load cloud backup preview.");
+      setCloudStatus(getErrorMessage(error, "Couldn't load cloud backup preview. Try again in a moment."));
     }
   }
 
@@ -813,12 +832,12 @@ export default function SettingsPage({ appData, actions }) {
     try {
       const row = await fetchLatestSupabaseCloudBackup(settings);
       if (!row?.id) {
-        setCloudStatus("No cloud backup found for this account.");
+        setCloudStatus("There's no cloud backup for this account yet. Back up from a device that has your data first.");
         return;
       }
       await previewCloudRestore(row.id);
     } catch (error) {
-      setCloudStatus(error.message || "Could not load latest cloud backup.");
+      setCloudStatus(getErrorMessage(error, "Couldn't load latest cloud backup. Try again in a moment."));
     }
   }
 
@@ -829,7 +848,7 @@ export default function SettingsPage({ appData, actions }) {
       const result = await downloadCloudBackupJson(row);
       setCloudStatus(result.ok ? `Downloaded ${result.filename}.` : "Cloud backup download did not complete.");
     } catch (error) {
-      setCloudStatus(error.message || "Cloud backup download failed.");
+      setCloudStatus(getErrorMessage(error, "Cloud backup download failed. Try again in a moment."));
     }
   }
 
@@ -841,7 +860,7 @@ export default function SettingsPage({ appData, actions }) {
       setCloudBackups(rows => rows.filter(row => row.id !== backupId));
       setCloudStatus("Cloud backup deleted.");
     } catch (error) {
-      setCloudStatus(error.message || "Cloud backup delete failed.");
+      setCloudStatus(getErrorMessage(error, "Cloud backup delete failed. Try again in a moment."));
     }
   }
 
@@ -850,7 +869,7 @@ export default function SettingsPage({ appData, actions }) {
     const restoredAt = new Date().toISOString();
     const snapshotCreated = await createEmergencyRestoreSnapshot(appData, "pre-cloud-restore");
     if (!snapshotCreated && !confirm("Could not create an emergency browser snapshot before cloud restore. Continue replacing local data anyway?")) {
-      setCloudStatus("Cloud restore cancelled because the emergency snapshot could not be created.");
+      setCloudStatus("The restore was stopped because a safety copy of your current data couldn't be made. Nothing has changed. Export a local backup, then try again.");
       return;
     }
 
@@ -874,8 +893,8 @@ export default function SettingsPage({ appData, actions }) {
     }, { markDirty: false });
     setCloudRestorePreview(null);
     setCloudRestorePhrase("");
-    setCloudStatus("Cloud backup restored into local IndexedDB data.");
-    alert("Cloud backup restored. Export a local JSON backup after checking the data.");
+    setCloudStatus("Cloud backup restored on this device. Check your data, then export a local backup as a safe copy.");
+    actions.notify("Cloud backup restored.");
   }
 
   function updateProfileField(field, value) {
@@ -944,7 +963,7 @@ export default function SettingsPage({ appData, actions }) {
   function removeExampleData() {
     if (!confirm("Remove example data? This removes demo transactions, budgets, bills, goals, closed months and example loan/house records. Default categories and real data will stay.")) return;
     actions.updateAppData(removeExampleDataFromAppData(appData), { reason: "Example data removed" });
-    alert("Example data removed. Any remaining dashboard values come from real data only.");
+    actions.notify("Example data removed. Everything you see now is your own data.");
   }
 
   async function resetAll() {
@@ -971,7 +990,7 @@ export default function SettingsPage({ appData, actions }) {
       actions.updateAppData(nextData, { markDirty: false });
     } catch (error) {
       console.error("Backup failed:", error);
-      alert("Backup export failed. Try again or use a different browser/download location.");
+      actions.notify("The backup couldn't be saved. Try again, or choose a different download location.", 8000);
     }
   }
 
@@ -986,7 +1005,7 @@ export default function SettingsPage({ appData, actions }) {
       setRawExportStatus(result.method === "save-picker" ? "Raw data saved." : "Raw data downloaded.");
     } catch (error) {
       console.error("Raw data export failed:", error);
-      setRawExportStatus("Raw data export failed.");
+      setRawExportStatus("The raw data couldn't be downloaded. Try again, or use a different browser.");
     }
   }
 
@@ -1002,7 +1021,7 @@ export default function SettingsPage({ appData, actions }) {
       const preview = await parseBackupFile(file);
       setRestorePreview(preview);
     } catch (error) {
-      setRestoreError(error.message || "Could not read this backup file.");
+      setRestoreError(getErrorMessage(error, "That file couldn't be read as a backup. Choose a .json backup file exported from this app."));
     } finally {
       event.target.value = "";
     }
@@ -1025,19 +1044,22 @@ export default function SettingsPage({ appData, actions }) {
       restorePreview.meta
     );
 
+    let receiptsRestored;
     try {
       await restoreReceiptBackupRecords(restorePreview.receiptStorage);
       const stats = await getReceiptStorageStats();
       setReceiptStats(stats);
-    } catch (error) {
-      console.warn("Receipt files could not be restored:", error);
-      alert("Main backup data restored, but receipt files could not be restored. Check receipt storage after restore.");
+      receiptsRestored = true;
+    } catch {
+      receiptsRestored = false;
     }
 
     actions.updateAppData(nextData, { markDirty: false });
     setRestorePreview(null);
     setRestorePhrase("");
-    alert("Backup restored. The app data and any included receipt files have been restored.");
+    actions.notify(receiptsRestored
+      ? "Backup restored."
+      : "Backup restored, but the receipt files in it couldn't be restored. Your transactions are fine; reattach any receipts you need.", 8000);
   }
 
   function updateArrayItem(field, id, patch) {
@@ -1048,7 +1070,7 @@ export default function SettingsPage({ appData, actions }) {
         item.id === id ? { ...item, ...patch, updatedAt: now } : item
       ))
     });
-    setRuleStatus("Saved import rule change.");
+    setRuleStatus("Rule saved.");
   }
 
   function removeArrayItem(field, id, label) {
@@ -1125,7 +1147,7 @@ export default function SettingsPage({ appData, actions }) {
     const gbAccountId = newExternalAccountId;
 
     if (!externalName || !gbAccountId) {
-      setRuleStatus("Enter an external name and choose a GH account before adding the mapping.");
+      setRuleStatus("Enter the name your bank uses and choose which of your accounts it means, then add the mapping.");
       return;
     }
 
@@ -1297,7 +1319,7 @@ export default function SettingsPage({ appData, actions }) {
       setServerSuggestions(rows);
       setServerSuggestionStatus("Suggestions refreshed.");
     } catch (error) {
-      setServerSuggestionStatus(error.message || "Could not load shared suggestions.");
+      setServerSuggestionStatus(getErrorMessage(error, "Couldn't load shared suggestions. Try again in a moment."));
     }
   }
 
@@ -1307,7 +1329,7 @@ export default function SettingsPage({ appData, actions }) {
       await voteFeatureSuggestion(settings, item.id, vote);
       await refreshSharedSuggestions();
     } catch (error) {
-      setServerSuggestionStatus(error.message || "Could not save vote.");
+      setServerSuggestionStatus(getErrorMessage(error, "Couldn't save vote. Try again in a moment."));
     }
   }
 
@@ -1338,13 +1360,17 @@ export default function SettingsPage({ appData, actions }) {
       ...appData,
       closedMonths: [record, ...(appData.closedMonths || []).filter(item => item.month !== selectedMonth)]
     }, { reason: `Month closed: ${selectedMonth}`, major: true });
+    actions.notify(`${formatMonthLabel(selectedMonth)} closed. ${formatMoney(carriedForward)} carried forward${savingsAmount ? `, ${formatMoney(savingsAmount)} recorded as moved to savings` : ""}.`);
   }
 
   function saveCurrentBudgetsAsTemplate() {
+    setTemplateError("");
+    if (!templateValidation.validateAll({ name: templateName })) return;
     const name = templateName.trim();
-    if (!name) return alert("Enter a template name.");
     const monthBudgets = (appData.budgets || []).filter(item => item.month === selectedMonth && item.isEnabled !== false && !item.isArchived && !item.archivedAt);
-    if (monthBudgets.length === 0) return alert("No active budgets to save for this month.");
+    if (monthBudgets.length === 0) {
+      return setTemplateError(`${formatMonthLabel(selectedMonth)} has no active budgets to save. Set budgets on the Budgets page first, or switch to a month that has them.`);
+    }
     const now = new Date().toISOString();
     const template = {
       id: createId("budget_template"),
@@ -1362,6 +1388,7 @@ export default function SettingsPage({ appData, actions }) {
       budgetTemplates: [template, ...(appData.budgetTemplates || [])]
     }, { reason: "Budget template created" });
     setTemplateName("");
+    actions.notify(`Template "${name}" saved with ${monthBudgets.length} budget${monthBudgets.length === 1 ? "" : "s"}.`);
   }
 
   function applyBudgetTemplate(template) {
@@ -1391,12 +1418,13 @@ export default function SettingsPage({ appData, actions }) {
       })
     ];
     actions.updateAppData({ ...appData, budgets: nextBudgets }, { reason: "Budget template applied" });
+    actions.notify(`"${template.name}" applied to ${formatMonthLabel(selectedMonth)}.`);
   }
 
   function savePlannedTransaction(event) {
     event.preventDefault();
+    if (!plannedValidation.validateAll(plannedDraft)) return;
     const amount = Number(plannedDraft.amount || 0);
-    if (!plannedDraft.title.trim() || amount <= 0 || !plannedDraft.date) return alert("Enter a title, amount and date.");
     const now = new Date().toISOString();
     const fields = {
       title: plannedDraft.title.trim(),
@@ -1425,7 +1453,14 @@ export default function SettingsPage({ appData, actions }) {
     cancelPlannedEdit();
   }
 
+  function updatePlannedDraft(field, value) {
+    const next = { ...plannedDraft, [field]: value };
+    setPlannedDraft(next);
+    plannedValidation.clearFixedErrors(next);
+  }
+
   function startPlannedEdit(item) {
+    plannedValidation.resetErrors();
     setEditingPlannedId(item.id);
     setPlannedDraft({
       title: item.title || "",
@@ -1438,6 +1473,7 @@ export default function SettingsPage({ appData, actions }) {
   function cancelPlannedEdit() {
     setEditingPlannedId(null);
     setPlannedDraft(EMPTY_PLANNED_DRAFT);
+    plannedValidation.resetErrors();
   }
 
   function deletePlannedTransaction(item) {
@@ -2808,9 +2844,23 @@ export default function SettingsPage({ appData, actions }) {
         {activeSettingsSection === "budgetTemplates" && (
           <div className="suggestion-section">
             <div className="suggestion-form">
-              <input value={templateName} onChange={event => setTemplateName(event.target.value)} placeholder="Template name" />
-              <button type="button" className="primary-button" onClick={saveCurrentBudgetsAsTemplate}>Save current month</button>
+              <label>
+                <span>Template name<RequiredMark /></span>
+                <input
+                  {...templateValidation.fieldProps("name")}
+                  aria-required="true"
+                  value={templateName}
+                  onChange={event => {
+                    setTemplateName(event.target.value);
+                    templateValidation.clearFixedErrors({ name: event.target.value });
+                  }}
+                  placeholder="Normal month"
+                />
+                <FieldError fieldId={templateValidation.getFieldId("name")} message={templateValidation.errors.name} />
+              </label>
+              <button type="button" className="primary-button" onClick={saveCurrentBudgetsAsTemplate}>Save {formatMonthLabel(selectedMonth)}</button>
             </div>
+            <FormError message={templateError} />
             <div className="suggestion-list">
               {(appData.budgetTemplates || []).length === 0 ? <p className="muted-text">No budget templates yet.</p> : (appData.budgetTemplates || []).map(template => (
                 <div className="suggestion-row" key={template.id}>
@@ -2832,15 +2882,30 @@ export default function SettingsPage({ appData, actions }) {
         </div>
         {activeSettingsSection === "planned" && (
           <div className="suggestion-section">
-            <form className="suggestion-form" onSubmit={savePlannedTransaction}>
-              <input aria-label="Planned transaction title" value={plannedDraft.title} onChange={event => setPlannedDraft(prev => ({ ...prev, title: event.target.value }))} placeholder="Title" />
-              <input aria-label="Amount" type="number" min="0" step="0.01" value={plannedDraft.amount} onChange={event => setPlannedDraft(prev => ({ ...prev, amount: event.target.value }))} placeholder="Amount" />
-              <input aria-label="Expected date" type="date" value={plannedDraft.date} onChange={event => setPlannedDraft(prev => ({ ...prev, date: event.target.value }))} />
-              <select aria-label="Type" value={plannedDraft.type} onChange={event => setPlannedDraft(prev => ({ ...prev, type: event.target.value }))}>
-                <option value="income">Income</option>
-                <option value="expense">Expense</option>
-                <option value="transfer">Transfer</option>
-              </select>
+            <form className="suggestion-form planned-form" onSubmit={savePlannedTransaction} noValidate>
+              <label>
+                <span>Title<RequiredMark /></span>
+                <input {...plannedValidation.fieldProps("title")} aria-required="true" value={plannedDraft.title} onChange={event => updatePlannedDraft("title", event.target.value)} placeholder="Car MOT" />
+                <FieldError fieldId={plannedValidation.getFieldId("title")} message={plannedValidation.errors.title} />
+              </label>
+              <label>
+                <span>Amount<RequiredMark /></span>
+                <input {...plannedValidation.fieldProps("amount")} aria-required="true" type="number" inputMode="decimal" min="0" step="0.01" value={plannedDraft.amount} onChange={event => updatePlannedDraft("amount", event.target.value)} onBlur={() => plannedValidation.validateFieldOnBlur("amount", plannedDraft)} placeholder="55.00" />
+                <FieldError fieldId={plannedValidation.getFieldId("amount")} message={plannedValidation.errors.amount} />
+              </label>
+              <label>
+                <span>Expected date<RequiredMark /></span>
+                <input {...plannedValidation.fieldProps("date")} aria-required="true" type="date" value={plannedDraft.date} onChange={event => updatePlannedDraft("date", event.target.value)} />
+                <FieldError fieldId={plannedValidation.getFieldId("date")} message={plannedValidation.errors.date} />
+              </label>
+              <label>
+                Type
+                <select value={plannedDraft.type} onChange={event => updatePlannedDraft("type", event.target.value)}>
+                  <option value="income">Income</option>
+                  <option value="expense">Expense</option>
+                  <option value="transfer">Transfer</option>
+                </select>
+              </label>
               <button className="primary-button">{editingPlannedId ? "Save changes" : "Add planned"}</button>
               {editingPlannedId && <button type="button" className="secondary-button" onClick={cancelPlannedEdit}>Cancel</button>}
             </form>
