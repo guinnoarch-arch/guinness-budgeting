@@ -54,7 +54,7 @@ export default function CloudConflictScreen({
           <div>
             <p className="eyebrow">Cloud/local data review</p>
             <h1>Choose which budget data to use</h1>
-            <p className="muted-text">The app found a difference between this browser's local data and the latest Supabase cloud backup. Nothing will be overwritten unless you confirm it.</p>
+            <p className="muted-text">The budget on this device is different from your latest cloud backup. Nothing will be overwritten unless you confirm it.</p>
           </div>
         </div>
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { buildPageUrl, readRouteFromLocation } from "../utils/routing.js";
+import { APP_NAME, PAGE_TITLES } from "../pages/index.js";
 
 // Which page is open, kept in sync with the URL so refresh, shared links and
 // browser Back/Forward all work.
@@ -23,6 +24,11 @@ export default function useAppRouting() {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+
+  useEffect(() => {
+    const pageTitle = PAGE_TITLES[activePage];
+    document.title = pageTitle ? `${pageTitle} · ${APP_NAME}` : APP_NAME;
+  }, [activePage]);
 
   function navigateToPage(page, options = {}) {
     setActivePage(page);

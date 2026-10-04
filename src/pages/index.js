@@ -28,4 +28,22 @@ export const pages = {
 
 export const NOT_FOUND_PAGE = "notFound";
 
+export const APP_NAME = "Guinness & Holley Budgeting";
+
+// Shown in the browser tab, history and bookmarks.
+export const PAGE_TITLES = {
+  dashboard: "Dashboard",
+  transactions: "Transactions",
+  budgets: "Budgets",
+  bills: "Bills",
+  savings: "Savings",
+  accounts: "Accounts",
+  loans: "Loans",
+  reports: "Reports",
+  import: "Import",
+  control: "Control Centre",
+  settings: "Settings",
+  [NOT_FOUND_PAGE]: "Page not found"
+};
+
 export { DashboardPage, NotFoundPage };

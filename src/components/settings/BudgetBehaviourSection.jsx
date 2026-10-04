@@ -33,7 +33,7 @@ export default function BudgetBehaviourSection({ appData, actions, settings, acc
             value={settings.largeExpenseThreshold || DEFAULT_LARGE_EXPENSE_THRESHOLD}
             onChange={event => updateBudgetBehaviourSetting("largeExpenseThreshold", Number(event.target.value || 0))}
           />
-          <small>CSV import and Add Transaction highlight the exclude-from-budget option above this amount, and it sets the minimum for the dashboard's major spends list.</small>
+          <small>CSV import and Add transaction highlight the exclude-from-budget option above this amount, and it sets the minimum for the dashboard's major spends list.</small>
         </label>
 
         <label>

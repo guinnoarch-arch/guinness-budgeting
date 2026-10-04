@@ -52,7 +52,7 @@ export default function PwaInstallCard({ pwaInstall, actions, embedded = false }
 
       <div className="backup-warning-box">
         <strong>Important</strong>
-        <span>Installing the app does not live-sync data between devices. Open the app on the phone, sign in, then restore the latest cloud backup if needed. Local JSON backup remains the safest portable recovery copy.</span>
+        <span>Installing doesn't sync data between devices. On a new phone, open the app, sign in, then restore your latest cloud backup if needed. An exported backup file is still the safest copy to keep.</span>
       </div>
 
       {pwaInstall?.installStatus && <p className="muted-text">{pwaInstall.installStatus}</p>}

@@ -222,11 +222,11 @@ export default function AppShell({
 
             {showHeaderBackupButton && (
               <button className={backupButtonClassName} onClick={actions.backupNow} title={backupReminder.message}>
-                Backup Now
+                Back up now
               </button>
             )}
             <button className="primary-button" onClick={actions.openAddTransaction}>
-              + Add Transaction
+              + Add transaction
             </button>
           </div>
         </header>

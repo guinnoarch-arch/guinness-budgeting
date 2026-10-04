@@ -1,196 +1,161 @@
 # Guinness & Holley Budgeting
 
-Local-first React/Vite budgeting app for personal, student and household budgeting.
+A personal budgeting app for one household. It keeps your money data on your
+own device, works offline once installed, and can back up to the cloud when
+you sign in.
 
-## Current Version
+Version 2.6.27 · React 19 · Vite 6
 
-V2.6.27 - House now keeps the full mortgage tracker inside each property, including detailed mortgage fields, projections, linked payments, overpayments and old mortgage-data compatibility.
+## What it does
 
-## What Is Included
+- **Dashboard:** this month's money left, income, spending, savings, a
+  six-month trend, a budget breakdown, upcoming bills and budget warnings.
+- **Transactions:** add, edit and delete income, spending and transfers, with
+  receipts, notes, repeat settings and links to loans or a house. Deleting
+  offers an Undo.
+- **Budgets:** a monthly limit per category, shown as *On track*,
+  *Nearly used* or *Over budget* (with the amount left or over), plus
+  archived budgets and categories.
+- **Bills:** recurring payments and reminders, due this week and this month.
+- **Savings:** goals with targets and progress.
+- **Accounts:** balances, a balance-over-time chart, reconcile against the
+  bank, an account check, archive and delete.
+- **Loans:** student loans, mortgages and a house tracker (property value,
+  mortgage, contributions, people and splits).
+- **Reports:** month summary, category spending against budget, planned
+  against actual, export to CSV, JSON or a printable report.
+- **Import:** bank statement CSVs, including several files at once. Transfers
+  between your own accounts are matched up so they're never counted twice,
+  and rows already in the app are flagged as duplicates.
+- **Settings:** profile, appearance, backup and restore, cloud backup, import
+  and payment rules, month close, budget templates, planned transactions and
+  more.
 
-- React/Vite app structure
-- Dashboard, accounts, budgets, bills, savings, loans, reports and transactions
-- House tracking in Loans for property details, mortgage details, contributions, people/splits and a safe sharing foundation
-- Add/edit/delete transactions with CSV import and import rules
-- Local IndexedDB storage with localStorage fallback/recovery support
-- Full JSON backup export and restore with preview and validation
-- Supabase Auth cloud backup/restore support
-- Local/offline fallback behaviour after the production service worker is registered
-- Progressive Web App manifest, app icons and install/update prompts
-- Open-on-phone QR panel for the public deployed app URL
-- Manual compact Phone view mode plus responsive small-screen CSS
-- Storage recovery screen if browser storage cannot be read safely
-- Admin-only Control Centre for safe status checks, feature flags and a local audit log
+## Running it
 
-## Local-First Storage
-
-The app saves working data locally in the browser first. Supabase is used for sign-in and cloud backup/restore, not full live database sync.
-
-For a phone or new device:
-
-1. Open the public deployed app URL.
-2. Sign in with the same Supabase account.
-3. Restore the latest cloud backup if this device needs the existing data.
-4. Continue using the app locally and back up again when needed.
-
-Local JSON backup remains the safest portable recovery copy.
-
-App updates should not clear local data. If browser storage cannot be read after an update, the app shows a recovery screen instead of loading defaults over existing data. Export raw storage before resetting or starting fresh.
-
-## House Tracking
-
-Go to:
-
-```text
-Loans -> House
-```
-
-House tracking replaces the old mortgage-only focus with a broader property view. A house can store property value, purchase details, mortgage details, people involved, deposits, mortgage payments, overpayments and other house costs.
-
-Mortgage tracking remains a full feature inside each House. Open `Loans -> House`, choose a house, then use the `Mortgage` section for summary cards, detailed mortgage fields, projected payoff, balance graph, payment/overpayment history and overpayment estimates.
-
-Contribution sources:
-
-- `External contribution`: records money paid outside tracked app accounts. It does not change account balances.
-- `Linked transaction`: points to an existing app transaction. The transaction already affects account balances, and the house contribution avoids double-counting.
-- `Manual adjustment`: records a correcting contribution entry without touching account balances.
-
-Contribution split is shown as tracking only. It is not legal ownership. Manual ownership percentages can be recorded separately and should total 100% when used.
-
-Legacy mortgage data maps into House safely:
-
-- `loan.originalAmount` -> `house.mortgage.originalAmount`
-- `loan.currentBalance` -> `house.mortgage.currentBalance`
-- `loan.startDate` -> `house.mortgage.startDate`
-- `loan.mortgageDetails.currentRate` -> `house.mortgage.interestRate`
-- `loan.mortgageDetails.monthlyPayment` -> `house.mortgage.monthlyPayment`
-- `loan.mortgageDetails.fixedUntil` -> `house.mortgage.fixedEndDate`
-- `loan.mortgageDetails.plannedMonthlyOverpayment` -> `house.mortgage.plannedMonthlyOverpayment`
-- `loan.mortgageDetails.overpaymentAllowancePercent` -> `house.mortgage.overpaymentAllowancePercent`
-
-Linked mortgage transactions affect tracked accounts once and can also appear in the House mortgage/contribution view. External mortgage payments and overpayments are house records only; they do not change account balances.
-
-Existing mortgage loan records are preserved and mapped into House records where possible. Student loans continue to use the existing Loans tracker.
-
-Sharing V1:
-
-- The local data model includes house people, members, invites and ownership splits.
-- The UI shows a Shared users area, but secure live sharing remains disabled until Supabase house-sharing tables/RLS are added.
-- Shared users must only ever see house-related summaries, not unrelated accounts, balances, transactions, budgets, reports, backups or settings.
-
-House data is included in JSON backup/restore and cloud backup payloads because the app backs up the normal local app data. Transaction CSV export includes linked-house columns, and the monthly HTML report includes a House summary.
-
-## Install And Run For Development
-
-1. Install Node.js if needed.
-2. Run:
+You need Node.js 18 or later.
 
 ```bash
 npm install
-npm run dev
+npm run dev        # development server, usually http://localhost:5173
+npm run build      # production build into dist/
+npm run preview    # serve the production build locally
 ```
 
-3. Open the local Vite URL, usually:
+The app opens on a sign-in screen. Sign in with your cloud account. If this
+device already has a saved budget, you can also open it offline from there.
 
-```bash
-http://localhost:5173
-```
+### Configuration
 
-Set `VITE_PUBLIC_APP_URL` in `.env` and in Vercel Production environment variables to the stable public production app URL:
+The Supabase project used for sign-in and cloud backup is set in
+`src/config/supabaseProjectConfig.js`. It holds only the public
+(publishable/anon) key. Never put a service-role key anywhere in this
+repository or in a browser environment variable.
+
+Optional environment variables (see `.env.example`):
+
+| Variable | What it's for |
+| --- | --- |
+| `VITE_PUBLIC_APP_URL` | The stable public address of the app, used by the "open on your phone" QR code. Set it in Vercel's Production environment, e.g. `https://guinness-budgeting.vercel.app`. |
+| `VITE_SUPABASE_USE_ENV_OVERRIDE` | Set to `true` only to point a development copy at a different Supabase project. |
+| `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | The other project's details, used only when the override above is `true`. |
+
+### Deploying
+
+The app is a static site. `vercel.json` and `netlify.toml` send every path
+to `index.html` so links such as `/?page=budgets` and `/admin` work on
+refresh. The service worker only registers in production builds; after a
+deploy, installed copies show an **Update available** banner.
+
+## Where your data lives
+
+- Everything is saved in the browser first (IndexedDB, with localStorage as a
+  fallback). The app works without a network connection.
+- **Settings → Data backup and restore** exports a full `.json` backup and
+  restores one, with a preview of what's in it first. This is the safest copy
+  to keep.
+- **Settings → Cloud backup** uploads and restores backups once you're signed
+  in. It's backup and restore, not live sync: on a new phone, sign in and
+  restore the latest cloud backup.
+- If saved data can't be read after an update, the app shows a recovery
+  screen rather than starting fresh over your data.
+
+## Cloud and admin setup (Supabase)
+
+Run `supabase-admin-control-centre.sql` in the Supabase SQL editor (the same
+SQL is shown under **Settings → Cloud backup → Show Supabase SQL setup**).
+It creates profiles, cloud backups, the admin role, admin audit log and the
+Row Level Security that limits each person to their own rows.
+`supabase-house-sharing.sql` and `supabase-feature-suggestions.sql` add house
+sharing and the suggestions box.
+
+After running SQL, wait 30–60 seconds for Supabase to refresh, then reload
+the app. The admin Control Centre is at `/admin`. While no admin exists, a
+signed-in user can claim it from **Settings → Profile → Become admin**.
+
+## Project layout
 
 ```text
-VITE_PUBLIC_APP_URL=https://guinness-budgeting.vercel.app
+src/
+  App.jsx            app state, loading, sign-in and which page to show
+  main.jsx           entry point
+  pages/             one file per screen, plus the page list and titles
+  components/        pieces of each screen, grouped by area
+    common/          shared parts: form errors, async buttons, charts
+    layout/          header, navigation, search, banners
+  hooks/             reusable behaviour (routing, theme, dialogs, cloud
+                     sync, form validation, undo, editors)
+  services/          storage, backup, cloud, CSV import, admin
+  utils/             money, dates, validation, errors, charts, theme
+  config/            Supabase project and default thresholds
+  data/              default accounts, categories and example data
+  styles/
+    tokens.css       every colour, size, radius and shadow (light and dark)
+    global.css       the app's styles, built from those tokens
+    loans.css        Loans page styles
+public/              icons, web app manifest, service worker
 ```
 
-The phone QR panel prefers this value. If it is missing, the app treats `https://guinness-budgeting.vercel.app` as the stable production URL and otherwise falls back safely to the current browser origin. Localhost, private-network URLs, Vercel preview URLs and the Vercel dashboard show a warning and use the stable production link instead of leaving the QR/link blank.
+## Design
 
-For Vercel, set this in **Project Settings -> Environment Variables** for the Production environment:
+- **Palette:** near-black ink on warm cream with one muted gold accent from
+  the logo. Green, red and amber are muted and always come with words.
+- **Accent colour:** can be changed in Settings → Appearance (Harp gold,
+  Bottle green, GH logo green, Claret, Slate blue, Ink or any colour). Text on
+  it switches between ink and cream automatically so it stays readable.
+- **Formatting:** money is shown as `£1,234.56` (en-GB), lined up in columns
+  and right-aligned in tables. Dates read `10 Oct 2026`.
+- **Dark mode:** follows the same tokens; change them in `tokens.css`.
+- **Phones:** below 720px wide the compact layout switches on by itself, and
+  every control is at least 44px.
 
-```text
-VITE_PUBLIC_APP_URL=https://guinness-budgeting.vercel.app
-```
+## Accessibility
 
-The QR code is generated as a standard SVG from the resolved production URL. If you test from a Vercel preview deployment, the QR deliberately encodes the stable production URL rather than the preview URL.
+- Pop-ups are announced as dialogs. Focus moves into them, stays inside, and
+  returns to the button that opened them. Escape closes them
+  (`hooks/useDialogManager.js`).
+- A "Skip to content" link, labelled navigation, the current page announced,
+  and one top-level heading per page.
+- Form errors appear next to the field, with an icon and text, and a summary
+  links to each one.
+- All text meets WCAG AA contrast in light and dark mode.
+- The device's "reduce motion" setting stops animations, including charts.
 
-## Admin Control Centre
+## Testing
 
-The Admin Control Centre route is:
+There's no automated test runner in the repository yet. Before a release:
 
-```text
-/admin
-```
+1. `npm run build` must pass.
+2. Work through [`docs/MANUAL-TEST-CHECKLIST.md`](docs/MANUAL-TEST-CHECKLIST.md)
+   on a computer and on a phone.
 
-You can also open it from `Settings -> Profile` after your Supabase profile has admin access.
+During the 2026 polish pass the app was also checked with headless-browser
+scripts (forms, CSV import, budgets, pop-ups, keyboard use, phone layout),
+an axe-core accessibility scan and a contrast scan of every page.
 
-Admin access is stored in Supabase, not in a frontend-only allowlist:
+## Security notes
 
-```text
-public.profiles.role = 'admin'
-```
-
-The browser still uses only the Supabase anon/publishable key. Do not add service-role keys to frontend code or Vercel client environment variables.
-
-For first setup, run the current SQL shown in `Settings -> Cloud backup -> Show Supabase SQL setup`, or paste the repository file `supabase-admin-control-centre.sql` into the Supabase SQL Editor. It adds `profiles.role`, `profiles.blocked`, admin claim mode, server-side RPC route guards, safe admin user-management RPCs and an admin audit log. When no admin exists, a signed-in user will see `Become admin` in `Settings -> Profile`. A successful claim marks that user's Supabase profile as admin and automatically turns admin-claim mode off.
-
-Existing admins can temporarily enable `Allow another user to become admin` inside `/admin`, but normal admin promotion/demotion now happens in `/admin -> Users / Accounts`. Admins can promote, demote, block and unblock accounts through Supabase RPCs. Blocked users see `Your account has been blocked. Contact the app admin.` and cannot open the private budgeting area or cloud backup/restore paths while blocked. Non-admin users who open `/admin` directly are shown `Not authorised` and a button back to Settings.
-
-The Admin Control Centre users table depends on the no-argument RPC `public.gh_admin_list_users()`. If the app says `Admin SQL setup has not been run yet`, run `supabase-admin-control-centre.sql`, wait 30-60 seconds for the PostgREST schema cache, then refresh the app. Until that RPC succeeds, the UI intentionally hides user totals rather than showing misleading counts.
-
-Admin SQL setup steps:
-
-1. Open the Supabase SQL Editor.
-2. Paste and run the latest SQL from `Settings -> Cloud backup -> Show Supabase SQL setup`, or run `supabase-admin-control-centre.sql`.
-3. Wait 30-60 seconds for the PostgREST schema cache.
-4. Refresh the app.
-5. Open `Admin Control Centre -> Users / Accounts`.
-
-Troubleshooting:
-
-- `function not found`: wait 30-60 seconds after running SQL, then refresh.
-- `schema cache`: Supabase has not refreshed the new RPC definitions yet.
-- `Not authorised`: the signed-in profile must have `public.profiles.role = 'admin'`.
-- No admin exists: sign in and use `Settings -> Profile -> Become admin` if admin claim mode is allowed.
-- Blocked account: ask an existing admin to unblock the profile from `Users / Accounts`.
-
-The bank-linking feature flag defaults to off and does not enable any live bank integration.
-
-## Production Build And PWA Test
-
-The service worker is registered only in production builds. Run:
-
-```bash
-npm run build
-npm run preview
-```
-
-Then open the preview URL shown in the terminal. In Chrome or Edge, the browser may show an install icon in the address bar. You can also use:
-
-```text
-Settings -> Install app and offline mode
-```
-
-Installed PWA updates use the normal service-worker flow. After deploying to Vercel, open the installed app, wait for the **Update available** banner, export a backup if prompted, then click **Update app**. The app also checks for updates when it opens, comes back online, and returns to the foreground. The manifest keeps a stable `name`, `short_name`, `start_url`, `scope`, `id` and icon set so the browser should treat it as the same installed app.
-
-## Backup And Restore
-
-Go to:
-
-```text
-Settings -> Data backup and restore
-```
-
-Use **Export full backup** to download a `.json` backup. Use **Import / restore backup** to preview and restore a previous backup. Restoring replaces the current local data in that browser.
-
-Cloud backup is available after Supabase sign-in:
-
-```text
-Settings -> Cloud backup
-```
-
-Preview counts before restoring cloud data, especially on a phone or new device.
-
-## Supabase Security
-
-Frontend code must use only the Supabase anon/publishable key. Do not add service-role or secret keys to this repo.
-
-The SQL setup shown in Settings enables Row Level Security so each signed-in user can access only their own profile and cloud-backup rows.
+- The browser only ever uses the Supabase publishable/anon key.
+- Each person's data is protected by Row Level Security in Supabase.
+- The bank-linking feature flag is off by default and doesn't connect to any
+  bank.

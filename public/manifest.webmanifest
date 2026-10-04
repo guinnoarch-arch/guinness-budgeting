@@ -1,7 +1,7 @@
 {
   "name": "Guinness & Holley Budgeting",
   "short_name": "GH Budget",
-  "description": "Local-first budgeting app with budgeting, accounts, loans, imports, reports, and safer offline storage.",
+  "description": "Budgets, bills, savings, accounts, loans and bank CSV import, saved on your device with optional cloud backup.",
   "start_url": "/?source=pwa",
   "scope": "/",
   "id": "/",
@@ -102,7 +102,7 @@
       ]
     },
     {
-      "name": "Add Transaction",
+      "name": "Add transaction",
       "short_name": "Add",
       "description": "Open the app to add or review a transaction.",
       "url": "/?action=add-transaction",

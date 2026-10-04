@@ -122,7 +122,7 @@ export default function SuggestionsSection({ appData, actions, cloudConfigured, 
       </div>
       {activeSettingsSection === "future" && (
         <div className="future-feature-panel">
-          <p className="muted">Full automatic live sync and desktop app wrapper are planned later. Supabase cloud backup/restore, bank CSV import, import-rules management, backup restore/data safety, reports upgrades, IndexedDB receipt storage, dark mode, dashboard layouts, local profile setup, install prompts, offline/update handling, and loan tracking are now available.</p>
+          <p className="muted">Live sync between devices and a desktop app are planned. Available now: cloud backup and restore, bank CSV import, import rules, backup and restore, reports, receipts, dark mode, dashboard layouts, profile setup, installing and offline use, and loan tracking.</p>
 
           <div className="suggestion-section">
             <div>

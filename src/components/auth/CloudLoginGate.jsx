@@ -311,7 +311,7 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
 
         {wrongAccount && (
           <div className="backup-warning-box danger-box">
-            <strong>Different Supabase account signed in</strong>
+            <strong>A different cloud account is signed in</strong>
             <span>Sign in with the cloud account already linked to this local budget data.</span>
           </div>
         )}
