@@ -115,7 +115,7 @@ async function listStoredReceipts() {
   return withReceiptStore("readonly", store => requestToPromise(store.getAll()));
 }
 
-async function clearAllStoredReceipts() {
+export async function clearAllStoredReceipts() {
   await withReceiptStore("readwrite", store => store.clear());
   return true;
 }

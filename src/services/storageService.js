@@ -659,6 +659,8 @@ function normaliseCloudBackupConfig(value = {}) {
     lastCloudListAt: cloud.lastCloudListAt || null,
     lastCloudError: cloud.lastCloudError || null,
     cloudBackupNeeded: Boolean(cloud.cloudBackupNeeded),
+    // Set at sign-out once the cloud is confirmed to hold this version of the data.
+    verifiedSafeForChangeAt: cloud.verifiedSafeForChangeAt || null,
     linkedLocalDataAt: cloud.linkedLocalDataAt || null,
     lastAutoCloudBackupAt: cloud.lastAutoCloudBackupAt || null,
     lastCloudConflictAt: cloud.lastCloudConflictAt || null,

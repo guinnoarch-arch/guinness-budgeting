@@ -4,10 +4,18 @@ import { collectErrors } from "../../utils/validation.js";
 import useFormErrors from "../../hooks/useFormErrors.js";
 import { FieldError, FormError } from "../common/FormFeedback.jsx";
 import {
+  clearStoredCloudSession,
   getStoredCloudSessionSummary,
   isCloudBackupConfigured,
   refreshSupabaseCloudSession
 } from "../../services/cloudBackupService.js";
+import {
+  buildFreshDataForAccount,
+  confirmDiscardUnsyncedChanges,
+  isDifferentAccountData,
+  wipeLocalDataForAccountSwitch
+} from "../../services/accountSwitchService.js";
+import { clearLocalAccessSession } from "../../services/localAccessService.js";
 import {
   ensureProfileForSignedInUser,
   normaliseEmail,
@@ -129,6 +137,8 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
     try {
       const username = normaliseUsername(form.username);
       const email = normaliseEmail(form.email);
+      // The budget stored on this device, as it was before this sign-in.
+      const dataBeforeSignIn = appData;
       const nextCloud = await saveCloudSettings({
         cloudUserEmail: email,
         cloudUsername: username,
@@ -143,17 +153,42 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
       if (sessionResult.pendingEmailConfirmation) {
         setStatus("Account created. If you've been sent a confirmation email, open the link in it, then sign in.");
       } else {
+        // A different account from the one this device's budget belongs to:
+        // that budget is not theirs, so it must not be shown or uploaded.
+        const switchingAccount = isDifferentAccountData(dataBeforeSignIn, sessionResult.user?.id);
+        if (switchingAccount && !confirmDiscardUnsyncedChanges(dataBeforeSignIn)) {
+          clearStoredCloudSession();
+          setStatus("");
+          setAuthError("Sign-in cancelled. The previous account's budget is still on this device.");
+          onAuthChanged?.();
+          return;
+        }
+
         const profileUsername = username || sessionResult.user?.user_metadata?.username || appData?.profile?.username || "";
         await ensureProfileForSignedInUser({ ...settings, cloudBackup: nextCloud }, sessionResult, profileUsername).catch(() => null);
-        await saveCloudSettings({
-          ...nextCloud,
-          cloudUserId: sessionResult.user?.id || nextCloud.cloudUserId || null,
-          cloudUserEmail: sessionResult.user?.email || email,
-          cloudUsername: normaliseUsername(profileUsername),
-          lastSignedInAt: new Date().toISOString(),
-          cloudBackupNeeded: Boolean(!nextCloud.linkedLocalDataAt),
-          lastCloudError: null
-        });
+
+        if (switchingAccount) {
+          setStatus("Switching account...");
+          await wipeLocalDataForAccountSwitch();
+          clearLocalAccessSession();
+          // No awaits from here to onAuthChanged, so the fresh budget and the
+          // new session are applied together and the cloud sync check sees
+          // the fresh data, never the previous account's.
+          actions.updateAppData(
+            buildFreshDataForAccount(dataBeforeSignIn, sessionResult.user, profileUsername),
+            { reason: "Switched account", markDirty: false }
+          );
+        } else {
+          await saveCloudSettings({
+            ...nextCloud,
+            cloudUserId: sessionResult.user?.id || nextCloud.cloudUserId || null,
+            cloudUserEmail: sessionResult.user?.email || email,
+            cloudUsername: normaliseUsername(profileUsername),
+            lastSignedInAt: new Date().toISOString(),
+            cloudBackupNeeded: Boolean(!nextCloud.linkedLocalDataAt),
+            lastCloudError: null
+          });
+        }
         setStatus("Signed in. Opening app...");
       }
       onAuthChanged?.();
@@ -311,8 +346,8 @@ export default function CloudLoginGate({ appData, actions, cloudAuthSummary, onA
 
         {wrongAccount && (
           <div className="backup-warning-box danger-box">
-            <strong>A different cloud account is signed in</strong>
-            <span>Sign in with the cloud account already linked to this local budget data.</span>
+            <strong>This device holds a different account's budget</strong>
+            <span>Signing in will replace it with the budget for the account you sign in with. Sign in as the previous account instead if you want to keep it.</span>
           </div>
         )}
 

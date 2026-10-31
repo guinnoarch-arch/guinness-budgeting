@@ -3,6 +3,8 @@ import { getErrorMessage } from "../../utils/errors.js";
 import AsyncButton from "../common/AsyncButton.jsx";
 import { parseBackupObject, prepareRestoredAppData } from "../../services/storageService.js";
 import { clearStoredCloudSession, deleteSupabaseCloudBackup, downloadCloudBackupJson, fetchSupabaseCloudBackup, fetchLatestSupabaseCloudBackup, getCloudConfig, getSupabaseKeySafetyIssue, getStoredCloudSessionSummary, getSupabaseSetupSql, listSupabaseCloudBackups, uploadSupabaseCloudBackup } from "../../services/cloudBackupService.js";
+import { buildFreshDataForAccount, confirmDiscardUnsyncedChanges, isDifferentAccountData, wipeLocalDataForAccountSwitch } from "../../services/accountSwitchService.js";
+import { clearLocalAccessSession } from "../../services/localAccessService.js";
 import { getDisplayUsernameFromSession, ensureProfileForSignedInUser, normaliseEmail, normaliseUsername, signInWithEmailOrUsername } from "../../services/authService.js";
 import { createEmergencyRestoreSnapshot, formatDateTime } from "./settingsHelpers.jsx";
 import { CloudBackupRows } from "./CloudBackupRows.jsx";
@@ -92,7 +94,34 @@ export default function CloudBackupSection({ appData, actions, cloudConfigured, 
         cloudUsername: normaliseUsername(cloudForm.username),
         lastCloudError: null
       });
+      const dataBeforeSignIn = appData;
       const session = await signInWithEmailOrUsername({ ...settings, cloudBackup: nextCloud }, cloudForm.loginIdentifier || cloudForm.email, cloudPassword);
+
+      // Signing in as a different account than this device's budget belongs
+      // to: replace the budget on this device with the new account's.
+      if (isDifferentAccountData(dataBeforeSignIn, session.user?.id)) {
+        if (!confirmDiscardUnsyncedChanges(dataBeforeSignIn)) {
+          clearStoredCloudSession();
+          setCloudSession(getStoredCloudSessionSummary(settings));
+          actions.refreshCloudAuthState?.();
+          setCloudPassword("");
+          setCloudStatus("Sign-in cancelled. The previous account's budget is still on this device.");
+          return;
+        }
+        const switchUsername = cloudForm.username || session.user?.user_metadata?.username || "";
+        await ensureProfileForSignedInUser({ ...settings, cloudBackup: nextCloud }, session, switchUsername).catch(() => null);
+        await wipeLocalDataForAccountSwitch();
+        clearLocalAccessSession();
+        setCloudPassword("");
+        actions.updateAppData(
+          buildFreshDataForAccount(dataBeforeSignIn, session.user, switchUsername),
+          { reason: "Switched account", markDirty: false }
+        );
+        actions.refreshCloudAuthState?.();
+        setCloudStatus("Signed in. Loading this account's budget...");
+        return;
+      }
+
       setCloudSession(getStoredCloudSessionSummary({ ...settings, cloudBackup: nextCloud }));
       actions.refreshCloudAuthState?.();
       setCloudPassword("");

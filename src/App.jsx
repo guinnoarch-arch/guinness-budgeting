@@ -22,7 +22,8 @@ import {
 } from "./services/storageService.js";
 import { processRecurringItems } from "./services/recurringService.js";
 import { getMonthKey } from "./utils/dates.js";
-import { clearStoredCloudSession, getStoredCloudSessionSummary, isCloudLoginGateRequired, isCloudSessionAllowed } from "./services/cloudBackupService.js";
+import { clearStoredCloudSession, fetchLatestSupabaseCloudBackupMeta, getStoredCloudSessionSummary, isCloudBackupConfigured, isCloudLoginGateRequired, isCloudSessionAllowed } from "./services/cloudBackupService.js";
+import { getDataChangeKey } from "./services/accountSwitchService.js";
 import { getDisplayUsernameFromSession } from "./services/authService.js";
 import { getAdminStatus, getFeatureFlags } from "./services/adminService.js";
 import { applyExclusionRules, undoExclusionRuleChanges } from "./services/transactionService.js";
@@ -109,6 +110,21 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  // When the budget on screen switches to a different account's, drop
+  // UI state that pointed into the previous account's data.
+  const dataOwnerId = appData?.settings?.cloudBackup?.cloudUserId || null;
+  const previousDataOwnerRef = useRef(dataOwnerId);
+  useEffect(() => {
+    const previousOwnerId = previousDataOwnerRef.current;
+    if (dataOwnerId) previousDataOwnerRef.current = dataOwnerId;
+    if (!previousOwnerId || !dataOwnerId || previousOwnerId === dataOwnerId) return;
+    setSelectedDashboardAccountId("all");
+    setSelectedMonth(getMonthKey(new Date()));
+    setEditingTransaction(null);
+    setShowTransactionModal(false);
+    setRulesNotice(null);
+  }, [dataOwnerId]);
 
   useEffect(() => {
     if (!appData) return;
@@ -228,10 +244,45 @@ export default function App() {
     window.setTimeout(() => setCloudBackupStatus(""), 5000);
   }
 
-  async function lockApp() {
-    if (appData?.settings?.cloudBackup?.cloudBackupNeeded) {
-      await cloudBackupNow({ backupType: "auto", requireConfirm: false });
+  // Before signing out, make sure the cloud holds this device's latest
+  // version (or a newer one), and record that. If a different account later
+  // signs in, this device's copy can then be wiped without asking.
+  async function confirmCloudHasLatest() {
+    const data = appDataRef.current;
+    const settings = data?.settings || {};
+    const cloud = settings.cloudBackup || {};
+    const canCheck = data && cloud.linkedLocalDataAt && isCloudBackupConfigured(settings) && isCloudSessionAllowed(settings, cloudAuthSummary);
+    if (!canCheck) return;
+
+    const changeKey = getDataChangeKey(data);
+    let safe = false;
+    try {
+      const meta = await fetchLatestSupabaseCloudBackupMeta(settings);
+      const localTime = new Date(settings.lastDataChangedAt || 0).getTime();
+      const cloudTime = meta?.data_changed_at ? new Date(meta.data_changed_at).getTime() : null;
+      if (meta && cloudTime !== null && cloudTime >= localTime) {
+        safe = true;
+      } else {
+        safe = Boolean(await cloudBackupNow({ backupType: "auto", requireConfirm: false }));
+      }
+    } catch (error) {
+      logError("Could not confirm the cloud copy before signing out", error);
+      if (cloud.cloudBackupNeeded) await cloudBackupNow({ backupType: "auto", requireConfirm: false });
     }
+
+    if (safe) {
+      setAppData(prev => prev ? ({
+        ...prev,
+        settings: {
+          ...(prev.settings || {}),
+          cloudBackup: { ...(prev.settings?.cloudBackup || {}), verifiedSafeForChangeAt: changeKey }
+        }
+      }) : prev);
+    }
+  }
+
+  async function lockApp() {
+    await confirmCloudHasLatest();
     clearStoredCloudSession();
     setCloudAuthSummary(getStoredCloudSessionSummary(appData?.settings));
   }
