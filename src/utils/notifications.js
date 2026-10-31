@@ -43,7 +43,7 @@ export function buildAppNotifications(appData, options = {}) {
 
   const monthElapsedPercent = (daysElapsedInMonth(selectedMonth) / new Date(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0).getDate()) * 100;
   getBudgetWarnings(appData, selectedMonth).slice(0, 4).forEach(item => {
-    const aheadOfPace = item.usedPercent > monthElapsedPercent + 20;
+    const aheadOfPace = !item.isYearly && item.usedPercent > monthElapsedPercent + 20;
     notifications.push({
       id: `budget-${item.id}-${selectedMonth}`,
       type: item.usedPercent > 100 ? "danger" : aheadOfPace ? "warning" : "notice",

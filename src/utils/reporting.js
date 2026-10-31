@@ -121,6 +121,8 @@ function getAccountBalanceTrend(data, selectedMonth) {
 
 function getCategoryReportRows(data, monthKey) {
   return getCategorySpend(data, monthKey)
+    // Yearly budgets add up 12 months, so they don't belong in a monthly report.
+    .filter(item => !item.isYearly)
     .filter(item => item.spent > 0 || item.limit > 0)
     .map(item => ({
       id: item.id,

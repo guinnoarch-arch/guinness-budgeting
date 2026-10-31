@@ -27,7 +27,7 @@ function isCategoryArchived(category) {
 
 export default function BudgetsPage({ appData, actions }) {
   const [openBudgetKey, setOpenBudgetKey] = useState(null);
-  const { archiveBudget, budgetAccountIds, budgetErrors, budgetLimit, closeBudgetEditor, editingBudget, getCurrentBudgetForCategory, handleEditBudget, permanentlyDeleteBudget, restoreBudget, saveBudget, setBudgetLimit, toggleBudgetAccount } = useBudgetEditor({ actions, appData, setOpenBudgetKey });
+  const { archiveBudget, budgetAccountIds, budgetErrors, budgetIsYearly, budgetLimit, closeBudgetEditor, editingBudget, getCurrentBudgetForCategory, handleEditBudget, permanentlyDeleteBudget, restoreBudget, saveBudget, setBudgetIsYearly, setBudgetLimit, toggleBudgetAccount } = useBudgetEditor({ actions, appData, setOpenBudgetKey });
   const [showBudgetManager, setShowBudgetManager] = useState(false);
   const [categoryRefreshStatus, setCategoryRefreshStatus] = useState("");
   const [lastCategoryRuleChanges, setLastCategoryRuleChanges] = useState(null);
@@ -48,8 +48,10 @@ export default function BudgetsPage({ appData, actions }) {
   }, [newCategoryDraft]);
 
   const activeAccounts = (appData.accounts || []).filter(account => account.isActive !== false);
+  // Any budget that has been set up is listed, even with no limit (0) and no
+  // spending yet. Only spending that has no budget at all is hidden when empty.
   const categorySpend = getCategorySpend(appData, actions.selectedMonth)
-    .filter(item => item.spent > 0 || item.excludedSpent > 0 || item.limit > 0);
+    .filter(item => item.budget || item.spent > 0 || item.excludedSpent > 0 || item.limit > 0);
 
   const archivedBudgets = (appData.budgets || [])
     .filter(budget => budget.isArchived || budget.archivedAt)
@@ -64,10 +66,13 @@ export default function BudgetsPage({ appData, actions }) {
     .filter(isCategoryArchived)
     .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
 
+  // The two month totals only use monthly budgets; a yearly budget's limit
+  // covers 12 months so it would distort them.
   const activeMonthlyBudgets = (appData.budgets || [])
-    .filter(budget => budget.month === actions.selectedMonth && budget.isEnabled !== false && !budget.isArchived && !budget.archivedAt);
+    .filter(budget => budget.month === actions.selectedMonth && !budget.isYearly && budget.isEnabled !== false && !budget.isArchived && !budget.archivedAt);
   const totalBudgetAmount = activeMonthlyBudgets.reduce((sum, budget) => sum + Number(budget.limit || 0), 0);
   const flexibleRemaining = categorySpend
+    .filter(item => !item.isYearly)
     .filter(item => item.category?.type !== "income")
     .reduce((sum, item) => sum + Math.max(0, Number(item.limit || 0) - Number(item.spent || 0)), 0);
   const now = new Date();
@@ -241,10 +246,14 @@ export default function BudgetsPage({ appData, actions }) {
       <div className="budget-grid">
         {categorySpend.map(item => {
           const budgetKey = item.id || `${item.category.id}_${(item.accountIds || []).join("+") || "all"}`;
-          const recentTransactions = appData.transactions
-            .filter(txn => txn.categoryId === item.category.id && txn.type === "expense")
-            .filter(txn => !(item.accountIds?.length) || item.accountIds.includes(txn.accountId))
-            .sort((a, b) => b.date.localeCompare(a.date));
+          // A budget lists exactly the transactions counted in it; a row with no
+          // budget lists that category's spending as before.
+          const recentTransactions = item.budget
+            ? item.transactions
+            : appData.transactions
+              .filter(txn => txn.categoryId === item.category.id && txn.type === "expense" && !txn.transferLinkId)
+              .filter(txn => !(item.accountIds?.length) || item.accountIds.includes(txn.accountId))
+              .sort((a, b) => b.date.localeCompare(a.date));
 
           return (
             <BudgetCard
@@ -256,6 +265,7 @@ export default function BudgetsPage({ appData, actions }) {
               onEditBudget={handleEditBudget}
               onEditCategory={handleEditCategory}
               onEditTransaction={actions.openEditTransaction}
+              onAddTransactions={budgetItem => actions.setActivePage("transactions", { intent: { type: "pick-for-budget", budgetId: budgetItem.budget.id } })}
             />
           );
         })}
@@ -343,10 +353,12 @@ export default function BudgetsPage({ appData, actions }) {
           archiveBudget={archiveBudget}
           budgetAccountIds={budgetAccountIds}
           budgetErrors={budgetErrors}
+          budgetIsYearly={budgetIsYearly}
           budgetLimit={budgetLimit}
           closeBudgetEditor={closeBudgetEditor}
           editingBudget={editingBudget}
           saveBudget={saveBudget}
+          setBudgetIsYearly={setBudgetIsYearly}
           setBudgetLimit={setBudgetLimit}
           toggleBudgetAccount={toggleBudgetAccount}
         />

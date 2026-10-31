@@ -1,4 +1,5 @@
 import { createId } from "../utils/ids.js";
+import { removeTransactionFromAllFolders } from "./savedFolderService.js";
 import { removeHouseContributionForTransaction, syncHouseContributionForTransaction } from "../utils/houseTracking.js";
 import { removeLoanEventsForTransaction, syncLoanEventsForTransaction } from "../utils/loanLinking.js";
 
@@ -411,10 +412,10 @@ export function undoCategoryRuleChanges(data, changes) {
 
 export function deleteTransaction(data, transactionId) {
   const unlinked = unlinkTransferPair(data, transactionId);
-  return removeHouseContributionForTransaction(removeLoanEventsForTransaction({
+  return removeTransactionFromAllFolders(removeHouseContributionForTransaction(removeLoanEventsForTransaction({
     ...unlinked,
     transactions: unlinked.transactions.filter(transaction => transaction.id !== transactionId)
-  }, transactionId), transactionId);
+  }, transactionId), transactionId), transactionId);
 }
 
 // A transferLinkId only ever means something as a reciprocal pair: A points at

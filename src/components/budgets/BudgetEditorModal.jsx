@@ -2,7 +2,7 @@ import { FieldError } from "../common/FormFeedback.jsx";
 import { X } from "lucide-react";
 
 // Pop-up for setting or changing one category's budget.
-export function BudgetEditorModal({ activeAccounts, archiveBudget, budgetAccountIds, budgetErrors, budgetLimit, closeBudgetEditor, editingBudget, saveBudget, setBudgetLimit, toggleBudgetAccount }) {
+export function BudgetEditorModal({ activeAccounts, archiveBudget, budgetAccountIds, budgetErrors, budgetIsYearly, budgetLimit, closeBudgetEditor, editingBudget, saveBudget, setBudgetIsYearly, setBudgetLimit, toggleBudgetAccount }) {
   return (
     <div className="modal-backdrop">
       <form className="modal-card" onSubmit={e => { e.preventDefault(); saveBudget(); }} noValidate>
@@ -28,6 +28,20 @@ export function BudgetEditorModal({ activeAccounts, archiveBudget, budgetAccount
             <FieldError fieldId={budgetErrors.getFieldId("limit")} message={budgetErrors.errors.limit} />
             <small>Leave at 0 to track spending in this category without a limit.</small>
           </label>
+
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={Boolean(budgetIsYearly)}
+              onChange={e => setBudgetIsYearly(e.target.checked)}
+            />
+            <span>Yearly budget</span>
+          </label>
+          <small className="full-width">
+            {budgetIsYearly
+              ? "The limit is for a whole year. Spending is added up over the last 12 months (the month you're viewing and the 11 before it), and the budget shows in every month from now on."
+              : "Tick this to give the budget a limit for the whole year instead of one month."}
+          </small>
 
           <label className="account-multiselect-label">
             Linked account(s)

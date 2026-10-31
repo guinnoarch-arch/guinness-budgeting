@@ -20,7 +20,7 @@ export default function BudgetTemplatesSection({ appData, actions, selectedMonth
     setTemplateError("");
     if (!templateValidation.validateAll({ name: templateName })) return;
     const name = templateName.trim();
-    const monthBudgets = (appData.budgets || []).filter(item => item.month === selectedMonth && item.isEnabled !== false && !item.isArchived && !item.archivedAt);
+    const monthBudgets = (appData.budgets || []).filter(item => item.month === selectedMonth && !item.isYearly && item.isEnabled !== false && !item.isArchived && !item.archivedAt);
     if (monthBudgets.length === 0) {
       return setTemplateError(`${formatMonthLabel(selectedMonth)} has no active budgets to save. Set budgets on the Budgets page first, or switch to a month that has them.`);
     }
@@ -52,7 +52,7 @@ export default function BudgetTemplatesSection({ appData, actions, selectedMonth
     const keys = new Set((template.items || []).map(item => budgetKey(item.categoryId, getBudgetAccountIds(item))));
     const now = new Date().toISOString();
     const nextBudgets = [
-      ...(appData.budgets || []).filter(item => item.month !== selectedMonth || !keys.has(budgetKey(item.categoryId, getBudgetAccountIds(item)))),
+      ...(appData.budgets || []).filter(item => item.month !== selectedMonth || item.isYearly || !keys.has(budgetKey(item.categoryId, getBudgetAccountIds(item)))),
       ...(template.items || []).map(item => {
         const accountIds = getBudgetAccountIds(item);
         return {

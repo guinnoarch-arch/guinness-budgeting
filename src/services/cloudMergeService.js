@@ -15,7 +15,8 @@ const MERGE_COLLECTIONS = [
   "externalAccountMappings",
   "csvColumnMappings",
   "loans",
-  "loanEvents"
+  "loanEvents",
+  "savedFolders"
 ];
 
 function stableStringify(value) {

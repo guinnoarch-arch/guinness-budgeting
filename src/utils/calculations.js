@@ -1,6 +1,7 @@
 import { daysElapsedInMonth, formatMonthLabel, getPreviousMonthKey, isInMonth } from "./dates.js";
 import { roundMoney } from "./money.js";
 import { DEFAULT_ACCOUNT_ID } from "../data/defaultAccounts.js";
+import { NO_BUDGET_ID, getBudgetPeriodMonthKeys, isBudgetActiveInMonth } from "./budgetMembership.js";
 import { DEFAULT_BUDGET_AFFORDABILITY_THRESHOLD, DEFAULT_LARGE_EXPENSE_THRESHOLD, DEFAULT_LARGE_INCOME_THRESHOLD } from "../config/appDefaults.js";
 
 export function getCategoryById(categories, id) {
@@ -101,15 +102,27 @@ function getBudgetLeftSummary(data, monthKey, accountId = null) {
     .filter(t => t.type === "expense")
     .filter(t => !selectedAccountId || t.accountId === selectedAccountId);
 
+  // Yearly budgets are tracked over 12 months, so they are left out of this
+  // month's "budget left" figure.
   const activeBudgets = (data.budgets || [])
-    .filter(budget => budget.month === monthKey && budget.isEnabled && !budget.isArchived && !budget.archivedAt)
+    .filter(budget => budget.month === monthKey && !budget.isYearly && budget.isEnabled && !budget.isArchived && !budget.archivedAt)
     .filter(budget => budgetMatchesAccount(budget, selectedAccountId));
 
   const budgetKeys = new Set(activeBudgets.flatMap(budget => getBudgetAccountIds(budget).map(id => `${budget.categoryId}_${id}`)));
   const totalBudgetLimit = sum(activeBudgets.map(budget => budget.limit));
-  const countedSpending = sum(monthExpenses
+  // Transactions pinned to a budget by hand count toward that budget only.
+  const liveBudgetIds = new Set((data.budgets || []).filter(budget => !budget.isArchived && !budget.archivedAt).map(budget => budget.id));
+  const activeBudgetIds = new Set(activeBudgets.map(budget => budget.id));
+  const countedSpending = sum((data.transactions || [])
     .filter(isBudgetCountedExpense)
-    .filter(transaction => budgetKeys.has(`${transaction.categoryId}_${transaction.accountId}`))
+    .filter(transaction => !selectedAccountId || transaction.accountId === selectedAccountId)
+    .filter(transaction => {
+      if (transaction.budgetId && transaction.budgetId !== NO_BUDGET_ID && liveBudgetIds.has(transaction.budgetId)) {
+        return activeBudgetIds.has(transaction.budgetId);
+      }
+      if (transaction.budgetId === NO_BUDGET_ID) return false;
+      return isInMonth(transaction.date, monthKey) && budgetKeys.has(`${transaction.categoryId}_${transaction.accountId}`);
+    })
     .map(transaction => transaction.amount));
   const excludedSpending = sum(monthExpenses.filter(isBudgetExcludedExpense).map(transaction => transaction.amount));
   const budgetLeftRaw = totalBudgetLimit - countedSpending;
@@ -507,15 +520,28 @@ function getSavingsGoalBreakdown(data, monthKey, accountId = null) {
 
 export function getCategorySpend(data, monthKey, accountId = null) {
   const selectedAccountId = normaliseAccountFilter(accountId);
-  const monthExpenses = getTransactionsForMonth(data.transactions, monthKey)
-    .filter(t => t.type === "expense")
+
+  const allLiveBudgets = (data.budgets || []).filter(budget => !budget.isArchived && !budget.archivedAt);
+  const liveBudgetIds = new Set(allLiveBudgets.map(budget => budget.id));
+  // See budgetMembership.js: a transaction can be pinned to one budget by
+  // hand, or taken out of budgets altogether.
+  const isPinnedToBudget = transaction => Boolean(transaction.budgetId) && transaction.budgetId !== NO_BUDGET_ID && liveBudgetIds.has(transaction.budgetId);
+  const isTakenOutOfBudgets = transaction => transaction.budgetId === NO_BUDGET_ID;
+
+  const realExpenses = (data.transactions || [])
+    .filter(t => t.type === "expense" && !t.transferLinkId)
     .filter(t => !selectedAccountId || t.accountId === selectedAccountId);
+
+  // Spending that no budget has claimed by hand, for the "no budget" rows.
+  const monthExpenses = realExpenses
+    .filter(t => isInMonth(t.date, monthKey))
+    .filter(t => !isPinnedToBudget(t) && !isTakenOutOfBudgets(t));
 
   const countedMonthExpenses = monthExpenses.filter(isBudgetCountedExpense);
   const excludedMonthExpenses = monthExpenses.filter(isBudgetExcludedExpense);
 
-  const liveBudgets = (data.budgets || [])
-    .filter(budget => budget.month === monthKey && !budget.isArchived && !budget.archivedAt)
+  const liveBudgets = allLiveBudgets
+    .filter(budget => isBudgetActiveInMonth(budget, monthKey))
     .filter(budget => budgetMatchesAccount(budget, selectedAccountId));
   const enabledBudgets = liveBudgets.filter(budget => budget.isEnabled);
 
@@ -541,15 +567,21 @@ export function getCategorySpend(data, monthKey, accountId = null) {
       if (!category || category.type !== "expense" || category.isActive === false) return null;
 
       const budgetAccountIds = getBudgetAccountIds(budget);
-      const spent = sum(countedMonthExpenses
-        .filter(t => t.categoryId === category.id)
-        .filter(t => budgetAccountIds.includes(t.accountId))
-        .map(t => t.amount));
+      // A monthly budget adds up its own month; a yearly one adds up the
+      // selected month and the 11 before it.
+      const periodMonthKeys = getBudgetPeriodMonthKeys(budget, monthKey);
+      const budgetTransactions = realExpenses
+        .filter(t => {
+          if (isPinnedToBudget(t)) return t.budgetId === budget.id;
+          if (isTakenOutOfBudgets(t)) return false;
+          return t.categoryId === category.id
+            && budgetAccountIds.includes(t.accountId)
+            && periodMonthKeys.some(key => isInMonth(t.date, key));
+        })
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)));
 
-      const excludedSpent = sum(excludedMonthExpenses
-        .filter(t => t.categoryId === category.id)
-        .filter(t => budgetAccountIds.includes(t.accountId))
-        .map(t => t.amount));
+      const spent = sum(budgetTransactions.filter(isBudgetCountedExpense).map(t => t.amount));
+      const excludedSpent = sum(budgetTransactions.filter(isBudgetExcludedExpense).map(t => t.amount));
 
       const limit = Number(budget.limit || 0);
       const usedPercent = limit > 0 ? (spent / limit) * 100 : 0;
@@ -562,6 +594,9 @@ export function getCategorySpend(data, monthKey, accountId = null) {
         accounts,
         accountId: budgetAccountIds[0] || null,
         accountIds: budgetAccountIds,
+        isYearly: Boolean(budget.isYearly),
+        periodMonthKeys,
+        transactions: budgetTransactions,
         spent,
         excludedSpent,
         totalSpent: spent + excludedSpent,
@@ -624,8 +659,10 @@ export function getBudgetWarnings(data, monthKey, accountId = null) {
     .map(item => ({
       ...item,
       monthElapsedPercent,
-      aheadOfPace: item.limit > 0 && item.usedPercent > monthElapsedPercent + 20,
-      safeDailySpend: Math.max(0, item.remaining) / daysLeft
+      // Pace and daily spend are monthly ideas; a yearly budget only warns
+      // when it is nearly or fully used.
+      aheadOfPace: !item.isYearly && item.limit > 0 && item.usedPercent > monthElapsedPercent + 20,
+      safeDailySpend: item.isYearly ? null : Math.max(0, item.remaining) / daysLeft
     }))
     .filter(item => item.limit > 0 && (item.usedPercent >= (data.settings?.budgetWarningThresholds?.greenMax ?? 75) || item.aheadOfPace))
     .sort((a, b) => b.usedPercent - a.usedPercent);

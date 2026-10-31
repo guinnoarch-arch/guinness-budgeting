@@ -69,7 +69,8 @@ const OPTIONAL_ARRAY_FIELDS = [
   "houseOwnershipSplits",
   "activityLog",
   "budgetTemplates",
-  "plannedTransactions"
+  "plannedTransactions",
+  "savedFolders"
 ];
 
 const DEFAULT_PROFILE_TYPE = "Personal";
@@ -973,6 +974,7 @@ export function normaliseAppData(data) {
     "activityLog",
     "budgetTemplates",
     "plannedTransactions",
+    "savedFolders",
     "importBatches",
     "importRules",
     "transferRules",
@@ -1058,6 +1060,7 @@ export function getBackupCounts(data) {
     activityLog: safeData.activityLog.length,
     budgetTemplates: safeData.budgetTemplates.length,
     plannedTransactions: safeData.plannedTransactions.length,
+    savedFolders: safeData.savedFolders.length,
     linkedLoanTransactions: safeData.transactions.filter(transaction => Boolean(transaction.linkedLoanId)).length,
     linkedHouseTransactions: safeData.transactions.filter(transaction => Boolean(transaction.linkedHouseId)).length,
     importBatches: safeData.importBatches.length,

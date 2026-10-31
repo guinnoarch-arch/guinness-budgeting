@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getErrorMessage } from "../../utils/errors.js";
 import { deleteTransaction, getMatchingExclusionRules } from "../../services/transactionService.js";
 import { deleteStoredReceipt, getStoredReceipt } from "../../services/receiptStorageService.js";
+import { buildFolderLookup } from "../../services/savedFolderService.js";
 import { signedMoney } from "../../utils/money.js";
 import { getLinkedLoanId, getLoanById, getTransactionLoanSplit } from "../../utils/loanLinking.js";
 import { formatFileSize } from "../../utils/files.js";
@@ -11,8 +12,16 @@ import { formatDisplayDate } from "../../utils/dates.js";
 // On a computer every field is a column in the table. In phone mode each
 // transaction is one line (name, date, amount) and the rest, with Edit and
 // Delete, opens in a details pop-up.
-export default function TransactionTable({ appData, actions, transactions }) {
+//
+// Optional props:
+//   selection  adds a tick box to every row (Saved transactions folders and
+//              "Add transactions" to a budget): { selectedIds: Set,
+//              onToggle(txn), isSelectable(txn), getNote(txn), label }
+//   rowActions extra buttons for the Actions column: (txn) => node
+//   onOpenFolder  makes the folder names in the Folders column open that folder
+export default function TransactionTable({ appData, actions, transactions, selection = null, rowActions = null, onOpenFolder = null }) {
   const [detailsId, setDetailsId] = useState(null);
+  const folderLookup = useMemo(() => buildFolderLookup({ savedFolders: appData.savedFolders }), [appData.savedFolders]);
   const [receiptViewer, setReceiptViewer] = useState(null);
   const [receiptError, setReceiptError] = useState("");
 
@@ -81,7 +90,17 @@ export default function TransactionTable({ appData, actions, transactions }) {
         <div className="table-card">
           <ul className="transaction-list" aria-label="Transactions">
             {transactions.map(txn => (
-              <li key={txn.id}>
+              <li key={txn.id} className={selection ? "transaction-list-item-selectable" : undefined}>
+                {selection && (
+                  <input
+                    type="checkbox"
+                    className="transaction-select-box"
+                    checked={selection.selectedIds.has(txn.id)}
+                    disabled={!selection.isSelectable(txn)}
+                    onChange={() => selection.onToggle(txn)}
+                    aria-label={`${selection.label || "Select"}: ${txn.title}`}
+                  />
+                )}
                 <button
                   type="button"
                   className="transaction-row"
@@ -104,13 +123,14 @@ export default function TransactionTable({ appData, actions, transactions }) {
           <table>
             <thead>
               <tr>
+                {selection && <th className="select-column">{selection.columnTitle || "Add"}</th>}
                 <th>Date</th>
                 <th>Type</th>
                 <th>Title</th>
                 <th>Category</th>
                 <th>Account</th>
                 <th className="numeric">Amount</th>
-                <th>Recurring?</th>
+                <th>Folders</th>
                 <th>Receipt</th>
                 <th>Actions</th>
               </tr>
@@ -129,8 +149,25 @@ export default function TransactionTable({ appData, actions, transactions }) {
                 const loanSplit = linkedLoan ? getTransactionLoanSplit(txn, linkedLoan) : null;
                 const matchingRules = getMatchingExclusionRules(txn, appData.exclusionRules);
 
+                const folders = folderLookup.get(txn.id) || [];
+                const selectNote = selection?.getNote?.(txn);
+
                 return (
-                  <tr key={txn.id}>
+                  <tr key={txn.id} className={selection?.selectedIds.has(txn.id) ? "transaction-row-selected" : undefined}>
+                    {selection && (
+                      <td data-label={selection.columnTitle || "Add"} className="select-column">
+                        <input
+                          type="checkbox"
+                          className="transaction-select-box"
+                          checked={selection.selectedIds.has(txn.id)}
+                          disabled={!selection.isSelectable(txn)}
+                          onChange={() => selection.onToggle(txn)}
+                          aria-label={`${selection.label || "Select"}: ${txn.title}`}
+                          title={!selection.isSelectable(txn) ? selection.unselectableReason : undefined}
+                        />
+                        {selectNote && <small className="select-note">{selectNote}</small>}
+                      </td>
+                    )}
                     <td data-label="Date">{formatDisplayDate(txn.date)}</td>
                     <td data-label="Type"><span className={`pill ${txn.transferLinkId ? "transfer" : txn.type}`}>{txn.transferLinkId ? "transfer" : txn.type}</span></td>
                     <td data-label="Title">
@@ -171,7 +208,19 @@ export default function TransactionTable({ appData, actions, transactions }) {
                       )}
                     </td>
                     <td className={`amount ${txn.type}`} data-label="Amount">{signedMoney(txn.amount, txn.type)}</td>
-                    <td data-label="Recurring?">{txn.isRecurring ? "Yes" : "No"}</td>
+                    <td data-label="Folders">
+                      {folders.length > 0 ? (
+                        <div className="transaction-folder-pills">
+                          {folders.map(folder => onOpenFolder ? (
+                            <button key={folder.id} type="button" className="pill folder-pill folder-pill-button" onClick={() => onOpenFolder(folder.id)} title={`Open folder ${folder.name}`}>{folder.name}</button>
+                          ) : (
+                            <span key={folder.id} className="pill folder-pill">{folder.name}</span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="muted">-</span>
+                      )}
+                    </td>
                     <td data-label="Receipt">
                       {txn.receiptId ? (
                         <button className="text-button" onClick={() => openReceipt(txn)}>View receipt</button>
@@ -182,6 +231,7 @@ export default function TransactionTable({ appData, actions, transactions }) {
                     <td data-label="Actions">
                       <div className="row-actions">
                         <button className="text-button" onClick={() => actions.openEditTransaction(txn)}>Edit</button>
+                        {rowActions?.(txn)}
                         <button className="text-button danger-text" onClick={() => handleDelete(txn)}>Delete</button>
                       </div>
                     </td>
@@ -203,6 +253,8 @@ export default function TransactionTable({ appData, actions, transactions }) {
       {detailsTxn && (
         <TransactionDetails
           appData={appData}
+          folders={folderLookup.get(detailsTxn.id) || []}
+          rowActions={rowActions}
           txn={detailsTxn}
           onClose={() => setDetailsId(null)}
           onEdit={handleEdit}
@@ -241,7 +293,7 @@ export default function TransactionTable({ appData, actions, transactions }) {
   );
 }
 
-function TransactionDetails({ appData, txn, onClose, onEdit, onDelete, onViewReceipt }) {
+function TransactionDetails({ appData, folders, rowActions, txn, onClose, onEdit, onDelete, onViewReceipt }) {
   const category = appData.categories.find(cat => cat.id === txn.categoryId);
   const account = appData.accounts.find(acc => acc.id === txn.accountId);
   const transferPartner = txn.transferLinkId
@@ -326,6 +378,18 @@ function TransactionDetails({ appData, txn, onClose, onEdit, onDelete, onViewRec
             <dd>{txn.isRecurring ? "Yes" : "No"}</dd>
           </div>
           <div>
+            <dt>Folders</dt>
+            <dd>
+              {folders.length > 0 ? (
+                <div className="transaction-folder-pills">
+                  {folders.map(folder => <span key={folder.id} className="pill folder-pill">{folder.name}</span>)}
+                </div>
+              ) : (
+                <span className="muted">None</span>
+              )}
+            </dd>
+          </div>
+          <div>
             <dt>Receipt</dt>
             <dd>
               {txn.receiptId ? (
@@ -339,6 +403,7 @@ function TransactionDetails({ appData, txn, onClose, onEdit, onDelete, onViewRec
 
         <div className="modal-actions">
           <button type="button" className="danger-button" onClick={() => onDelete(txn)}>Delete</button>
+          {rowActions?.(txn, { onDone: onClose })}
           <button type="button" className="primary-button" onClick={() => onEdit(txn)}>Edit</button>
         </div>
       </div>

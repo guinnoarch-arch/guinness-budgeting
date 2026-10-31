@@ -9,7 +9,8 @@ export default function BudgetCard({
   onToggle,
   onEditBudget,
   onEditCategory,
-  onEditTransaction
+  onEditTransaction,
+  onAddTransactions
 }) {
   const capped = Math.min(item.usedPercent, 100);
   const { tone, label, remainingText } = describeBudgetStatus(item);
@@ -22,7 +23,7 @@ export default function BudgetCard({
       <button type="button" className="budget-card-header" onClick={onToggle} aria-expanded={isOpen}>
         <div>
           <strong>{item.category.name}</strong>
-          <small>{accountsLabel ? `${accountsLabel} · ` : ""}{remainingText}</small>
+          <small>{item.isYearly ? "Yearly · " : ""}{accountsLabel ? `${accountsLabel} · ` : ""}{remainingText}</small>
         </div>
         <div className="budget-card-header-right">
           <span>{formatMoney(item.spent)} / {item.limit ? formatMoney(item.limit) : "No limit"}</span>
@@ -40,19 +41,23 @@ export default function BudgetCard({
             <p>Budget-counted spend: <strong>{formatMoney(item.spent)}</strong></p>
             <p>Excluded spend: <strong>{formatMoney(item.excludedSpent || 0)}</strong></p>
             <p>Total category spend: <strong>{formatMoney(item.totalSpent ?? item.spent)}</strong></p>
-            <p>Budget: <strong>{item.limit ? formatMoney(item.limit) : "No budget"}</strong></p>
+            <p>Budget: <strong>{item.limit ? `${formatMoney(item.limit)}${item.isYearly ? " a year" : ""}` : "No budget"}</strong></p>
+            {item.isYearly && <p>Period: <strong>Last 12 months</strong></p>}
             <p>Linked account{(item.accounts?.length || 0) > 1 ? "s" : ""}: <strong>{accountsLabel || "All accounts"}</strong></p>
             <p>Used: <strong>{item.limit ? `${item.usedPercent.toFixed(0)}%` : "-"}</strong></p>
           </div>
 
           <div className="section-header compact-header budget-transactions-heading">
             <div>
-              <h4>Recent spending</h4>
+              <h4>{item.budget ? "Transactions in this budget" : "Recent spending"}</h4>
             </div>
+            {item.budget && onAddTransactions && (
+              <button type="button" className="secondary-button small" onClick={() => onAddTransactions(item)}>Add transactions</button>
+            )}
           </div>
 
           {recentTransactions.length === 0 ? (
-            <p className="muted">No recent spending in this category.</p>
+            <p className="muted">{item.budget ? "No transactions in this budget yet. Use Add transactions to pick some." : "No recent spending in this category."}</p>
           ) : (
             <div className="budget-transaction-scroll" role="region" aria-label={`${item.category.name} transactions`}>
               {recentTransactions.map(txn => (

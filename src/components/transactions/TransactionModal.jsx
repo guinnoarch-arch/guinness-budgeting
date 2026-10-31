@@ -4,6 +4,7 @@ import { getErrorMessage } from "../../utils/errors.js";
 import { todayIsoDate } from "../../utils/dates.js";
 import { createId } from "../../utils/ids.js";
 import { getMatchingExclusionRules, linkTransferPair, unlinkTransferPair, upsertTransaction } from "../../services/transactionService.js";
+import { cleanFolderName, getFoldersForTransaction, getSavedFolders, setTransactionFolders } from "../../services/savedFolderService.js";
 import { estimateLoanPaymentSplit, getActiveLoans } from "../../utils/loanLinking.js";
 import { MAX_RECEIPT_BYTES, deleteStoredReceipt, getStoredReceipt, saveTransactionReceipt } from "../../services/receiptStorageService.js";
 import { checkMoneyAmount, checkRequiredDate, collectErrors } from "../../utils/validation.js";
@@ -51,6 +52,13 @@ function getDefaultToAccountId(appData, editingTransaction, fromAccountId) {
 export default function TransactionModal({ appData, actions, editingTransaction }) {
   const isEditing = Boolean(editingTransaction);
   const [transactionId] = useState(() => editingTransaction?.id || createId("txn"));
+  // Saved transaction folders this transaction is filed in. Ticking and saving
+  // here files it; a new folder name creates the folder as well.
+  const savedFolders = getSavedFolders(appData);
+  const [selectedFolderIds, setSelectedFolderIds] = useState(() => (
+    editingTransaction ? getFoldersForTransaction(appData, editingTransaction.id).map(folder => folder.id) : []
+  ));
+  const [newFolderName, setNewFolderName] = useState("");
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptPreview, setReceiptPreview] = useState(null);
   const [removeExistingReceipt, setRemoveExistingReceipt] = useState(false);
@@ -357,7 +365,9 @@ export default function TransactionModal({ appData, actions, editingTransaction 
         isEditing ? transactionId : null
       );
 
-      actions.updateAppData(nextData, {
+      const dataWithFolders = setTransactionFolders(nextData, transactionId, selectedFolderIds, newFolderName);
+
+      actions.updateAppData(dataWithFolders, {
         reason: receiptFile ? "Transaction receipt attached" : "Transaction saved",
         rulesTrigger: form.type === "transfer" && !isEditing ? "transfer" : null
       });
@@ -594,6 +604,36 @@ export default function TransactionModal({ appData, actions, editingTransaction 
             Note
             <textarea placeholder="Optional note" value={form.note} onChange={e => update("note", e.target.value)} />
           </label>
+
+          <div className="saved-folder-field full-width">
+            <span className="saved-folder-field-title">Saved folders</span>
+            {savedFolders.length > 0 && (
+              <div className="account-multiselect">
+                {savedFolders.map(folder => (
+                  <label key={folder.id} className="checkbox-label account-multiselect-option">
+                    <input
+                      type="checkbox"
+                      checked={selectedFolderIds.includes(folder.id)}
+                      onChange={() => setSelectedFolderIds(prev => prev.includes(folder.id) ? prev.filter(id => id !== folder.id) : [...prev, folder.id])}
+                    />
+                    <span>{folder.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <input
+              type="text"
+              placeholder={savedFolders.length > 0 ? "Or start a new folder" : "Start a folder, for example Holiday 2026"}
+              value={newFolderName}
+              maxLength={60}
+              onChange={e => setNewFolderName(e.target.value)}
+              aria-label="New folder name"
+            />
+            <small>
+              File this transaction to find it again under Transactions, Saved transactions. It can be in more than one folder.
+              {cleanFolderName(newFolderName) ? ` It will be added to a new folder called "${cleanFolderName(newFolderName)}".` : ""}
+            </small>
+          </div>
 
           {form.type !== "transfer" && (
             <label className="checkbox-label full-width">

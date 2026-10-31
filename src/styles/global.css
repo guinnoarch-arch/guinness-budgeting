@@ -6121,3 +6121,222 @@ h1.page-title {
 .app-shell.phone-mode .transaction-details-modal .modal-actions > * {
   width: 100%;
 }
+
+/* Saved transactions (folders) and "add transactions" picking */
+.transactions-view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.transactions-view-tabs .secondary-button.active {
+  color: var(--on-primary);
+  border-color: transparent;
+  background: var(--primary);
+}
+
+.pick-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+}
+
+.pick-save-button {
+  min-width: 96px;
+  letter-spacing: 0.06em;
+}
+
+.pick-banner h2 {
+  margin: 2px 0 4px;
+}
+
+.pick-banner p {
+  margin: 0;
+}
+
+.select-column {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.transaction-select-box {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.transaction-select-box:disabled {
+  cursor: not-allowed;
+}
+
+.select-note {
+  display: block;
+  max-width: 11em;
+  margin-top: 4px;
+  white-space: normal;
+  color: var(--muted);
+}
+
+.transaction-row-selected td {
+  background: var(--surface-2);
+}
+
+.transaction-list-item-selectable {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 12px;
+}
+
+.transaction-list-item-selectable .transaction-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.transaction-folder-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pill.folder-pill {
+  color: var(--info-text);
+  background: var(--info-soft);
+}
+
+.pill.folder-pill-button {
+  border: 0;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pill.folder-pill-button:hover {
+  text-decoration: underline;
+}
+
+.month-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.month-filter-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.month-all-button {
+  align-self: flex-start;
+  padding: 0;
+}
+
+.saved-folder-create-form {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.saved-folder-create-form label {
+  flex: 1;
+  min-width: 200px;
+}
+
+.saved-folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.saved-folder-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 16px;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.saved-folder-card:hover {
+  background: var(--surface-2);
+}
+
+.saved-folder-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+.saved-folder-card small {
+  color: var(--muted);
+}
+
+.saved-folder-icon {
+  display: inline-flex;
+  margin-bottom: 4px;
+  color: var(--primary);
+}
+
+.saved-folder-header {
+  display: grid;
+  gap: 14px;
+}
+
+.saved-folder-title {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.saved-folder-title h2 {
+  margin: 0;
+}
+
+.saved-folder-title .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+}
+
+.saved-folder-rename {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.saved-folder-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+}
+
+.saved-folder-totals div {
+  display: grid;
+  gap: 2px;
+}
+
+.saved-folder-totals span {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.saved-folder-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.saved-folder-field-title {
+  font-weight: 600;
+}

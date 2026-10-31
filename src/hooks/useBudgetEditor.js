@@ -4,6 +4,7 @@ import { checkMoneyAmount, collectErrors } from "../utils/validation.js";
 import { getBudgetAccountIds } from "../utils/calculations.js";
 import { createId } from "../utils/ids.js";
 import { DEFAULT_ACCOUNT_ID } from "../data/defaultAccounts.js";
+import { budgetsOverlapInTime, isBudgetActiveInMonth } from "../utils/budgetMembership.js";
 
 function validateBudgetForm(values) {
   return collectErrors({
@@ -16,6 +17,7 @@ export default function useBudgetEditor({ actions, appData, setOpenBudgetKey }) 
   const [editingBudget, setEditingBudget] = useState(null);
   const [budgetLimit, setBudgetLimit] = useState("");
   const [budgetAccountIds, setBudgetAccountIds] = useState([DEFAULT_ACCOUNT_ID]);
+  const [budgetIsYearly, setBudgetIsYearly] = useState(false);
   const budgetErrors = useFormErrors("budget", validateBudgetForm);
 
   useEffect(() => {
@@ -31,7 +33,7 @@ export default function useBudgetEditor({ actions, appData, setOpenBudgetKey }) 
   function getCurrentBudgetForCategory(categoryId) {
     return (appData.budgets || []).find(budget => (
       budget.categoryId === categoryId
-      && budget.month === actions.selectedMonth
+      && isBudgetActiveInMonth(budget, actions.selectedMonth)
       && !budget.isArchived
       && !budget.archivedAt
     )) || null;
@@ -48,6 +50,7 @@ export default function useBudgetEditor({ actions, appData, setOpenBudgetKey }) 
   function handleEditBudget(budgetItem) {
     setEditingBudget(budgetItem);
     setBudgetLimit(budgetItem.limit?.toString() || "");
+    setBudgetIsYearly(Boolean(budgetItem.budget?.isYearly ?? budgetItem.isYearly));
     // A card with no budget of its own (spending shown for one account) opens
     // with that account ticked rather than silently falling back to the default.
     const seededIds = budgetItem.accountIds
@@ -74,10 +77,15 @@ export default function useBudgetEditor({ actions, appData, setOpenBudgetKey }) 
     // older data can still have their limit edited.
     const previousIds = editingBudget.budget ? getBudgetAccountIds(editingBudget.budget) : [];
     const newlyAddedIds = accountIds.filter(id => !previousIds.includes(id));
+    // A yearly budget starts in the month it was created and keeps that start
+    // month when edited later; a monthly budget belongs to the month on screen.
+    const budgetMonth = budgetIsYearly
+      ? (editingBudget.budget?.isYearly ? editingBudget.budget.month : actions.selectedMonth)
+      : actions.selectedMonth;
     const clashingBudget = (appData.budgets || []).find(b => (
       b.id !== editingBudget.budget?.id
       && b.categoryId === editingBudget.category.id
-      && b.month === actions.selectedMonth
+      && budgetsOverlapInTime({ month: budgetMonth, isYearly: budgetIsYearly }, b)
       && !b.isArchived
       && !b.archivedAt
       && getBudgetAccountIds(b).some(id => newlyAddedIds.includes(id))
@@ -88,7 +96,7 @@ export default function useBudgetEditor({ actions, appData, setOpenBudgetKey }) 
         .map(id => (appData.accounts || []).find(account => account.id === id)?.name || "that account");
       budgetErrors.setFieldError(
         "accounts",
-        `${editingBudget.category.name} already has a budget covering ${clashNames.join(", ")} this month. Edit that budget instead, or untick ${clashNames.length > 1 ? "those accounts" : "that account"} here.`
+        `${editingBudget.category.name} already has a ${clashingBudget.isYearly ? "yearly " : ""}budget covering ${clashNames.join(", ")}${budgetIsYearly ? " that overlaps this yearly budget" : " this month"}. Edit that budget instead, or untick ${clashNames.length > 1 ? "those accounts" : "that account"} here.`
       );
       return;
     }
@@ -113,6 +121,8 @@ export default function useBudgetEditor({ actions, appData, setOpenBudgetKey }) 
                 ...b,
                 accountIds,
                 accountId: accountIds[0],
+                month: budgetMonth,
+                isYearly: budgetIsYearly,
                 limit,
                 isEnabled: limit > 0,
                 isArchived: false,
@@ -132,7 +142,8 @@ export default function useBudgetEditor({ actions, appData, setOpenBudgetKey }) 
             categoryId: editingBudget.category.id,
             accountIds,
             accountId: accountIds[0],
-            month: actions.selectedMonth,
+            month: budgetMonth,
+            isYearly: budgetIsYearly,
             limit,
             isEnabled: limit > 0,
             isArchived: false,
@@ -146,6 +157,7 @@ export default function useBudgetEditor({ actions, appData, setOpenBudgetKey }) 
     setEditingBudget(null);
     setBudgetLimit("");
     setBudgetAccountIds([DEFAULT_ACCOUNT_ID]);
+    setBudgetIsYearly(false);
   }
 
   function archiveBudget(budgetItem) {
@@ -202,6 +214,7 @@ export default function useBudgetEditor({ actions, appData, setOpenBudgetKey }) 
     archiveBudget,
     budgetAccountIds,
     budgetErrors,
+    budgetIsYearly,
     budgetLimit,
     closeBudgetEditor,
     editingBudget,
@@ -210,6 +223,7 @@ export default function useBudgetEditor({ actions, appData, setOpenBudgetKey }) 
     permanentlyDeleteBudget,
     restoreBudget,
     saveBudget,
+    setBudgetIsYearly,
     setBudgetLimit,
     toggleBudgetAccount
   };
