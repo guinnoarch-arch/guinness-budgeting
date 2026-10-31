@@ -38,6 +38,7 @@ export default function useBudgetEditor({ actions, appData, setOpenBudgetKey }) 
   }
 
   function toggleBudgetAccount(accountId) {
+    budgetErrors.setFieldError("accounts", "");
     setBudgetAccountIds(prev => {
       const has = prev.includes(accountId);
       return has ? prev.filter(id => id !== accountId) : [...prev, accountId];
@@ -47,8 +48,11 @@ export default function useBudgetEditor({ actions, appData, setOpenBudgetKey }) 
   function handleEditBudget(budgetItem) {
     setEditingBudget(budgetItem);
     setBudgetLimit(budgetItem.limit?.toString() || "");
+    // A card with no budget of its own (spending shown for one account) opens
+    // with that account ticked rather than silently falling back to the default.
     const seededIds = budgetItem.accountIds
       || (budgetItem.budget ? getBudgetAccountIds(budgetItem.budget) : null)
+      || (budgetItem.accountId ? [budgetItem.accountId] : null)
       || [DEFAULT_ACCOUNT_ID];
     setBudgetAccountIds(seededIds);
   }
@@ -63,6 +67,32 @@ export default function useBudgetEditor({ actions, appData, setOpenBudgetKey }) 
     if (!budgetErrors.validateAll({ limit: budgetLimit })) return;
     const limit = parseFloat(budgetLimit) || 0;
     const accountIds = budgetAccountIds.length > 0 ? budgetAccountIds : [DEFAULT_ACCOUNT_ID];
+
+    // Don't let two budgets for the same category and month both claim the
+    // same account, or that account's spending would be counted twice. Only
+    // newly added accounts are checked, so budgets that already overlap from
+    // older data can still have their limit edited.
+    const previousIds = editingBudget.budget ? getBudgetAccountIds(editingBudget.budget) : [];
+    const newlyAddedIds = accountIds.filter(id => !previousIds.includes(id));
+    const clashingBudget = (appData.budgets || []).find(b => (
+      b.id !== editingBudget.budget?.id
+      && b.categoryId === editingBudget.category.id
+      && b.month === actions.selectedMonth
+      && !b.isArchived
+      && !b.archivedAt
+      && getBudgetAccountIds(b).some(id => newlyAddedIds.includes(id))
+    ));
+    if (clashingBudget) {
+      const clashNames = getBudgetAccountIds(clashingBudget)
+        .filter(id => newlyAddedIds.includes(id))
+        .map(id => (appData.accounts || []).find(account => account.id === id)?.name || "that account");
+      budgetErrors.setFieldError(
+        "accounts",
+        `${editingBudget.category.name} already has a budget covering ${clashNames.join(", ")} this month. Edit that budget instead, or untick ${clashNames.length > 1 ? "those accounts" : "that account"} here.`
+      );
+      return;
+    }
+
     const accountIdsKey = [...accountIds].sort().join("+");
     const existingBudget = editingBudget.budget
       ? appData.budgets.find(b => b.id === editingBudget.budget.id)

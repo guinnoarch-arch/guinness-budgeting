@@ -43,6 +43,7 @@ export function BudgetEditorModal({ activeAccounts, archiveBudget, budgetAccount
                 </label>
               ))}
             </div>
+            <FieldError fieldId={budgetErrors.getFieldId("accounts")} message={budgetErrors.errors.accounts} />
             <small>Spending across every selected account counts toward this one budget. This budget appears on each selected account's view, plus the All accounts view.</small>
           </label>
         </div>

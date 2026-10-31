@@ -514,9 +514,26 @@ export function getCategorySpend(data, monthKey, accountId = null) {
   const countedMonthExpenses = monthExpenses.filter(isBudgetCountedExpense);
   const excludedMonthExpenses = monthExpenses.filter(isBudgetExcludedExpense);
 
-  const monthBudgets = (data.budgets || [])
-    .filter(budget => budget.month === monthKey && budget.isEnabled && !budget.isArchived && !budget.archivedAt)
+  const liveBudgets = (data.budgets || [])
+    .filter(budget => budget.month === monthKey && !budget.isArchived && !budget.archivedAt)
     .filter(budget => budgetMatchesAccount(budget, selectedAccountId));
+  const enabledBudgets = liveBudgets.filter(budget => budget.isEnabled);
+
+  // A budget saved with the limit left at 0 is stored as "not enabled", but it
+  // still has linked accounts to track spending across ("track spending
+  // without a limit"). Keep it in the list so those accounts are shown and can
+  // be edited again, otherwise saving it appears to do nothing. Skip it if a
+  // real budget for the same category already covers one of its accounts, so
+  // the same spending is never listed twice.
+  const monthBudgets = liveBudgets.filter(budget => {
+    if (budget.isEnabled) return true;
+    if (Number(budget.limit || 0) !== 0) return false;
+    const accountIds = getBudgetAccountIds(budget);
+    return !enabledBudgets.some(other => (
+      other.categoryId === budget.categoryId
+      && getBudgetAccountIds(other).some(id => accountIds.includes(id))
+    ));
+  });
 
   const budgetItems = monthBudgets
     .map(budget => {
