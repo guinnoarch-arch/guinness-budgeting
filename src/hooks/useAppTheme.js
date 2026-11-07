@@ -33,4 +33,43 @@ export default function useAppTheme(settings) {
     mediaQuery.addEventListener?.("change", applyTheme);
     return () => mediaQuery.removeEventListener?.("change", applyTheme);
   }, [settings?.themeMode, settings?.darkModeEnabled, settings?.accentColor, settings?.liquidGlassEnabled]);
+
+  // Liquid Glass press ripple: a glassy drop spreads out from the tap point,
+  // clipped to the shape of the button. Only runs while Liquid Glass is on and
+  // the device has not asked for reduced motion.
+  useEffect(() => {
+    if (!settings?.liquidGlassEnabled) return undefined;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return undefined;
+
+    function onPointerDown(event) {
+      const target = event.target?.closest?.("button, .nav-item, [role='button'], a.primary-button, a.secondary-button");
+      if (!target || target.disabled || target.getAttribute("aria-disabled") === "true") return;
+
+      const rect = target.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+
+      const wrapper = document.createElement("span");
+      wrapper.className = "glass-drop";
+      wrapper.setAttribute("aria-hidden", "true");
+      wrapper.style.left = `${rect.left}px`;
+      wrapper.style.top = `${rect.top}px`;
+      wrapper.style.width = `${rect.width}px`;
+      wrapper.style.height = `${rect.height}px`;
+      wrapper.style.borderRadius = window.getComputedStyle(target).borderRadius;
+
+      const size = Math.hypot(rect.width, rect.height) * 2.2;
+      const drop = document.createElement("i");
+      drop.style.setProperty("--drop-size", `${size}px`);
+      drop.style.left = `${event.clientX - rect.left}px`;
+      drop.style.top = `${event.clientY - rect.top}px`;
+      wrapper.appendChild(drop);
+
+      document.body.appendChild(wrapper);
+      drop.addEventListener("animationend", () => wrapper.remove(), { once: true });
+      window.setTimeout(() => wrapper.remove(), 1000);
+    }
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [settings?.liquidGlassEnabled]);
 }
