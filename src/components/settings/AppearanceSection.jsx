@@ -8,7 +8,7 @@ export default function AppearanceSection({ appData, actions, settings, accordio
   const { sectionClass, sectionHeaderProps, SectionChevron } = accordion;
 
   function updateAppearanceSetting(field, value) {
-    const displayOnlyFields = ["themeMode", "accentColor", "backupWarningsEnabled"];
+    const displayOnlyFields = ["themeMode", "accentColor", "backupWarningsEnabled", "liquidGlassEnabled"];
     actions.updateAppData({
       ...appData,
       settings: {
@@ -17,7 +17,7 @@ export default function AppearanceSection({ appData, actions, settings, accordio
         ...(field === "themeMode" ? { darkModeEnabled: value === "dark" } : {})
       }
     }, {
-      reason: field === "themeMode" ? "Theme changed" : field === "accentColor" ? "Accent colour changed" : field === "backupWarningsEnabled" ? "Backup warning preference changed" : "Display setting changed",
+      reason: field === "themeMode" ? "Theme changed" : field === "accentColor" ? "Accent colour changed" : field === "backupWarningsEnabled" ? "Backup warning preference changed" : field === "liquidGlassEnabled" ? "Liquid Glass look changed" : "Display setting changed",
       markDirty: displayOnlyFields.includes(field) ? false : undefined
     });
   }
@@ -84,6 +84,15 @@ export default function AppearanceSection({ appData, actions, settings, accordio
           </select>
         </label>
 
+        <label className="checkbox-label appearance-checkbox-label full-width">
+          <input
+            type="checkbox"
+            checked={Boolean(settings.liquidGlassEnabled)}
+            onChange={event => updateAppearanceSetting("liquidGlassEnabled", event.target.checked)}
+          />
+          Liquid Glass look (frosted, see-through panels over a soft glowing background; works in light and dark mode)
+        </label>
+
         <label className="checkbox-label appearance-checkbox-label">
           <input
             type="checkbox"
@@ -112,6 +121,7 @@ export default function AppearanceSection({ appData, actions, settings, accordio
             <span className="connection-pill online">Online</span>
           </div>
           <small>Dashboard layout: {settings.dashboardLayout === "simple" ? "Simple money left" : settings.dashboardLayout === "compact" ? "Compact" : "Full"}</small>
+          <small>Liquid Glass: {settings.liquidGlassEnabled ? "On" : "Off"}</small>
           <small>Backup flash: {settings.backupButtonFlashEnabled === false ? "Off" : "On"}</small>
           <small>Backup warnings: {settings.backupWarningsEnabled === false ? "Off" : "On"}</small>
         </div>

@@ -1004,6 +1004,7 @@ export function normaliseAppData(data) {
       ? DEFAULT_ACCENT_COLOUR
       : baseSettings.accentColor,
     accentColourMigrated: true,
+    liquidGlassEnabled: Boolean(baseSettings.liquidGlassEnabled),
     dashboardLayout: baseSettings.dashboardLayout || "full",
     largeExpenseThreshold: Number(baseSettings.largeExpenseThreshold || DEFAULT_LARGE_EXPENSE_THRESHOLD),
     largeIncomeThreshold: Number(baseSettings.largeIncomeThreshold || DEFAULT_LARGE_INCOME_THRESHOLD),
